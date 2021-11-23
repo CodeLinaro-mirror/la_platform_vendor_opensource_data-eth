@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 09 Sep 2021
+Release Date: 08 Nov 2021
 
-Release Version: V_01-00-12 : Limited-tested version
+Release Version: V_01-00-21 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -43,17 +43,17 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
 1. Use below commands to advertise with Autonegotiation ON for speeds 10Gbps, 5Gbps, 2.5Gbps, 1Gbps, 100Mbps and 10Mbps as ethtool speed command does not support.
 
-    ethtool -s <interface> advertise 0x1000 autoneg on --> changes the advertisement to 10Gbps
+    ethtool -s <interface> advertise 0x7000 autoneg on --> changes the advertisement to 10Gbps
     
-    ethtool -s <interface> advertise 0x1000000000000 autoneg on --> changes the advertisement to 5Gbps
+    ethtool -s <interface> advertise 0x1000000006000 autoneg on --> changes the advertisement to 5Gbps
 
-    ethtool -s <interface> advertise 0x800000000000 autoneg on --> changes the advertisement to 2.5Gbps
+    ethtool -s <interface> advertise 0x800000006000 autoneg on --> changes the advertisement to 2.5Gbps
 
-    ethtool -s <interface> advertise 0x020 autoneg on --> changes the advertisement to 1Gbps
+    ethtool -s <interface> advertise 0x6020 autoneg on --> changes the advertisement to 1Gbps
 
-    ethtool -s <interface> advertise 0x008 autoneg on --> changes the advertisement to 100Mbps
+    ethtool -s <interface> advertise 0x6008 autoneg on --> changes the advertisement to 100Mbps
 
-    ethtool -s <interface> advertise 0x002 autoneg on --> changes the advertisement 10Mbps
+    ethtool -s <interface> advertise 0x6002 autoneg on --> changes the advertisement 10Mbps
 
 2. Use the below command to insert the kernel module with specific modes for interfaces:
 	
@@ -122,13 +122,64 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 	#define EP_L0s_ENTRY_DELAY	(0x1FU)
 	#define EP_L1_ENTRY_DELAY	(0x3FFU)
 
-Formula:
-	L0 entry delay = XXX_L0s_ENTRY_DELAY * 256 ns
-	L1 entry delay = XXX_L1_ENTRY_DELAY * 256 ns
+	Formula:
+		L0 entry delay = XXX_L0s_ENTRY_DELAY * 256 ns
+		L1 entry delay = XXX_L1_ENTRY_DELAY * 256 ns
+		
+		XXX_L0s_ENTRY_DELAY range: 1-31
+		XXX_L1_ENTRY_DELAY: 1-1023
+
+9. To check vlan feature status execute:
+	ethtool -k <interface> | grep vlan
+
+	To enable/disable following vlan features execute:
+		(a) rx-vlan-filter:
+			ethtool -K <interface> rx-vlan-filter <on|off>
+		(b) rx-vlan-offload:
+			ethtool -K <interface> rxvlan <on|off>
+		(c) tx-vlan-offload:
+			ethtool -K <interface> txvlan <on|off>
+
+	Use following to configure VLAN:
+		(a) modprobe 8021q
+		(b) vconfig add <interface> <vlanid>
+		(c) vconfig set_flag <interface>.<vlanid> 1 0
+		(d) ifconfig <interface>.<vlanid> <ip> netmask 255.255.255.0 broadcast <ip mask> up
+
+	Default Configuraton:
+		(a) Rx vlan filter is disabled.
+		(b) Rx valn offload (vlan stripping) is disabled.
+		(c) Tx vlan offload is enabled.
+
+10. Please use the below command to insert the kernel module for passing pause frames to application except pause frames from PHY:
+
+	#insmod tc956x_pcie_eth.ko tc956x_port0_filter_phy_pause_frames=x tc956x_port1_filter_phy_pause_frames=x
+
+	argument info:
+		tc956x_port0_filter_phy_pause_frames: For PORT0
+		tc956x_port1_filter_phy_pause_frames: For PORT1
+		x = [0: DISABLE (default), 1: ENABLE]
+
+	If invalid values are passed as kernel module parameter, the default value will be selected.
+
+11. Use below commands to check WOL support and its type:
+	#ethtool <interface>
+
+12. WOL command Usage :
+	#ethtool -s <interface> wol <type - p/g/d>.
+
+Supported WOL options and meaning:
+----------------------------------
+ Option  |  Meaning
+----------------------------------
+  p	  |  Wake on phy activity
+  g	  |  Wake on MagicPacket(tm)
+  d	  |  Disable (wake on nothing). (Default)
+----------------------------------  
+Example - To wake on phy activity and magic packet use :
+ethtool -s eth0 wol pg
+
 	
-	XXX_L0s_ENTRY_DELAY range: 1-31
-	XXX_L1_ENTRY_DELAY: 1-1023
-   
 # Release Versions:
 
 ## TC956X_Host_Driver_20210326_V_01-00:
@@ -194,3 +245,51 @@ Formula:
 ## TC956X_Host_Driver_20210909_V_01-00-12:
 
 1. Reverted changes related to usage of Port-0 pci_dev for all DMA allocation/mapping for IPA path
+
+## TC956X_Host_Driver_20210914_V_01-00-13:
+
+1. Synchronization between ethtool vlan features "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
+2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter", and "tx-vlan-offload".
+3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
+4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
+
+## TC956X_Host_Driver_20210923_V_01-00-14:
+
+1. Updated RX Queue Threshold limits for Activating and Deactivating Flow control 
+2. Filtering All pause frames by default.
+3. Capturing RBU status and updating to ethtool statistics for both S/W & IPA DMA channels
+
+## TC956X_Host_Driver_20210929_V_01-00-15:
+
+1. Added check for Device presence before changing PCIe ports speed.
+
+## TC956X_Host_Driver_20211014_V_01-00-16:
+
+1. Configuring pause frame control using kernel module parameter also forwarding only Link partner pause frames to Application and filtering PHY pause frames using FRP.
+2. Returning error on disabling Receive Flow Control via ethtool for speed other than 10G in XFI mode.
+
+## TC956X_Host_Driver_20211019_V_01-00-17:
+
+1. Added M3 SRAM Debug counters to ethtool statistics.
+2. Added MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
+
+## TC956X_Host_Driver_20211021_V_01-00-18:
+
+1. Added support for GPIO configuration API
+
+## TC956X_Host_Driver_20211025_V_01-00-19:
+
+1. Added PM support for suspend-resume.
+2. Added WOL Interrupt Handler and ethtool Support.
+3. Updated EEE support for PHY and MAC Control. (EEE macros are not enabled as EEE LPI interrupts disable are still under validation)
+
+## TC956X_Host_Driver_20211104_V_01-00-20:
+
+1. Added separate control functions for MAC TX and RX start/stop.
+2. Stopped disabling/enabling of MAC TX during Link down/up.
+3. Disabled link state latency configuration for all PCIe ports by default 
+
+## TC956X_Host_Driver_20211108_V_01-00-21:
+
+(1) Skip queuing PHY Work during suspend and cancel any phy work if already queued.
+(2) Restore Gen 3 Speed after resume.

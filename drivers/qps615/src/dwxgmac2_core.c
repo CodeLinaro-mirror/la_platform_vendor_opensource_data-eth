@@ -38,6 +38,22 @@
  *  VERSION     : 01-00-02
  *  22 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
  *  VERSION     : 01-00-04
+ *  14 Sep 2021 : 1. Synchronization between ethtool vlan features
+ *  		  "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
+ * 		  2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter",
+ *  		  and "tx-vlan-offload".
+ * 		  3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
+ * 		  4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
+ *  VERSION     : 01-00-13
+ *  23 Sep 2021 : 1. Filtering All pause frames by default
+ *  VERSION     : 01-00-14
+ *  14 Oct 2021 : 1. Configuring pause frame control using kernel module parameter also forwarding
+ *  		  only Link partner pause frames to Application and filtering PHY pause frames using FRP
+ *  VERSION     : 01-00-16
+ *  26 Oct 2021 : 1. Added EEE print in host IRQ and updated EEE configuration.
+ *  VERSION     : 01-00-19
+ *  04 Nov 2021 : 1. Added separate control functons for MAC TX and RX start/stop
+ *  VERSION     : 01-00-20
  */
 
 #include <linux/bitrev.h>
@@ -47,9 +63,23 @@
 #include "tc956xmac_ptp.h"
 #include "dwxgmac2.h"
 
+extern unsigned int tc956x_port0_filter_phy_pause_frames;
+extern unsigned int tc956x_port1_filter_phy_pause_frames;
+
 static void tc956x_set_mac_addr(struct tc956xmac_priv *priv, struct mac_device_info *hw,
 				const u8 *mac, int index, int vf);
-
+#ifdef TC956X
+static void dwxgmac2_disable_tx_vlan(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw);
+static void dwxgmac2_enable_rx_vlan_stripping(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw);
+static void dwxgmac2_disable_rx_vlan_stripping(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw);
+static void dwxgmac2_enable_rx_vlan_filtering(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw);
+static void dwxgmac2_disable_rx_vlan_filtering(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw);
+#endif
 
 static void dwxgmac2_core_init(struct tc956xmac_priv *priv,
 				struct mac_device_info *hw, struct net_device *dev)
@@ -116,6 +146,34 @@ static void dwxgmac2_set_mac(struct tc956xmac_priv *priv, void __iomem *ioaddr,
 	}
 
 	writel(tx, ioaddr + XGMAC_TX_CONFIG);
+	writel(rx, ioaddr + XGMAC_RX_CONFIG);
+}
+
+static void dwxgmac2_set_mac_tx(struct tc956xmac_priv *priv, void __iomem *ioaddr,
+					bool enable)
+{
+	u32 tx = readl(ioaddr + XGMAC_TX_CONFIG);
+
+	if (enable) {
+		tx |= XGMAC_CONFIG_TE;
+	} else {
+		tx &= ~XGMAC_CONFIG_TE;
+	}
+
+	writel(tx, ioaddr + XGMAC_TX_CONFIG);
+}
+
+static void dwxgmac2_set_mac_rx(struct tc956xmac_priv *priv, void __iomem *ioaddr,
+					bool enable)
+{
+	u32 rx = readl(ioaddr + XGMAC_RX_CONFIG);
+
+	if (enable) {
+		rx |= XGMAC_CONFIG_RE;
+	} else {
+		rx &= ~XGMAC_CONFIG_RE;
+	}
+
 	writel(rx, ioaddr + XGMAC_RX_CONFIG);
 }
 
@@ -402,6 +460,10 @@ static int dwxgmac2_host_irq_status(struct tc956xmac_priv *priv,
 	void __iomem *ioaddr = hw->pcsr;
 	u32 stat, en;
 	int ret = 0;
+#ifdef EEE
+	int val;
+#endif
+
 
 	en = readl(ioaddr + XGMAC_INT_EN);
 	stat = readl(ioaddr + XGMAC_INT_STATUS);
@@ -417,17 +479,40 @@ static int dwxgmac2_host_irq_status(struct tc956xmac_priv *priv,
 		u32 lpi = readl(ioaddr + XGMAC_LPI_CTRL);
 
 		if (lpi & XGMAC_TLPIEN) {
+			KPRINT_INFO("Transmit LPI Entry..... \n");
 			ret |= CORE_IRQ_TX_PATH_IN_LPI_MODE;
 			x->irq_tx_path_in_lpi_mode_n++;
 		}
 		if (lpi & XGMAC_TLPIEX) {
+			KPRINT_INFO("Transmit LPI Exit.....\n");
 			ret |= CORE_IRQ_TX_PATH_EXIT_LPI_MODE;
 			x->irq_tx_path_exit_lpi_mode_n++;
 		}
-		if (lpi & XGMAC_RLPIEN)
+		if (lpi & XGMAC_RLPIEN) {
+			KPRINT_INFO("Receive LPI Entry....... \n");
 			x->irq_rx_path_in_lpi_mode_n++;
-		if (lpi & XGMAC_RLPIEX)
+		}
+		if (lpi & XGMAC_RLPIEX) {
+			KPRINT_INFO("Receive LPI Exit...... \n");
 			x->irq_rx_path_exit_lpi_mode_n++;
+		}
+
+#ifdef EEE
+		val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_XS_PCS_DIG_STS);
+		KPRINT_INFO("XPCS LPI status : %x........\n", val);
+		if (val & XGMAC_LTX_LRX_STATE) {
+			if (val & XGMAC_LPI_RECEIVE_STATE)
+				KPRINT_INFO("XPCS LPI Receive State.........\n");
+			if (val & XGMAC_LPI_TRANSMIT_STATE)
+				KPRINT_INFO("XPCS LPI transmit state.....\n");
+		}
+
+		val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_XS_PCS_STS1);
+		if ( val & XGMAC_RX_LPI_RECEIVE)
+			KPRINT_INFO("XPCS RX LPI Received......");
+		if ( val & XGAMC_TX_LPI_RECEIVE)
+			KPRINT_INFO("XPCS TX LPI Received......");
+#endif
 	}
 
 	return ret;
@@ -543,7 +628,9 @@ static void dwxgmac2_set_eee_mode(struct tc956xmac_priv *priv,
 	value |= XGMAC_LPITXEN | XGMAC_LPITXA;
 	if (en_tx_lpi_clockgating)
 		value |= XGMAC_TXCGE;
-
+#ifdef EEE_MAC_CONTROLLED_MODE
+	value |= XGMAC_PLS | XGMAC_PLSDIS | XGMAC_LPIATE;
+#endif
 	writel(value, ioaddr + XGMAC_LPI_CTRL);
 }
 
@@ -804,7 +891,7 @@ static int tc956x_add_actual_mac_table(struct net_device *dev,
 		KPRINT_INFO("Space is not available in MAC_Table\n");
 		KPRINT_INFO("Enabling the promisc mode\n");
 		value = readl(ioaddr + XGMAC_PACKET_FILTER);
-		value |= XGMAC_FILTER_RA;
+		value |= XGMAC_FILTER_PR;
 		writel(value, ioaddr + XGMAC_PACKET_FILTER);
 	}
 	return ret_value;
@@ -927,6 +1014,12 @@ static void dwxgmac2_set_filter(struct tc956xmac_priv *priv, struct mac_device_i
 	value &= ~(XGMAC_FILTER_PR | XGMAC_FILTER_HMC | XGMAC_FILTER_PM |
 		   XGMAC_FILTER_RA| BIT(6) | BIT(7));
 	value |= XGMAC_FILTER_HPF;
+	/* Configuring to Pass all pause frames to application, PHY pause frames will be filtered by FRP */
+	if ((tc956x_port0_filter_phy_pause_frames == ENABLE && priv->port_num == RM_PF0_ID) ||
+	   (tc956x_port1_filter_phy_pause_frames == ENABLE && priv->port_num == RM_PF1_ID)) {
+		/* setting pcf to 0b10 i.e. pass pause frames of address filter fail to Application */
+		value |= 0x80;
+	}
 	writel(value, ioaddr + XGMAC_PACKET_FILTER);
 	if (dev->flags & IFF_PROMISC) {
 		value |= XGMAC_FILTER_PR;
@@ -941,6 +1034,17 @@ static void dwxgmac2_set_filter(struct tc956xmac_priv *priv, struct mac_device_i
 
 		__dev_mc_sync(dev, tc956x_add_mac_addr, tc956x_delete_mac_addr);
 	}
+#ifdef TC956X
+	if (dev->features & NETIF_F_HW_VLAN_CTAG_FILTER)
+		dwxgmac2_enable_rx_vlan_filtering(priv, hw);
+	else
+		dwxgmac2_disable_rx_vlan_filtering(priv, hw);
+
+	if (dev->features & NETIF_F_HW_VLAN_CTAG_RX)
+		dwxgmac2_enable_rx_vlan_stripping(priv, hw);
+	else
+		dwxgmac2_disable_rx_vlan_stripping(priv, hw);
+#endif
 }
 
 static void dwxgmac2_set_mac_loopback(struct tc956xmac_priv *priv,
@@ -2048,11 +2152,89 @@ static void dwxgmac2_enable_vlan(struct tc956xmac_priv *priv,
 
 	value = readl(ioaddr + XGMAC_VLAN_INCL);
 	value |= XGMAC_VLAN_VLTI;
-	value |= XGMAC_VLAN_CSVL; /* Only use SVLAN */
+	value &= ~XGMAC_VLAN_CSVL; /* Only use CVLAN */
+	if (priv->dev->features & NETIF_F_HW_VLAN_STAG_TX)
+		value |= XGMAC_VLAN_CSVL; /* Only use SVLAN */
 	value &= ~XGMAC_VLAN_VLC;
 	value |= (type << XGMAC_VLAN_VLC_SHIFT) & XGMAC_VLAN_VLC;
 	writel(value, ioaddr + XGMAC_VLAN_INCL);
 }
+#ifdef TC956X
+static void dwxgmac2_disable_tx_vlan(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw)
+{
+	void __iomem *ioaddr = hw->pcsr;
+	u32 value;
+
+	value = readl(ioaddr + XGMAC_VLAN_INCL);
+	value &= ~XGMAC_VLAN_VLTI;
+	value &= ~XGMAC_VLAN_VLC;
+	writel(value, ioaddr + XGMAC_VLAN_INCL);	
+}
+
+static void dwxgmac2_enable_rx_vlan_stripping(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw)
+{
+	void __iomem *ioaddr = hw->pcsr;
+	u32 value;
+
+	value = readl(ioaddr + XGMAC_VLAN_TAG_CTRL);
+	/* Put the VLAN tag in the Rx descriptor */
+	value |= XGMAC_VLAN_EVLRXS;
+
+	/* Don't check the VLAN type */
+	value |= XGMAC_VLAN_DOVLTC;
+
+	/* Check only C-TAG (0x8100) packets */
+	value &= ~XGMAC_VLAN_ERSVLM;
+
+	/* Don't consider an S-TAG (0x88A8) packet as a VLAN packet */
+	value &= ~XGMAC_VLAN_ESVL;
+
+	/* Enable VLAN tag stripping */
+	value |= XGMAC_VLAN_EVLS;
+	writel(value, ioaddr + XGMAC_VLAN_TAG_CTRL);
+}
+
+static void dwxgmac2_disable_rx_vlan_stripping(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw)
+{
+	void __iomem *ioaddr = hw->pcsr;
+	u32 value;
+
+	value = readl(ioaddr + XGMAC_VLAN_TAG_CTRL);
+	/* Disable VLAN tag stripping */
+	value &= ~XGMAC_VLAN_EVLS;
+	writel(value, ioaddr + XGMAC_VLAN_TAG_CTRL);
+}
+
+static void dwxgmac2_enable_rx_vlan_filtering(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw)
+{
+	void __iomem *ioaddr = hw->pcsr;
+	u32 value;
+
+	value = readl(ioaddr + XGMAC_PACKET_FILTER);
+	/* Enable VLAN filtering */
+	value |= XGMAC_FILTER_VTFE;
+	writel(value, ioaddr + XGMAC_PACKET_FILTER);
+
+	writel(value, ioaddr + XGMAC_VLAN_TAG_CTRL);
+}
+
+static void dwxgmac2_disable_rx_vlan_filtering(struct tc956xmac_priv *priv,
+				struct mac_device_info *hw)
+{
+	void __iomem *ioaddr = hw->pcsr;
+	u32 value;
+
+	value = readl(ioaddr + XGMAC_PACKET_FILTER);
+	/* Enable VLAN filtering */
+	value &= ~XGMAC_FILTER_VTFE;
+	writel(value, ioaddr + XGMAC_PACKET_FILTER);
+}
+#endif
+
 #ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 static int dwxgmac2_filter_wait(struct tc956xmac_priv *priv, struct mac_device_info *hw)
 {
@@ -2582,6 +2764,8 @@ static void tc956x_enable_jumbo_frm(struct tc956xmac_priv *priv,
 const struct tc956xmac_ops dwxgmac210_ops = {
 	.core_init = dwxgmac2_core_init,
 	.set_mac = dwxgmac2_set_mac,
+	.set_mac_tx = dwxgmac2_set_mac_tx,
+	.set_mac_rx = dwxgmac2_set_mac_rx,
 	.rx_ipc = dwxgmac2_rx_ipc,
 	.rx_queue_enable = dwxgmac2_rx_queue_enable,
 	.rx_queue_prio = dwxgmac2_rx_queue_prio,
@@ -2639,6 +2823,13 @@ const struct tc956xmac_ops dwxgmac210_ops = {
 	.sarc_configure = dwxgmac2_sarc_configure,
 #endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 	.enable_vlan = dwxgmac2_enable_vlan,
+#ifdef TC956X
+	.disable_tx_vlan = dwxgmac2_disable_tx_vlan,
+	.enable_rx_vlan_stripping = dwxgmac2_enable_rx_vlan_stripping,
+	.disable_rx_vlan_stripping = dwxgmac2_disable_rx_vlan_stripping,
+	.enable_rx_vlan_filtering = dwxgmac2_enable_rx_vlan_filtering,
+	.disable_rx_vlan_filtering = dwxgmac2_disable_rx_vlan_filtering,
+#endif
 #ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 	.config_l3_filter = dwxgmac2_config_l3_filter,
 	.config_l4_filter = dwxgmac2_config_l4_filter,

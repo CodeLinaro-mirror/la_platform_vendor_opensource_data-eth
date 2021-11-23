@@ -30,6 +30,15 @@
  *
  *  15 Mar 2021 : Base lined
  *  VERSION     : 01-00
+ *  14 Sep 2021 : 1. Synchronization between ethtool vlan features
+ *  		  "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
+ * 		  2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter",
+ *  		  and "tx-vlan-offload".
+ * 		  3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
+ * 		  4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
+ *  VERSION     : 01-00-13
+ *  04 Nov 2021 : 1. Added separate control functons for MAC TX and RX start/stop
+ *  VERSION     : 01-00-20
  */
 
 #ifndef __TC956XMAC_HWIF_H__
@@ -331,6 +340,10 @@ struct tc956xmac_ops {
 	void (*core_init)(struct tc956xmac_priv *priv, struct mac_device_info *hw, struct net_device *dev);
 	/* Enable the MAC RX/TX */
 	void (*set_mac)(struct tc956xmac_priv *priv, void __iomem *ioaddr, bool enable);
+	/* Start/Stop the MAC TX */
+	void (*set_mac_tx)(struct tc956xmac_priv *priv, void __iomem *ioaddr, bool enable);
+	/* Start/Stop the MAC RX */
+	void (*set_mac_rx)(struct tc956xmac_priv *priv, void __iomem *ioaddr, bool enable);
 	/* Enable and verify that the IPC module is supported */
 	int (*rx_ipc)(struct tc956xmac_priv *priv, struct mac_device_info *hw);
 	/* Enable RX Queues */
@@ -420,6 +433,13 @@ struct tc956xmac_ops {
 	void (*delete_vlan)(struct tc956xmac_priv *priv, struct net_device *dev, u16 vid,
 				u16 vf);
 	void (*enable_vlan)(struct tc956xmac_priv *priv, struct mac_device_info *hw, u32 type);
+#ifdef TC956X
+	void (*disable_tx_vlan)(struct tc956xmac_priv *priv, struct mac_device_info *hw);
+	void (*enable_rx_vlan_stripping)(struct tc956xmac_priv *priv, struct mac_device_info *hw);
+	void (*disable_rx_vlan_stripping)(struct tc956xmac_priv *priv, struct mac_device_info *hw);
+	void (*enable_rx_vlan_filtering)(struct tc956xmac_priv *priv, struct mac_device_info *hw);
+	void (*disable_rx_vlan_filtering)(struct tc956xmac_priv *priv, struct mac_device_info *hw);
+#endif
 	/* TX Timestamp */
 	int (*get_mac_tx_timestamp)(struct tc956xmac_priv *priv, struct mac_device_info *hw, u64 *ts);
 	/* Source Address Insertion / Replacement */
@@ -444,6 +464,10 @@ struct tc956xmac_ops {
 	tc956xmac_do_void_callback(__priv, mac, core_init, __args)
 #define tc956xmac_mac_set(__priv, __args...) \
 	tc956xmac_do_void_callback(__priv, mac, set_mac, __args)
+#define tc956xmac_mac_set_tx(__priv, __args...) \
+	tc956xmac_do_void_callback(__priv, mac, set_mac_tx, __args)
+#define tc956xmac_mac_set_rx(__priv, __args...) \
+	tc956xmac_do_void_callback(__priv, mac, set_mac_rx, __args)
 #define tc956xmac_rx_ipc(__priv, __args...) \
 	tc956xmac_do_callback(__priv, mac, rx_ipc, __args)
 #define tc956xmac_rx_queue_enable(__priv, __args...) \
@@ -524,6 +548,18 @@ struct tc956xmac_ops {
 	tc956xmac_do_void_callback(__priv, mac, delete_vlan, __args)
 #define tc956xmac_enable_vlan(__priv, __args...) \
 	tc956xmac_do_void_callback(__priv, mac, enable_vlan, __args)
+#ifdef TC956X
+#define tc956xmac_disable_tx_vlan(__priv, __args...) \
+	tc956xmac_do_void_callback(__priv, mac, disable_tx_vlan, __args)
+#define tc956xmac_enable_rx_vlan_stripping(__priv, __args...) \
+	tc956xmac_do_void_callback(__priv, mac, enable_rx_vlan_stripping, __args)
+#define tc956xmac_disable_rx_vlan_stripping(__priv, __args...) \
+	tc956xmac_do_void_callback(__priv, mac, disable_rx_vlan_stripping, __args)
+#define tc956xmac_enable_rx_vlan_filtering(__priv, __args...) \
+	tc956xmac_do_void_callback(__priv, mac, enable_rx_vlan_filtering, __args)
+#define tc956xmac_disable_rx_vlan_filtering(__priv, __args...) \
+	tc956xmac_do_void_callback(__priv, mac, disable_rx_vlan_filtering, __args)
+#endif
 #define tc956xmac_get_mac_tx_timestamp(__priv, __args...) \
 	tc956xmac_do_callback(__priv, mac, get_mac_tx_timestamp, __args)
 #define tc956xmac_sarc_configure(__priv, __args...) \
