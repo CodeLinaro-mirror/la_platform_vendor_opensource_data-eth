@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 08 Nov 2021
+Release Date: 20 Jan 2022
 
-Release Version: V_01-00-21 : Limited-tested version
+Release Version: V_01-00-37 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -30,11 +30,14 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 	#modprobe phylink
 4.  Load the driver
 
-	#insmod tc956x_pcie_eth.ko tc956x_speed=X
+	#insmod tc956x_pcie_eth.ko pcie_link_speed=X
 
-	In the module parameter tc956x_speed, X is the desired PCIe Gen speed. X can be 3 or 2 or 1.
-	Passing module parameter (tc956x_speed=X) is optional.
+	In the module parameter pcie_link_speed, X is the desired PCIe Gen speed. X can be 3 or 2 or 1.
+	Passing module parameter (pcie_link_speed=X) is optional.
 	If module parameter is not passed, by default Gen3 speed will be selected by the driver.
+
+	Please note that driver should be compiled using below command to use this feature:
+	#make TC956X_PCIE_GEN3_SETTING=1
 5.  Remove the driver
 
 	#rmmod tc956x_pcie_eth
@@ -57,11 +60,11 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
 2. Use the below command to insert the kernel module with specific modes for interfaces:
 	
-    #insmod tc956x_pcie_eth.ko tc956x_port0_interface=x tc956x_port1_interface=y
+    #insmod tc956x_pcie_eth.ko mac0_interface=x mac1_interface=y
 
        argument info:
-	     tc956x_port0_interface: For PORT0 interface mode setting
-	     tc956x_port1_interface: For PORT1 interface mode setting
+	     mac0_interface: For PORT0 interface mode setting
+	     mac1_interface: For PORT1 interface mode setting
 	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII]
 	     y = [0: USXGMII (unsupported), 1: XFI (unsupported), 2: RGMII, 3: SGMII(default)]
   
@@ -153,11 +156,11 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
 10. Please use the below command to insert the kernel module for passing pause frames to application except pause frames from PHY:
 
-	#insmod tc956x_pcie_eth.ko tc956x_port0_filter_phy_pause_frames=x tc956x_port1_filter_phy_pause_frames=x
+	#insmod tc956x_pcie_eth.ko mac0_filter_phy_pause=x mac1_filter_phy_pause=x
 
 	argument info:
-		tc956x_port0_filter_phy_pause_frames: For PORT0
-		tc956x_port1_filter_phy_pause_frames: For PORT1
+		mac0_filter_phy_pause: For PORT0
+		mac1_filter_phy_pause: For PORT1
 		x = [0: DISABLE (default), 1: ENABLE]
 
 	If invalid values are passed as kernel module parameter, the default value will be selected.
@@ -168,18 +171,88 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 12. WOL command Usage :
 	#ethtool -s <interface> wol <type - p/g/d>.
 
-Supported WOL options and meaning:
-----------------------------------
- Option  |  Meaning
-----------------------------------
-  p	  |  Wake on phy activity
-  g	  |  Wake on MagicPacket(tm)
-  d	  |  Disable (wake on nothing). (Default)
-----------------------------------  
-Example - To wake on phy activity and magic packet use :
-ethtool -s eth0 wol pg
-
+	Supported WOL options and meaning:
 	
+	| Option | Meaning |
+	| :-----: | :----: |
+	|  p	  |  Wake on phy activity |
+	|  g	  |  Wake on MagicPacket(tm) |
+	|  d	  |  Disable (wake on nothing). (Default) |
+
+	Example - To wake on phy activity and magic packet use :
+	ethtool -s eth0 wol pg
+
+13. Please use the below command to insert the kernel module to enable EEE and configure LPI Auto Entry timer:
+
+	#insmod tc956x_pcie_eth.ko mac0_eee_enable=X mac0_lpi_timer=Y mac1_eee_enable=X mac1_lpi_timer=Y
+
+	argument info:
+
+		mac0_eee_enable: For PORT0
+		mac1_eee_enable: For PORT1
+		X = [0: DISABLE (default), 1: ENABLE]
+		This module parameter is to Enable/Disable EEE for Port 0/1 - default is 0.
+		If invalid values are passed as kernel module parameter, the default value will be selected.		
+
+		mac0_lpi_timer: For PORT0
+		mac1_lpi_timer: For PORT1
+		Y = [0..1048568 (us)]
+		This module parameter is to configure LPI Automatic Entry Timer for Port 0/1 - default is 600 (us).
+		If invalid values are passed as kernel module parameter, the default value will be selected.		
+
+	In addition to above module parameter, use below ethtool command to configure EEE and LPI auto entry timer.
+	#ethtool --set-eee <interfcae> eee <on/off> tx-timer <time in us>
+	Example: #ethtool --set-eee enp7s0f0 eee on tx-timer 10000
+
+	Use below command to check the status of EEE configuration
+	#ethtool --show-eee <interface>
+
+14. Please use the below command to insert the kernel module for RX Queue size, Flow control thresholds & TX Queue size configuration.
+
+	#insmod tc956x_pcie_eth.ko mac0_rxq0_size=x mac0_rxq0_rfd=y mac0_rxq0_rfa=y
+		mac0_rxq1_size=x mac0_rxq1_rfd=y mac0_rxq1_rfa=y
+		mac0_txq0_size=x mac0_txq1_size=x
+		mac1_rxq0_size=x mac1_rxq0_rfd=y mac1_rxq0_rfa=y
+		mac1_rxq1_size=x mac1_rxq1_rfd=y mac1_rxq1_rfa=y
+		mac1_txq0_size=x mac1_txq1_size=x
+
+	argument info:
+		mac0_rxq0_size: For PORT0 RX Queue-0
+		mac0_rxq1_size: For PORT0 RX Queue-1
+		mac1_rxq0_size: For PORT1 RX Queue-0
+		mac1_rxq1_size: For PORT1 RX Queue-1
+		mac0_txq0_size: For PORT0 TX Queue-0
+		mac0_txq1_size: For PORT0 TX Queue-1
+		mac1_txq0_size: For PORT1 TX Queue-0
+		mac1_txq1_size: For PORT1 TX Queue-1
+		x = [Range Supported : 3072..44032 (bytes)], default is 18432 (bytes)
+
+		mac0_rxq0_rfd: For PORT0 Queue-0 threshold for Disable flow control
+		mac0_rxq1_rfd: For PORT0 Queue-1 threshold for Disable flow control
+		mac0_rxq0_rfa: For PORT0 Queue-0 threshold for Enable flow control
+		mac0_rxq1_rfa: For PORT0 Queue-1 threshold for Enable flow control
+		mac1_rxq0_rfd: For PORT1 Queue-0 threshold for Disable flow control
+		mac1_rxq1_rfd: For PORT1 Queue-1 threshold for Disable flow control
+		mac1_rxq0_rfa: For PORT1 Queue-0 threshold for Enable flow control
+		mac1_rxq1_rfa: For PORT1 Queue-1 threshold for Enable flow control
+		y = [Range Supported : 0..84], default is 24 (13KB)
+
+	If invalid values are passed as kernel module parameter, the default value will be selected for Queue Sizes and for Flow control 80% of Queue size will be used.
+
+	Note:
+	1. Please configure flow control thresholds (RFD & RFA) as per Queue size (Default values are for Default Queue size which is 18KB).
+
+15. Please use the below command to insert the kernel module for counting Link partner pause frames and output to ethtool:
+
+	#insmod tc956x_pcie_eth.ko mac0_en_lp_pause_frame_cnt=x mac1_en_lp_pause_frame_cnt=x
+
+	argument info:
+		mac0_en_lp_pause_frame_cnt: For PORT0
+		mac1_en_lp_pause_frame_cnt: For PORT1
+		x = [0: DISABLE (default), 1: ENABLE]
+
+	If invalid values are passed as kernel module parameter, the default value will be selected.
+	Note: It is required to enable kernel module parameter "mac0_filter_phy_pause/mac1_filter_phy_pause" along with this module parameter to count link partner pause frames.
 # Release Versions:
 
 ## TC956X_Host_Driver_20210326_V_01-00:
@@ -291,5 +364,81 @@ ethtool -s eth0 wol pg
 
 ## TC956X_Host_Driver_20211108_V_01-00-21:
 
-(1) Skip queuing PHY Work during suspend and cancel any phy work if already queued.
-(2) Restore Gen 3 Speed after resume.
+1. Skip queuing PHY Work during suspend and cancel any phy work if already queued.
+2. Restore Gen 3 Speed after resume.
+
+## TC956X_Host_Driver_20211124_V_01-00-22:
+
+1. Single port Suspend/Resume supported
+
+## TC956X_Host_Driver_20211124_V_01-00-23:
+
+1. Restricted MDIO access when no PHY found or MDIO registration fails
+2. Added mdio lock for making mii bus of private member to null to avoid parallel accessing to MDIO bus
+
+## TC956X_Host_Driver_20211124_V_01-00-24:
+
+1. Runtime configuration of EEE supported and LPI interrupts disabled by default.
+2. Module param added to configure EEE and LPI timer.
+3. Driver name corrected in ethtool display.
+
+## TC956X_Host_Driver_20211130_V_01-00-25:
+
+1. Print message correction for PCIe BAR size and Physical Address.
+
+## TC956X_Host_Driver_20211130_V_01-00-26:
+
+1. Added PHY Workqueue Cancel during suspend only if network interface available.
+
+## TC956X_Host_Driver_20211201_V_01-00-27:
+
+1. Free EMAC IRQ during suspend and request EMAC IRQ during resume.
+
+## TC956X_Host_Driver_20211201_V_01-00-28:
+
+1. Resetting SRAM Region before loading firmware.
+
+## TC956X_Host_Driver_20211203_V_01-00-29:
+
+1. Max C22/C45 PHY address changed to PHY_MAX_ADDR.
+2. Added error check for phydev in tc956xmac_suspend().
+
+## TC956X_Host_Driver_20211208_V_01-00-30:
+
+1. Added module parameters for Rx Queue Size, Flow Control thresholds and Tx Queue Size configuration.
+2. Renamed all module parameters for easy readability.
+
+## TC956X_Host_Driver_20211210_V_01-00-31:
+
+1. Support for link partner pause frame counting.
+2. Module parameter support to enable/disable link partner pause frame counting.
+
+## TC956X_Host_Driver_20211227_V_01-00-32:
+
+1. Support for eMAC Reset and unused clock disable during Suspend and restoring it back during resume.
+2. Resetting and disabling of unused clocks for eMAC Port, when no-found PHY for that particular port.
+3. Valid phy-address and mii-pointer NULL check in tc956xmac_suspend().
+
+## TC956X_Host_Driver_20220106_V_01-00-33:
+
+1. Null check added while freeing skb buff data
+2. Code comments corrected for flow control configuration
+
+## TC956X_Host_Driver_20220107_V_01-00-34:
+
+1. During emac resume, attach the net device after initializing the queues
+
+## TC956X_Host_Driver_20220111_V_01-00-35:
+
+1. Fixed phy mode support
+2. Error return when no phy driver found during ISR work queue execution
+
+## TC956X_Host_Driver_20220118_V_01-00-36:
+
+1. IRQ device name modified to differentiate between WOL and EMAC interrupt IRQs
+
+## TC956X_Host_Driver_20220120_V_01-00-37:
+
+1. Skip resume_config and reset eMAC if port unavailable (PHY not connected) during suspend-resume.
+2. Restore clock after resume in set_power.
+3. Shifted Queuing Work to end of resume to prevent MSI disable on resume.

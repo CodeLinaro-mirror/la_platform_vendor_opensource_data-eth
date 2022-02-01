@@ -69,7 +69,39 @@
  *  VERSION     : 01-00-20
  *  08 Nov 2021 : 1. Skip queuing PHY Work during suspend.
  *  VERSION     : 01-00-21
- */
+ *  24 Nov 2021 : 1. Private member used instead of global for wol interrupt indication
+ *  VERSION     : 01-00-22
+ *  24 Nov 2021 : 1. EEE update for runtime configuration and LPI interrupt disabled.
+ 		  2. EEE SW timers removed. Only HW timers used to control EEE LPI entry/exit
+ 		  3. USXGMII support during link change
+ *  VERSION     : 01-00-24
+ *  30 Nov 2021 : 1. Added PHY Workqueue Cancel during suspend only if network interface available.
+ *  VERSION     : 01-00-26
+ *  01 Dec 2021 : 1. Free EMAC IRQ during suspend and request EMAC IRQ during resume.
+ *  VERSION     : 01-00-27
+ *  03 Dec 2021 : 1. Added error check for phydev in tc956xmac_suspend().
+ *  VERSION     : 01-00-29
+ *  08 Dec 2021 : 1. Added Module parameter for Rx & Tx Queue Size configuration.
+ *  VERSION     : 01-00-30
+ *  10 Dec 2021 : 1. Added Module parameter to count Link partner pause frames and output to ethtool.
+ *  VERSION     : 01-00-31
+ *  27 Dec 2021 : 1. Support for eMAC Reset and unused clock disable during Suspend and restoring it back during resume.
+		  2. Resetting and disabling of unused clocks for eMAC Port, when no-found PHY for that particular port.
+		  3. Valid phy-address and mii-pointer NULL check in tc956xmac_suspend().
+		  4. Version update.
+ *  VERSION     : 01-00-32
+ *  06 Jan 2022 : 1. Null check added while freeing skb buff data
+ *  VERSION     : 01-00-33
+ *  07 Jan 2022 : 1. During emac resume, attach the net device after initializing the queues
+ *  VERSION     : 01-00-34
+ *  11 Jan 2022 : 1. Fixed phymode support added
+ *	          2. Error return when no phy driver found during ISR work queue execution
+ *  VERSION     : 01-00-35
+ *  18 Jan 2022 : 1. IRQ device name change
+ *  VERSION     : 01-00-36
+ *  20 Jan 2022 : 1. Reset eMAC if port unavailable (PHY not connected) during suspend-resume.
+ *  VERSION     : 01-00-37
+*/
 
 #include <linux/clk.h>
 #include <linux/kernel.h>
@@ -219,9 +251,20 @@ static const struct config_parameter_list config_param_list[] = {
 };
 
 static uint16_t mdio_bus_id;
-static bool tc956xmac_pm_wol_interrupt[TC956X_MAX_PORT]; /* Port-wise flag for clearing interrupt after resume. */
+
 #define CONFIG_PARAM_NUM ARRAY_SIZE(config_param_list)
 int tc956xmac_rx_parser_configuration(struct tc956xmac_priv *);
+
+/* Source Address in Pause frame from PHY */
+static u8 phy_sa_addr[2][6] = {
+	{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}, /*For Port-0*/
+	{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}, /*For Port-1*/
+};
+extern unsigned int mac0_en_lp_pause_frame_cnt;
+extern unsigned int mac1_en_lp_pause_frame_cnt;
+
+extern unsigned int mac0_force_speed_mode;
+extern unsigned int mac1_force_speed_mode;
 
 /**
  *  tc956x_GPIO_OutputConfigPin - to configure GPIO as output and write the value
@@ -347,7 +390,7 @@ static irqreturn_t tc956xmac_wol_interrupt(int irq, void *dev_id)
 	/* Set flag to clear interrupt after resume */
 	DBGPR_FUNC(priv->device, "%s\n", __func__);
 	/* Set flag to indicate WOL interrupt trigger */
-	tc956xmac_pm_wol_interrupt[priv->port_num] = true;
+	priv->tc956xmac_pm_wol_interrupt = true;
 	return IRQ_HANDLED;
 }
 
@@ -586,21 +629,8 @@ static inline u32 tc956xmac_rx_dirty(struct tc956xmac_priv *priv, u32 queue)
  */
 static void tc956xmac_enable_eee_mode(struct tc956xmac_priv *priv)
 {
-	u32 tx_cnt = priv->plat->tx_queues_to_use;
-	u32 queue;
-
-	/* check if all TX queues have the work finished */
-	for (queue = 0; queue < tx_cnt; queue++) {
-		struct tc956xmac_tx_queue *tx_q = &priv->tx_queue[queue];
-
-		if (tx_q->dirty_tx != tx_q->cur_tx)
-			return; /* still unfinished work */
-	}
-
-	/* Check and enter in LPI mode */
-	if (!priv->tx_path_in_lpi_mode)
-		tc956xmac_set_eee_mode(priv, priv->hw,
-				priv->plat->en_tx_lpi_clockgating);
+	tc956xmac_set_eee_mode(priv, priv->hw,
+			priv->plat->en_tx_lpi_clockgating);
 }
 
 /**
@@ -612,23 +642,6 @@ static void tc956xmac_enable_eee_mode(struct tc956xmac_priv *priv)
 void tc956xmac_disable_eee_mode(struct tc956xmac_priv *priv)
 {
 	tc956xmac_reset_eee_mode(priv, priv->hw);
-	del_timer_sync(&priv->eee_ctrl_timer);
-	priv->tx_path_in_lpi_mode = false;
-}
-
-/**
- * tc956xmac_eee_ctrl_timer - EEE TX SW timer.
- * @arg : data hook
- * Description:
- *  if there is no data transfer and if we are not in LPI state,
- *  then MAC Transmitter can be moved to LPI state.
- */
-static void tc956xmac_eee_ctrl_timer(struct timer_list *t)
-{
-	struct tc956xmac_priv *priv = from_timer(priv, t, eee_ctrl_timer);
-
-	tc956xmac_enable_eee_mode(priv);
-	mod_timer(&priv->eee_ctrl_timer, TC956XMAC_LPI_T(eee_timer));
 }
 
 /**
@@ -642,7 +655,6 @@ static void tc956xmac_eee_ctrl_timer(struct timer_list *t)
 bool tc956xmac_eee_init(struct tc956xmac_priv *priv)
 {
 #ifdef EEE_MAC_CONTROLLED_MODE
-	int tx_lpi_timer = priv->tx_lpi_timer;
 	int value;
 #endif
 
@@ -660,34 +672,21 @@ bool tc956xmac_eee_init(struct tc956xmac_priv *priv)
 
 	mutex_lock(&priv->lock);
 
-	/* Check if it needs to be deactivated */
-	if (!priv->eee_active) {
-		if (priv->eee_enabled) {
-			netdev_dbg(priv->dev, "disable EEE\n");
-			del_timer_sync(&priv->eee_ctrl_timer);
+	tc956xmac_enable_eee_mode(priv);
 #ifdef EEE_MAC_CONTROLLED_MODE
-			tc956xmac_set_eee_timer(priv, priv->hw, 0, tx_lpi_timer);
+	tc956xmac_set_eee_timer(priv, priv->hw, TC956XMAC_LIT_LS, TC956XMAC_TWT_LS);
+	value = TC956XMAC_TIC_1US_CNTR;
+	writel(value, priv->ioaddr + XGMAC_LPI_1US_Tic_Counter);
+	value = readl(priv->ioaddr + XGMAC_LPI_Auto_Entry_Timer);
+	/* Setting LPIET bit [19...3] */
+	value &= ~(XGMAC_LPIET);
+	/* LPI Entry timer is in the units of 8 micro second granularity considering last reserved 2:0 bits as zero 
+	 * So mask the last 3 bits
+	 */
+	value |= (priv->tx_lpi_timer & XGMAC_LPIET);
+	DBGPR_FUNC(priv->device, "%s Writing LPI timer value of [%d]\n", __func__, value);
+	writel(value, priv->ioaddr + XGMAC_LPI_Auto_Entry_Timer);
 #endif
-		}
-		mutex_unlock(&priv->lock);
-		return false;
-	}
-
-	if (priv->eee_active && !priv->eee_enabled) {
-		timer_setup(&priv->eee_ctrl_timer, tc956xmac_eee_ctrl_timer, 0);
-		mod_timer(&priv->eee_ctrl_timer, TC956XMAC_LPI_T(eee_timer));
-#ifdef EEE_MAC_CONTROLLED_MODE
-		tc956xmac_set_eee_timer(priv, priv->hw, TC956XMAC_LIT_LS, TC956XMAC_TWT_LS);
-		value = TC956XMAC_TIC_1US_CNTR;
-		writel(value, priv->ioaddr + XGMAC_LPI_1US_Tic_Counter);
-		value = readl(priv->ioaddr + XGMAC_LPI_Auto_Entry_Timer);
-		/* Setting LPIET bit [19...3] */
-		value &= ~(XGMAC_LPIET);
-		value |= (TC956XMAC_LPIET_600US << 3);
-		writel(value, priv->ioaddr + XGMAC_LPI_Auto_Entry_Timer);
-#endif
-	}
-
 	mutex_unlock(&priv->lock);
 	netdev_dbg(priv->dev, "Energy-Efficient Ethernet initialized\n");
 	return true;
@@ -1282,6 +1281,18 @@ static void tc956xmac_validate(struct phylink_config *config,
 	phylink_set(mac_supported, Asym_Pause);
 	phylink_set_port_modes(mac_supported);
 
+	/*USXGMII interface does not support speed of 1000/100/10*/
+	if (priv->plat->interface == PHY_INTERFACE_MODE_USXGMII) {
+		phylink_set(mask, 10baseT_Half);
+		phylink_set(mask, 10baseT_Full);
+		phylink_set(mask, 100baseT_Half);
+		phylink_set(mask, 100baseT_Full);
+		phylink_set(mask, 1000baseT_Half);
+		phylink_set(mask, 1000baseT_Full);
+		phylink_set(mask, 1000baseKX_Full);
+	}
+
+
 	/* Cut down 1G if asked to */
 	if ((max_speed > 0) && (max_speed < 1000)) {
 		phylink_set(mask, 1000baseT_Full);
@@ -1489,6 +1500,14 @@ void tc956xmac_speed_change_init_mac(struct tc956xmac_priv *priv,
 				ret |= NEMACCTL_SP_SEL_SGMII_2500M;
 			else
 				ret |= NEMACCTL_SP_SEL_SGMII_1000M;
+		} else {
+			/*else if ((PORT0_INTERFACE == ENABLE_USXGMII_INTERFACE)*/
+			if (state->speed == SPEED_10000)
+				ret |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
+			else if (state->speed == SPEED_5000)
+				ret |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
+			else if (state->speed == SPEED_2500)
+				ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
 		}
 		ret &= ~(0x00000040); /* Mask Polarity */
 		if (SgmSigPol == 1)
@@ -1611,40 +1630,49 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 			reg_value &= ~(XGMAC_C37_AN_COMPL);
 			tc956x_xpcs_write(priv->xpcsaddr, XGMAC_VR_MII_AN_INTR_STS, reg_value);
 			KPRINT_INFO("AN clause 37 complete bit cleared");
+		}
 
-			if (state->interface == PHY_INTERFACE_MODE_USXGMII) {
-
-				/* Program autonegotiated speed to SR_MII_CTRL */
-				val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_MII_CTRL);
-				val &= ~XGMAC_SR_MII_CTRL_SPEED; /* Mask speed ss13, ss6, ss5 */
-
-				switch (state->speed) {
-				case SPEED_10000:
-					ctrl |= priv->hw->link.xgmii.speed10000;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
-					val |= XGMAC_SR_MII_CTRL_SPEED_10G;
-					break;
-				case SPEED_5000:
-					ctrl |= priv->hw->link.xgmii.speed5000;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_5G_5G;
-					val |= XGMAC_SR_MII_CTRL_SPEED_5G;
-					break;
-				case SPEED_2500:
-					ctrl |= priv->hw->link.xgmii.speed2500;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_2_5G;
-					val |= XGMAC_SR_MII_CTRL_SPEED_2_5G;
-					break;
-				default:
-					return;
+		if (state->interface == PHY_INTERFACE_MODE_USXGMII) {
+			/* Invoke this only during speed change */
+			if ((state->speed != SPEED_UNKNOWN) && (state->speed != 0)) {
+				if (state->speed != priv->speed) {
+					tc956xmac_speed_change_init_mac(priv, state);
 				}
-				tc956x_xpcs_write(priv->xpcsaddr, XGMAC_SR_MII_CTRL, val);
-
-				/* USRA_RST set to 1 */
-				val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1);
-				val |= XGMAC_USRA_RST;
-				tc956x_xpcs_write(priv->xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1, val);
-				config_done = true;
+			} else {
+				return;
 			}
+
+			/* Program autonegotiated speed to SR_MII_CTRL */
+			val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_MII_CTRL);
+			val &= ~XGMAC_SR_MII_CTRL_SPEED; /* Mask speed ss13, ss6, ss5 */
+
+			switch (state->speed) {
+			case SPEED_10000:
+				ctrl |= priv->hw->link.xgmii.speed10000;
+				emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
+				val |= XGMAC_SR_MII_CTRL_SPEED_10G;
+				break;
+			case SPEED_5000:
+				ctrl |= priv->hw->link.xgmii.speed5000;
+				emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
+				val |= XGMAC_SR_MII_CTRL_SPEED_5G;
+				break;
+			case SPEED_2500:
+				ctrl |= priv->hw->link.xgmii.speed2500;
+				emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
+				val |= XGMAC_SR_MII_CTRL_SPEED_2_5G;
+				break;
+			default:
+				return;
+			}
+
+			tc956x_xpcs_write(priv->xpcsaddr, XGMAC_SR_MII_CTRL, val);
+
+			/* USRA_RST set to 1 */
+			val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1);
+			val |= XGMAC_USRA_RST;
+			tc956x_xpcs_write(priv->xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1, val);
+			config_done = true;
 		}
 		if (state->interface == PHY_INTERFACE_MODE_SGMII) { /* Autonegotiation not supported for SGMII */
 			reg_value = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_MII_AN_INTR_STS);
@@ -1657,9 +1685,11 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 				KPRINT_INFO("AN clause 37 complete bit cleared");
 			}
 			/* Invoke this only during speed change */
-			if ((state->speed != SPEED_UNKNOWN) || (state->speed != 0)) {
+			if ((state->speed != SPEED_UNKNOWN) && (state->speed != 0)) {
 				if (state->speed != priv->speed)
 					tc956xmac_speed_change_init_mac(priv, state);
+			} else {
+				return;
 			}
 			val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_MII_CTRL);
 			val &= ~XGMAC_SR_MII_CTRL_SPEED; /* Mask speed ss13, ss6, ss5 */
@@ -1788,7 +1818,8 @@ static void tc956xmac_mac_link_down(struct phylink_config *config,
 	tc956xmac_mac_set_rx(priv, priv->ioaddr, false);
 #ifdef EEE
 	priv->eee_active = false;
-	priv->eee_enabled = tc956xmac_eee_init(priv);
+	DBGPR_FUNC(priv->device, "%s Disable EEE\n", __func__);
+	tc956xmac_disable_eee_mode(priv);
 	tc956xmac_set_eee_pls(priv, priv->hw, false);
 #endif
 #ifdef TC956X_PM_DEBUG
@@ -1820,6 +1851,8 @@ int tc956x_phy_init_eee(struct phy_device *phydev, bool clk_stop_enable)
 	if (!phydev->drv)
 		return -EIO;
 
+	KPRINT_INFO("%s EEE phy init for 5G/2.5G\n", __func__);
+
 	/* According to 802.3az,the EEE is supported only in full duplex-mode.
 	 */
 	if (phydev->duplex == DUPLEX_FULL) {
@@ -1832,41 +1865,164 @@ int tc956x_phy_init_eee(struct phy_device *phydev, bool clk_stop_enable)
 
 		/* Read phy status to properly get the right settings */
 		status = phy_read_status(phydev);
-		if (status)
+		if (status) {
+			KPRINT_ERR("Error 0: %d\n", status);
 			return status;
+		}
 
 		/* First check if the EEE ability is supported */
-		eee_cap = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE);
-		if (eee_cap <= 0)
+		eee_cap = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE2);
+		if (eee_cap <= 0) {
+			KPRINT_ERR("Error 2\n");
 			goto eee_exit_err;
+		}
 
 		cap = mmd_eee_cap_to_ethtool_sup_t(eee_cap);
-		if (!cap)
+		if (!cap) {
+			KPRINT_ERR("Error 3\n");
 			goto eee_exit_err;
+		}
 
 		/* Check which link settings negotiated and verify it in
 		 * the EEE advertising registers.
 		 */
 		eee_lp = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_LPABLE2);
-		if (eee_lp <= 0)
+		if (eee_lp <= 0) {
+			KPRINT_ERR("Error 4\n");
 			goto eee_exit_err;
+		}
 
 		eee_adv = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV2);
-		if (eee_adv <= 0)
+		if (eee_adv <= 0) {
+			KPRINT_ERR("Error 5\n");
 			goto eee_exit_err;
+		}
 
 		tc956x_mmd_eee_adv_to_linkmode_5G_2_5G(adv, eee_adv);
 		tc956x_mmd_eee_adv_to_linkmode_5G_2_5G(lp, eee_lp);
 		linkmode_and(common, adv, lp);
 
-		if (!tc956x_phy_check_valid(phydev->speed, phydev->duplex, common))
+		if (!tc956x_phy_check_valid(phydev->speed, phydev->duplex, common)) {
+			KPRINT_ERR("Error 6\n");
 			goto eee_exit_err;
+		}
 
 		if (clk_stop_enable)
 			phy_set_bits_mmd(phydev, MDIO_MMD_PCS, MDIO_CTRL1,
 					 MDIO_PCS_CTRL1_CLKSTOP_EN);
 
 		return 0;
+	}
+eee_exit_err:
+	return -EPROTONOSUPPORT;
+}
+#endif
+
+#ifdef DEBUG_EEE
+static void mmd_eee_adv_to_linkmode_local(unsigned long *advertising, u16 eee_adv)
+{
+	linkmode_zero(advertising);
+
+	if (eee_adv & MDIO_EEE_100TX)
+		linkmode_set_bit(ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+				 advertising);
+	if (eee_adv & MDIO_EEE_1000T)
+		linkmode_set_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+				 advertising);
+	if (eee_adv & MDIO_EEE_10GT)
+		linkmode_set_bit(ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
+				 advertising);
+	if (eee_adv & MDIO_EEE_1000KX)
+		linkmode_set_bit(ETHTOOL_LINK_MODE_1000baseKX_Full_BIT,
+				 advertising);
+	if (eee_adv & MDIO_EEE_10GKX4)
+		linkmode_set_bit(ETHTOOL_LINK_MODE_10000baseKX4_Full_BIT,
+				 advertising);
+	if (eee_adv & MDIO_EEE_10GKR)
+		linkmode_set_bit(ETHTOOL_LINK_MODE_10000baseKR_Full_BIT,
+				 advertising);
+}
+
+int phy_init_eee_local(struct phy_device *phydev, bool clk_stop_enable)
+{
+	if (!phydev->drv)
+		return -EIO;
+
+	KPRINT_INFO("----> %s\n", __func__);
+
+
+	/* According to 802.3az,the EEE is supported only in full duplex-mode.
+	 */
+	if (phydev->duplex == DUPLEX_FULL) {
+		__ETHTOOL_DECLARE_LINK_MODE_MASK(common);
+		__ETHTOOL_DECLARE_LINK_MODE_MASK(lp);
+		__ETHTOOL_DECLARE_LINK_MODE_MASK(adv);
+		int eee_lp, eee_cap, eee_adv;
+		int status;
+		u32 cap;
+
+		/* Read phy status to properly get the right settings */
+		status = phy_read_status(phydev);
+		if (status) {
+			KPRINT_ERR("Error 0: %d\n", status);
+			return status;
+		}
+
+		/* First check if the EEE ability is supported */
+		eee_cap = phy_read_mmd(phydev, MDIO_MMD_PCS, MDIO_PCS_EEE_ABLE);
+		if (eee_cap <= 0) {
+			KPRINT_ERR("Error 1\n");
+			goto eee_exit_err;
+		}
+
+		cap = mmd_eee_cap_to_ethtool_sup_t(eee_cap);
+		if (!cap) {
+			KPRINT_ERR("Error 2\n");
+			goto eee_exit_err;
+		}
+
+		/* Check which link settings negotiated and verify it in
+		 * the EEE advertising registers.
+		 */
+		eee_lp = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_LPABLE);
+		if (eee_lp <= 0) {
+			KPRINT_ERR("Error 3\n");
+			goto eee_exit_err;
+		}
+
+		eee_adv = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV);
+		if (eee_adv <= 0) {
+			KPRINT_ERR("Error 4\n");
+			goto eee_exit_err;
+		}
+
+		KPRINT_INFO("%s eee_adv: 0x%x\n", __func__, eee_adv);
+		KPRINT_INFO("%s eee_lp: 0x%x\n", __func__, eee_lp);
+
+
+		mmd_eee_adv_to_linkmode_local(adv, eee_adv);
+		mmd_eee_adv_to_linkmode_local(lp, eee_lp);
+
+		KPRINT_INFO("%s adv: 0x%x\n", __func__, adv);
+		KPRINT_INFO("%s eee_lp: 0x%x\n", __func__, lp);
+		
+		linkmode_and(common, adv, lp);
+
+		KPRINT_INFO("%s common: 0x%x\n", __func__, common);
+
+		if (!tc956x_phy_check_valid(phydev->speed, phydev->duplex, common)) {
+			KPRINT_ERR("Error 5\n");
+			goto eee_exit_err;
+		}
+
+		if (clk_stop_enable)
+			/* Configure the PHY to stop receiving xMII
+			 * clock while it is signaling LPI.
+			 */
+			phy_set_bits_mmd(phydev, MDIO_MMD_PCS, MDIO_CTRL1,
+					 MDIO_PCS_CTRL1_CLKSTOP_EN);
+
+		return 0; /* EEE supported */
 	}
 eee_exit_err:
 	return -EPROTONOSUPPORT;
@@ -1881,22 +2037,38 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 
 	tc956xmac_mac_set_rx(priv, priv->ioaddr, true);
 #ifdef EEE
-	if (phy && priv->dma_cap.eee) {
+	if (phy && priv->dma_cap.eee && priv->eee_enabled) {
+		DBGPR_FUNC(priv->device, "%s EEE Enable, checking to enable acive\n", __func__);
 #ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
 		if(phy->speed == TC956X_PHY_SPEED_5G || phy->speed == TC956X_PHY_SPEED_2_5G) {
 			priv->eee_active = tc956x_phy_init_eee(phy, 1) >= 0;
 		} else {
+#ifndef DEBUG_EEE
 			priv->eee_active = phy_init_eee(phy, 1) >= 0;
+#else
+			priv->eee_active = phy_init_eee_local(phy, 1) >= 0;
+#endif
 		}
 #else
+#ifndef DEBUG_EEE
 		priv->eee_active = phy_init_eee(phy, 1) >= 0;
+#else
+		priv->eee_active = phy_init_eee_local(phy, 1) >= 0;
 #endif
-		priv->eee_enabled = tc956xmac_eee_init(priv);
-		tc956xmac_set_eee_pls(priv, priv->hw, true);
+#endif
+		if (priv->eee_active) {
+			tc956xmac_eee_init(priv);
+			tc956xmac_set_eee_pls(priv, priv->hw, true);
+		}
 	}
 #endif
+	DBGPR_FUNC(priv->device, "%s priv->eee_enabled: %d priv->eee_active: %d\n", __func__, priv->eee_enabled, priv->eee_active);
+
 #ifdef TC956X_PM_DEBUG
 	pm_generic_resume(priv->device);
+#endif
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	place_marker("M - Ethernet is Ready. Link is UP");
 #endif
 }
 
@@ -1983,6 +2155,12 @@ static void tc956xmac_defer_phy_isr_work(struct work_struct *work)
 		netdev_err(priv->dev, "no phy at addr %d\n", addr);
 		return;
 	}
+
+	if(!phydev->drv) {
+		netdev_err(priv->dev, "no phy driver\n");
+		return;
+	}
+
 	/* Call ack interrupt to clear the WOL interrupt status fields */
 	if (phydev->drv->ack_interrupt)
 		phydev->drv->ack_interrupt(phydev);
@@ -2012,6 +2190,7 @@ static int tc956xmac_init_phy(struct net_device *dev)
 	int ret;
 	struct phy_device *phydev;
 	int addr = priv->plat->phy_addr;
+	struct ethtool_eee edata;
 
 	node = priv->plat->phylink_node;
 
@@ -2076,8 +2255,32 @@ static int tc956xmac_init_phy(struct net_device *dev)
 			KPRINT_ERR("Failed to configure PHY interrupt port number is %d", priv->port_num);
 		}
 	}
+	/* Enable or disable EEE Advertisement based on eee_enabled settings which might be set using module param */
+	edata.eee_enabled = priv->eee_enabled;
+	edata.advertised = 0;
+
+	if (priv->phylink) {
+		phylink_ethtool_set_eee(priv->phylink, &edata);
+	}
+	/* In forced speed mode, donot return error here */
+	if (((priv->port_num == RM_PF1_ID) && (mac1_force_speed_mode == ENABLE)) ||
+		((priv->port_num == RM_PF0_ID) && (mac0_force_speed_mode == ENABLE)))
+		ret = 0;
 
 	return ret;
+}
+
+static void tc956xmac_phylink_fixed_state(struct net_device *dev, struct phylink_link_state *state)
+{
+	struct tc956xmac_priv *priv = netdev_priv(dev);
+
+	state->link = 1;
+	state->duplex = DUPLEX_FULL;
+	state->speed = priv->plat->forced_speed;
+
+	DBGPR_FUNC(priv->device, "%s state->speed: %d\n", __func__, state->speed);
+
+	return;
 }
 
 static int tc956xmac_phy_setup(struct tc956xmac_priv *priv)
@@ -2087,12 +2290,18 @@ static int tc956xmac_phy_setup(struct tc956xmac_priv *priv)
 	struct phylink *phylink;
 
 	priv->phylink_config.dev = &priv->dev->dev;
-		priv->phylink_config.type = PHYLINK_NETDEV;
+	priv->phylink_config.type = PHYLINK_NETDEV;
 
-		phylink = phylink_create(&priv->phylink_config, fwnode,
-					 mode, &tc956xmac_phylink_mac_ops);
-		if (IS_ERR(phylink))
-			return PTR_ERR(phylink);
+	phylink = phylink_create(&priv->phylink_config, fwnode,
+				 mode, &tc956xmac_phylink_mac_ops);
+	if (IS_ERR(phylink))
+		return PTR_ERR(phylink);
+
+	/* Fixed phy mode should be set using device tree, driver just registers callback here */
+	if (((priv->port_num == RM_PF1_ID) && (mac1_force_speed_mode == ENABLE)) ||
+		((priv->port_num == RM_PF0_ID) && (mac0_force_speed_mode == ENABLE)))
+		phylink_fixed_state_cb(phylink, tc956xmac_phylink_fixed_state);
+
 	priv->phylink = phylink;
 	return 0;
 }
@@ -2330,24 +2539,28 @@ static void tc956xmac_free_tx_buffer(struct tc956xmac_priv *priv, u32 queue, int
 {
 	struct tc956xmac_tx_queue *tx_q = &priv->tx_queue[queue];
 
-	if (tx_q->tx_skbuff_dma[i].buf) {
-		if (tx_q->tx_skbuff_dma[i].map_as_page)
-			dma_unmap_page(priv->device,
-				       tx_q->tx_skbuff_dma[i].buf,
-				       tx_q->tx_skbuff_dma[i].len,
-				       DMA_TO_DEVICE);
-		else
-			dma_unmap_single(priv->device,
-					 tx_q->tx_skbuff_dma[i].buf,
-					 tx_q->tx_skbuff_dma[i].len,
-					 DMA_TO_DEVICE);
+	if (tx_q->tx_skbuff_dma) {
+		if (tx_q->tx_skbuff_dma[i].buf) {
+			if (tx_q->tx_skbuff_dma[i].map_as_page)
+				dma_unmap_page(priv->device,
+					       tx_q->tx_skbuff_dma[i].buf,
+					       tx_q->tx_skbuff_dma[i].len,
+					       DMA_TO_DEVICE);
+			else
+				dma_unmap_single(priv->device,
+						 tx_q->tx_skbuff_dma[i].buf,
+						 tx_q->tx_skbuff_dma[i].len,
+						 DMA_TO_DEVICE);
+		}
 	}
 
-	if (tx_q->tx_skbuff[i]) {
-		dev_kfree_skb_any(tx_q->tx_skbuff[i]);
-		tx_q->tx_skbuff[i] = NULL;
-		tx_q->tx_skbuff_dma[i].buf = 0;
-		tx_q->tx_skbuff_dma[i].map_as_page = false;
+	if (tx_q->tx_skbuff) {
+		if (tx_q->tx_skbuff[i]) {
+			dev_kfree_skb_any(tx_q->tx_skbuff[i]);
+			tx_q->tx_skbuff[i] = NULL;
+			tx_q->tx_skbuff_dma[i].buf = 0;
+			tx_q->tx_skbuff_dma[i].map_as_page = false;
+		}
 	}
 }
 
@@ -2622,7 +2835,11 @@ static void free_dma_tx_desc_resources(struct tc956xmac_priv *priv)
 		dma_free_coherent(priv->device, size, addr, tx_q->dma_tx_phy);
 
 		kfree(tx_q->tx_skbuff_dma);
+		tx_q->tx_skbuff_dma = NULL;
+
 		kfree(tx_q->tx_skbuff);
+		tx_q->tx_skbuff = NULL;
+
 	}
 }
 
@@ -2978,10 +3195,10 @@ static void tc956xmac_dma_operation_mode(struct tc956xmac_priv *priv)
 #ifdef TC956X
 		switch (chan) {
 		case 0:
-			rxfifosz = RX_QUEUE0_SIZE;
+			rxfifosz = priv->plat->rx_queues_cfg[0].size;
 			break;
 		case 1:
-			rxfifosz = RX_QUEUE1_SIZE;
+			rxfifosz = priv->plat->rx_queues_cfg[1].size;
 			break;
 		case 2:
 			rxfifosz = RX_QUEUE2_SIZE;
@@ -3023,10 +3240,10 @@ static void tc956xmac_dma_operation_mode(struct tc956xmac_priv *priv)
 #ifdef TC956X
 		switch (chan) {
 		case 0:
-			txfifosz = TX_QUEUE0_SIZE;
+			txfifosz = priv->plat->tx_queues_cfg[0].size;
 			break;
 		case 1:
-			txfifosz = TX_QUEUE1_SIZE;
+			txfifosz = priv->plat->tx_queues_cfg[1].size;
 			break;
 		case 2:
 			txfifosz = TX_QUEUE2_SIZE;
@@ -3162,12 +3379,6 @@ static int tc956xmac_tx_clean(struct tc956xmac_priv *priv, int budget, u32 queue
 			  "%s: restart transmit\n", __func__);
 		netif_tx_wake_queue(netdev_get_tx_queue(priv->dev, queue));
 	}
-
-	if ((priv->eee_enabled) && (!priv->tx_path_in_lpi_mode)) {
-		tc956xmac_enable_eee_mode(priv);
-		mod_timer(&priv->eee_ctrl_timer, TC956XMAC_LPI_T(eee_timer));
-	}
-
 #ifdef ENABLE_TX_TIMER
 	/* We still have pending packets, let's call for a new scheduling */
 	if (tx_q->dirty_tx != tx_q->cur_tx)
@@ -3238,12 +3449,12 @@ static void tc956xmac_set_dma_operation_mode(struct tc956xmac_priv *priv, u32 tx
 #ifdef TC956X
 	switch (chan) {
 	case 0:
-		rxfifosz = RX_QUEUE0_SIZE;
-		txfifosz = TX_QUEUE0_SIZE;
+		rxfifosz = priv->plat->rx_queues_cfg[0].size;
+		txfifosz = priv->plat->tx_queues_cfg[0].size;
 		break;
 	case 1:
-		rxfifosz = RX_QUEUE1_SIZE;
-		txfifosz = TX_QUEUE1_SIZE;
+		rxfifosz = priv->plat->rx_queues_cfg[1].size;
+		txfifosz = priv->plat->tx_queues_cfg[1].size;
 		break;
 	case 2:
 		rxfifosz = RX_QUEUE2_SIZE;
@@ -3939,8 +4150,6 @@ static int tc956xmac_hw_setup(struct net_device *dev, bool init_ptp)
 			netdev_warn(priv->dev, "PTP init failed\n");
 	}
 
-	priv->tx_lpi_timer = TC956XMAC_DEFAULT_TWT_LS;
-
 	if (priv->use_riwt) {
 		if (!priv->rx_riwt)
 			priv->rx_riwt = DEF_DMA_RIWT;
@@ -4109,7 +4318,6 @@ static int tc956xmac_open(struct net_device *dev)
 		goto init_error;
 	}
 
-
 #ifdef TC956X
 	if (priv->port_num == RM_PF0_ID) {
 		/* mask all eMAC interrupts for MCU */
@@ -4130,13 +4338,16 @@ static int tc956xmac_open(struct net_device *dev)
 	rd_val = readl(priv->ioaddr + NCLKCTRL0_OFFSET);
 	rd_val |= (1 << 18); /* MSIGENCEN=1 */
 #ifdef EEE_MAC_CONTROLLED_MODE
-	rd_val |= 0x67000000;
+	if (priv->port_num == RM_PF0_ID) {
+		rd_val |= (NCLKCTRL0_MAC0312CLKEN | NCLKCTRL0_MAC0125CLKEN);
+	}
+	rd_val |= (NCLKCTRL0_POEPLLCEN | NCLKCTRL0_SGMPCIEN | NCLKCTRL0_REFCLKOCEN);
 #endif
 	writel(rd_val, priv->ioaddr + NCLKCTRL0_OFFSET);
 	rd_val = readl(priv->ioaddr + NRSTCTRL0_OFFSET);
 	rd_val &= ~(1 << 18); /* MSIGENSRST=0 */
 #ifdef EEE_MAC_CONTROLLED_MODE
-	rd_val &= ~(NRSTCTRL0_MAC0RST | NRSTCTRL0_MAC0RST);
+	//rd_val &= ~(NRSTCTRL0_MAC0RST | NRSTCTRL0_MAC0RST);
 #endif
 	writel(rd_val, priv->ioaddr + NRSTCTRL0_OFFSET);
 
@@ -4207,22 +4418,22 @@ static int tc956xmac_open(struct net_device *dev)
 
 	KPRINT_INFO("%s phylink started", __func__);
 
-	/* Do not re-request host irq resources during resume sequence. */
-	if (priv->tc956x_port_pm_suspend == false) {
-		/* Request the IRQ lines */
-		ret = request_irq(dev->irq, tc956xmac_interrupt,
-				  IRQF_NO_SUSPEND, dev->name, dev);
-		if (unlikely(ret < 0)) {
-			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the IRQ %d (error: %d)\n",
-				   __func__, dev->irq, ret);
-			goto irq_error;
-		}
+	/* Request the IRQ lines */
+	ret = request_irq(dev->irq, tc956xmac_interrupt,
+			  IRQF_NO_SUSPEND, IRQ_DEV_NAME(priv->port_num), dev);
+	if (unlikely(ret < 0)) {
+		netdev_err(priv->dev,
+			   "%s: ERROR: allocating the IRQ %d (error: %d)\n",
+			   __func__, dev->irq, ret);
+		goto irq_error;
+	}
 
+	/* Do not re-request WOL irq resources during resume sequence. */
+	if (priv->tc956x_port_pm_suspend == false) {
 		/* Request the Wake IRQ in case of another line is used for WoL */
 		if (priv->wol_irq != dev->irq) {
 			ret = request_irq(priv->wol_irq, tc956xmac_wol_interrupt,
-					  IRQF_NO_SUSPEND, dev->name, dev);
+					  IRQF_NO_SUSPEND, WOL_IRQ_DEV_NAME(priv->port_num), dev);
 			if (unlikely(ret < 0)) {
 				netdev_err(priv->dev,
 					   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
@@ -4243,7 +4454,7 @@ static int tc956xmac_open(struct net_device *dev)
 			}
 		}
 #endif
-		tc956xmac_pm_wol_interrupt[priv->port_num] = false; /* Initialize flag for PHY Work queue */
+		priv->tc956xmac_pm_wol_interrupt = false; /* Initialize flag for PHY Work queue */
 	}
 	tc956xmac_enable_all_queues(priv);
 	tc956xmac_start_all_queues(priv);
@@ -4310,9 +4521,6 @@ static int tc956xmac_release(struct net_device *dev)
 				+ TX_TIMER_SRAM_OFFSET(priv->port_num));
 
 #endif
-	if (priv->eee_enabled)
-		del_timer_sync(&priv->eee_ctrl_timer);
-
 	/* Stop and disconnect the PHY */
 	if (priv->phylink) {
 		phylink_stop(priv->phylink);
@@ -4327,11 +4535,10 @@ static int tc956xmac_release(struct net_device *dev)
 			del_timer_sync(&priv->tx_queue[chan].txtimer);
 	}
 #endif
+	/* Free the IRQ lines */
+	free_irq(dev->irq, dev);
 	/* Do not Free Host Irq resources during suspend sequence */
 	if (priv->tc956x_port_pm_suspend == false) {
-		/* Free the IRQ lines */
-		free_irq(dev->irq, dev);
-
 		if (priv->wol_irq != dev->irq)
 			free_irq(priv->wol_irq, dev);
 #ifndef TC956X
@@ -4743,9 +4950,6 @@ static netdev_tx_t tc956xmac_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	tx_q = &priv->tx_queue[queue];
 	first_tx = tx_q->cur_tx;
-
-	if (priv->tx_path_in_lpi_mode)
-		tc956xmac_disable_eee_mode(priv);
 
 	KPRINT_DEBUG1("tso en = %d\n", priv->tso);
 	KPRINT_DEBUG1("skb tso en = %d\n", skb_is_gso(skb));
@@ -5274,6 +5478,7 @@ static int tc956xmac_rx(struct tc956xmac_priv *priv, int limit, u32 queue)
 	int status = 0, coe = priv->hw->rx_csum;
 	unsigned int next_entry = rx_q->cur_rx;
 	struct sk_buff *skb = NULL;
+	unsigned int proto;
 
 	if (netif_msg_rx_status(priv)) {
 		void *rx_head;
@@ -5416,6 +5621,18 @@ drain_data:
 			continue;
 
 		/* Got entire packet into SKB. Finish it. */
+		/* Pause frame counter to count link partner pause frames */
+		if ((mac0_en_lp_pause_frame_cnt == ENABLE && priv->port_num == RM_PF0_ID) ||
+			(mac1_en_lp_pause_frame_cnt == ENABLE && priv->port_num == RM_PF1_ID)) {
+			proto = htons(((skb->data[13]<<8) | skb->data[12]));
+			if (proto == ETH_P_PAUSE) {
+				if(!(skb->data[6] == phy_sa_addr[priv->port_num][0] && skb->data[7] == phy_sa_addr[priv->port_num][1] 
+					&& skb->data[8] == phy_sa_addr[priv->port_num][2] && skb->data[9] == phy_sa_addr[priv->port_num][3]
+					&& skb->data[10] == phy_sa_addr[priv->port_num][4] && skb->data[11] == phy_sa_addr[priv->port_num][5])) {
+					priv->xstats.link_partner_pause_frame_cnt++;
+				}
+			}
+		}
 
 		tc956xmac_get_rx_hwtstamp(priv, p, np, skb);
 #ifndef TC956X
@@ -5809,7 +6026,7 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 		/* Queue the work in system_wq */
 		if (priv->tc956x_port_pm_suspend == true) {
 			KPRINT_INFO("%s : (Do not queue PHY Work during suspend. Set WOL Interrupt flag) \n", __func__);
-			tc956xmac_pm_wol_interrupt[priv->port_num] = true;
+			priv->tc956xmac_pm_wol_interrupt = true;
 		} else {
 			KPRINT_INFO("%s : (Queue PHY Work.) \n", __func__);
 			queue_work(system_wq, &priv->emac_phy_work);
@@ -10108,7 +10325,10 @@ int tc956xmac_dvr_probe(struct device *device,
 #ifdef EEPROM_MAC_ADDR
 	u32 mac_addr;
 #endif
-
+#ifndef TC956X_WITHOUT_MDIO
+	void *nrst_reg = NULL, *nclk_reg = NULL;
+	u32 nrst_val = 0, nclk_val = 0;
+#endif
 #ifdef TC956X
 	KPRINT_INFO("HFR0 Val = 0x%08x", readl(res->addr + mac_offset_base +
 							XGMAC_HW_FEATURE0_BASE));
@@ -10170,6 +10390,9 @@ int tc956xmac_dvr_probe(struct device *device,
 	priv->wol_irq = res->wol_irq;
 	priv->lpi_irq = res->lpi_irq;
 	priv->port_interface = res->port_interface;
+	priv->eee_enabled = res->eee_enabled;
+	priv->tx_lpi_timer = res->tx_lpi_timer;
+
 #ifdef DMA_OFFLOAD_ENABLE
 	priv->client_priv = NULL;
 	memset(priv->cm3_tamap, 0, sizeof(struct tc956xmac_cm3_tamap) * MAX_CM3_TAMAP_ENTRIES);
@@ -10549,6 +10772,26 @@ error_mdio_register:
 				priv->plat->tx_dma_ch_owner[queue] == USE_IN_TC956X_SW)
 			netif_napi_del(&ch->tx_napi);
 	}
+#ifndef TC956X_WITHOUT_MDIO
+	if (priv->port_num == 0) {
+		nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
+		nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
+	} else {
+		nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL1_OFFSET;
+		nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL1_OFFSET;
+	}
+	nrst_val = readl(nrst_reg);
+	nclk_val = readl(nclk_reg);
+	KPRINT_INFO("%s : Port %d Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num,
+		nrst_val, nclk_val);
+	/* Assert reset and Disable Clock for EMAC */
+	nrst_val = nrst_val | NRSTCTRL_EMAC_MASK;
+	nclk_val = nclk_val & ~NCLKCTRL_EMAC_MASK;
+	writel(nrst_val, nrst_reg);
+	writel(nclk_val, nclk_reg);
+	KPRINT_INFO("%s : Port %d Wr RST Reg:%x, CLK Reg:%x", __func__, priv->port_num,
+		readl(nrst_reg), readl(nclk_reg));
+#endif
 error_hw_init:
 #ifndef TC956X
 	destroy_workqueue(priv->wq);
@@ -10633,11 +10876,22 @@ int tc956xmac_suspend(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct tc956xmac_priv *priv = netdev_priv(ndev);
+	struct phy_device *phydev = NULL; /* For cancelling Work queue */
+	int addr = priv->plat->phy_addr;
+
+	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
+	if ((priv->plat->phy_addr != -1) && (priv->mii != NULL))
+		phydev = mdiobus_get_phy(priv->mii, addr);
 
 	if (!ndev)
 		return 0;
 
-	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
+	if (!phydev) {
+		DBGPR_FUNC(priv->device, "%s Error : No phy at Addr %d or MDIO Unavailable \n", 
+			__func__, addr);
+		return 0;
+	}
+
 	/* Disabling EEE for issue in TC9560/62, to be tested for TC956X */
 	if (priv->eee_enabled)
 		tc956xmac_disable_eee_mode(priv);
@@ -10649,6 +10903,15 @@ int tc956xmac_suspend(struct device *dev)
 
 	if (!netif_running(ndev))
 		goto clean_exit;
+
+	/* Cancel all work-queues before suspend start only when net interface is up and running */
+	if (phydev->drv != NULL) {
+		if ((true == priv->plat->phy_interrupt_mode) && 
+		(phydev->drv->config_intr)) {
+			DBGPR_FUNC(priv->device, "%s : (Flush All PHY work-queues) \n", __func__);
+			cancel_work_sync(&priv->emac_phy_work);
+		}
+	}
 
 	/* Invoke device driver close only when net inteface is up and running. */
 	rtnl_lock();
@@ -10714,7 +10977,10 @@ int tc956xmac_resume(struct device *dev)
 	struct tc956xmac_resources res;
 	u32 cm3_reset_status = 0;
 	s32 fw_load_status = 0;
-
+#ifndef TC956X_WITHOUT_MDIO
+	void *nrst_reg = NULL, *nclk_reg = NULL;
+	u32 nrst_val = 0, nclk_val = 0;
+#endif
 	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
 
 	memset(&res, 0, sizeof(res));
@@ -10735,9 +11001,6 @@ int tc956xmac_resume(struct device *dev)
 	//	KPRINT_INFO("%s : Port %d - Phy Speed Up", __func__, priv->port_num);
 	//	phy_speed_up(phydev);
 	//}
-
-	/* Attach network device */
-	netif_device_attach(ndev);
 #ifndef TC956X
 	/* Reset Parameters. */
 	tc956xmac_reset_queues_param(priv);
@@ -10749,13 +11012,35 @@ int tc956xmac_resume(struct device *dev)
 	tc956xmac_open(ndev);
 	rtnl_unlock();
 
+	/* Attach network device */
+	netif_device_attach(ndev);
+
 clean_exit:
-	if (tc956xmac_pm_wol_interrupt[priv->port_num]) {
-		KPRINT_INFO("%s : Port %d Clearing WOL and queuing phy work", __func__, priv->port_num);
-		/* Clear WOL Interrupt after resume, if WOL enabled */
-		tc956xmac_pm_wol_interrupt[priv->port_num] = false;
-		/* Queue the work in system_wq */
-		queue_work(system_wq, &priv->emac_phy_work);
+	/*  Reset eMAC when Port unavailable */
+	if ((priv->plat->phy_addr == -1) || (priv->mii == NULL)) {
+		KPRINT_ERR("%s : Port %d : Invalid PHY Address (%d)\n", __func__, priv->port_num, 
+			priv->plat->phy_addr);
+#ifndef TC956X_WITHOUT_MDIO
+		/* Set Clocks same as before suspend */
+		if (priv->port_num == 0) {
+			nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
+			nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
+		} else {
+			nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL1_OFFSET;
+			nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL1_OFFSET;
+		}
+		nrst_val = readl(nrst_reg);
+		nclk_val = readl(nclk_reg);
+		KPRINT_INFO("%s : Port %d Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num,
+			nrst_val, nclk_val);
+		/* Assert reset and Disable Clock for EMAC */
+		nrst_val = nrst_val | NRSTCTRL_EMAC_MASK;
+		nclk_val = nclk_val & ~NCLKCTRL_EMAC_MASK;
+		writel(nrst_val, nrst_reg);
+		writel(nclk_val, nclk_reg);
+		KPRINT_INFO("%s : Port %d Wr RST Reg:%x, CLK Reg:%x", __func__, priv->port_num,
+			readl(nrst_reg), readl(nclk_reg));
+#endif
 	}
 	KPRINT_INFO("<--- %s : Port %d", __func__, priv->port_num);
 	return 0;

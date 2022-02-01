@@ -61,6 +61,16 @@
  *  VERSION     : 01-00-20
  *  08 Nov 2021 : 1. Added macro for Maximum Port
  *  VERSION     : 01-00-21
+ *  24 Nov 2021 : 1. Single Port Suspend/Resume supported
+ *  VERSION     : 01-00-22
+ *  24 Nov 2021 : 1. EEE update for runtime configuration and LPI interrupt disabled.
+ *  VERSION     : 01-00-24
+ *  08 Dec 2021 : 1. Added Macro for Maximum Tx, Rx Queue Size and byte size.
+ *  VERSION     : 01-00-30
+ *  10 Dec 2021 : 1. Added link partner pause frame count debug counters to ethtool statistics.
+ *  VERSION     : 01-00-31
+ *  27 Dec 2021 : 1. Support for eMAC Reset and unused clock disable during Suspend and restoring it back during resume.
+ *  VERSION     : 01-00-32
  */
 
 #ifndef __COMMON_H__
@@ -86,16 +96,12 @@
 
 /* Enable DMA IPA offload */
 #define DMA_OFFLOAD_ENABLE
-
+//#define TC956X_LPI_INTERRUPT
 /* Indepenedent Suspend/Resume Debug */
 #undef TC956X_PM_DEBUG
-#define TC956X_MAX_PORT		2
-/* Suspend-Resume Enum Counter */
-enum TC956X_INDEPENDENT_PORT_PM_SUSPEND {
-	NO_PORT_SUSPENDED = 0, /* Normal State */
-	SINGLE_PORT_SUSPENDED, /* Only Single Port suspended */
-	BOTH_PORT_SUSPENDED, /* Both Port suspended */
-};
+#define TC956X_MAX_PORT			2
+#define TC956X_ALL_MAC_PORT_SUSPENDED 	0 /* All EMAC Port Suspended. To be used just after suspend and before resume. */
+#define TC956X_NO_MAC_DEVICE_IN_USE	0 /* No EMAC Port in use. To be used at probe and remove. */
 
 /* Suspend-Resume Arguments */
 enum TC956X_PORT_PM_STATE {
@@ -106,6 +112,8 @@ enum TC956X_PORT_PM_STATE {
 
 #define DISABLE		0
 #define ENABLE		1
+#define SIZE_512B	512
+#define SIZE_1KB	1024
 
 /* Synopsys Core versions */
 #define DWMAC_CORE_3_40		0x34
@@ -118,7 +126,7 @@ enum TC956X_PORT_PM_STATE {
 #define DWXGMAC_CORE_3_01	0x30
 
 //#define DISABLE_EMAC_PORT1
-//#define EEE /* Enable for EEE support */
+#define EEE /* Enable for EEE support */
 
 /* Note: Multiple macro definitions for TC956X_PCIE_LOGSTAT.
  * Please also define/undefine same macro in tc956xmac_ioctl.h, if changing in this file
@@ -375,14 +383,17 @@ enum packets_types {
 
 
 /* Rx Queue Size */
-#define RX_QUEUE0_SIZE		18432
-#define RX_QUEUE1_SIZE		18432
+#define RX_QUEUE0_SIZE		4096
+#define RX_QUEUE1_SIZE		43008
 #define RX_QUEUE2_SIZE		0
 #define RX_QUEUE3_SIZE		0
 #define RX_QUEUE4_SIZE		0
 #define RX_QUEUE5_SIZE		0
 #define RX_QUEUE6_SIZE		0
 #define RX_QUEUE7_SIZE		0
+
+#define MAX_RX_QUEUE_SIZE	47104 /* 46KB Maximun RX Queue size */
+#define MAX_TX_QUEUE_SIZE	47104 /* 46KB Maximun TX Queue size */
 
 /*
  * RX Queue 0: Unicast/Untagged Packets - Packets with
@@ -690,6 +701,13 @@ enum packets_types {
 #define NRSTCTRL1_MAC1RST1	BIT(7)
 #define NRSTCTRL1_MAC1PMARST1	BIT(30)
 #define NRSTCTRL1_MAC1PONRST1	BIT(31)
+#define NRSTCTRL_EMAC_MASK     (NRSTCTRL0_MAC0RST | NRSTCTRL0_MAC0PMARST | \
+				 NRSTCTRL0_MAC0PONRST)
+#define NCLKCTRL_EMAC_MASK     (NCLKCTRL0_MAC0TXCEN | NCLKCTRL0_MAC0RXCEN | \
+				 NCLKCTRL0_MAC0125CLKEN | NCLKCTRL0_MAC0312CLKEN | \
+				 NCLKCTRL1_MAC1RMCEN | NCLKCTRL0_MAC0ALLCLKEN)
+#define NCLKCTRL0_COMMON_EMAC_MASK     (NCLKCTRL0_POEPLLCEN | NCLKCTRL0_SGMPCIEN | \
+				 NCLKCTRL0_REFCLKOCEN)
 #define NBUSCTRL_OFFSET		(0x1014)
 #endif
 
@@ -1057,7 +1075,11 @@ entry delay = n * 256 ns */
 #define TC956X_MSI_PF1				(0x000)
 #endif
 
+#ifdef TC956X_LPI_INTERRUPT
 #define ENABLE_MSI_INTR				(0x17FFFD)
+#else
+#define ENABLE_MSI_INTR				(0x17FFFC)
+#endif
 
 #define TC956X_MSI_OUT_EN_OFFSET(pf_id)	(TC956X_MSI_BASE + \
 						(pf_id * TC956X_MSI_PF1) + (0x0000))
@@ -1292,6 +1314,7 @@ struct tc956xmac_extra_stats {
 	u64 mtl_rx_miss_pkt_cnt[MTL_MAX_RX_QUEUES];
 	u64 mtl_rx_overflow_pkt_cnt[MTL_MAX_RX_QUEUES];
 	u64 rxch_watchdog_timer[TC956XMAC_CH_MAX];
+	u64 link_partner_pause_frame_cnt;
 
 	/*m3 SRAM debug counters */
 	u64 m3_debug_cnt0;
@@ -1586,6 +1609,9 @@ struct dma_features {
 #define TC956X_EIGHT		8
 #define TC956X_SIXTEEN		16
 #define TC956X_TWENTY_FOUR	24
+
+#define TC956X_MIN_LPI_AUTO_ENTRY_TIMER		0
+#define TC956X_MAX_LPI_AUTO_ENTRY_TIMER		0xFFFF8 /* LPI Entry timer is in the units of 8 micro second granularity. So mask the last 3 bits. */
 
 extern const struct tc956xmac_desc_ops enh_desc_ops;
 extern const struct tc956xmac_desc_ops ndesc_ops;

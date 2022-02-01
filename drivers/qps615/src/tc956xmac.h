@@ -83,6 +83,43 @@
  *  VERSION     : 01-00-20
  *  08 Nov 2021 : 1. Version update
  *  VERSION     : 01-00-21
+ *  24 Nov 2021 : 1. Version update
+ 		  2. Private member used instead of global for wol interrupt indication
+ *  VERSION     : 01-00-22
+ *  24 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-23
+ *  24 Nov 2021 : 1. EEE macro enabled by default.
+ 		  2. Module param support for EEE configuration
+		  3. Version update
+ *  VERSION     : 01-00-24
+ *  30 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-25
+ *  30 Nov 2021 : 1. Version update
+ *  VERSION     : 01-00-26
+ *  01 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-27
+ *  01 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-28
+ *  03 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-29
+ *  08 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-30
+ *  10 Dec 2021 : 1. Version update
+ *  VERSION     : 01-00-31
+ *  27 Dec 2021 : 1. Support for eMAC Reset and unused clock disable during Suspend and restoring it back during resume.
+		  2. Version update.
+ *  VERSION     : 01-00-32
+ *  06 Jan 2022 : 1. Version update
+ *  VERSION     : 01-00-33
+ *  07 Jan 2022 : 1. Version update
+ *  VERSION     : 01-00-34
+ *  11 Jan 2022 : 1. Version update
+ *  VERSION     : 01-00-35
+ *  18 Jan 2022 : 1. IRQ device name change
+ *		  2. Version update
+ *  VERSION     : 01-00-36
+ *  20 Jan 2022 : 1. Version update
+ *  VERSION     : 01-00-37
  */
 
 #ifndef __TC956XMAC_H__
@@ -105,9 +142,9 @@
 #define PF_DRIVER 4
 
 /* Uncomment EEE_MAC_CONTROLLED_MODE macro for MAC controlled EEE Mode & comment for PHY controlled EEE mode */
-//#define EEE_MAC_CONTROLLED_MODE
+#define EEE_MAC_CONTROLLED_MODE
 /* Uncomment TC956X_5_G_2_5_G_EEE_SUPPORT macro for enabling EEE support for 5G and 2.5G */
-//#define TC956X_5_G_2_5_G_EEE_SUPPORT
+#define TC956X_5_G_2_5_G_EEE_SUPPORT
 // #define CONFIG_TC956XMAC_SELFTESTS  /*Enable this macro to test Feature selftest*/
 
 #ifdef TC956X
@@ -135,7 +172,10 @@
 #ifdef TC956X
 
 #define TC956X_RESOURCE_NAME	"tc956x_pci-eth"
-#define DRV_MODULE_VERSION	"V_01-00-21"
+#define IRQ_DEV_NAME(x)		(((x) == RM_PF0_ID) ? ("eth0") : ("eth1"))
+#define WOL_IRQ_DEV_NAME(x)	(((x) == RM_PF0_ID) ? ("eth0_wol") : ("eth1_wol"))
+
+#define DRV_MODULE_VERSION	"V_01-00-37"
 #define TC956X_FW_MAX_SIZE	(64*1024)
 
 #define ATR_AXI4_SLV_BASE		0x0800
@@ -280,6 +320,10 @@
 
 #define	TC956XMAC_ALIGN(x)		ALIGN(ALIGN(x, SMP_CACHE_BYTES), 16)
 
+#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+	#include <soc/qcom/boot_stats.h>
+#endif
+
 #ifdef DMA_OFFLOAD_ENABLE
 struct tc956xmac_cm3_tamap {
 	u32 trsl_addr_hi;
@@ -306,6 +350,8 @@ struct tc956xmac_resources {
 #ifdef TC956X
 	unsigned int port_num;
 	unsigned int port_interface; /* Kernel module parameter variable for interface */
+	unsigned int eee_enabled; /* Parameter to store kernel module parameter to enable/disable EEE */
+	unsigned int tx_lpi_timer; /* Parameter to store kernel module parameter for LPI Auto Entry Timer */
 #endif
 };
 
@@ -520,11 +566,10 @@ struct tc956xmac_priv {
 	int wolopts;
 	int wol_irq;
 	int clk_csr;
-	struct timer_list eee_ctrl_timer;
 	int lpi_irq;
-	int eee_enabled;
+	unsigned int eee_enabled;
 	int eee_active;
-	int tx_lpi_timer;
+	unsigned int tx_lpi_timer;
 	unsigned int mode;
 	unsigned int chain_mode;
 	int extend_desc;
@@ -588,6 +633,7 @@ struct tc956xmac_priv {
 	bool is_sgmii_2p5g; /* For 2.5G SGMI, XPCS doesn't support AN. This flag is to identify 2.5G Speed for SGMII interface. */
 	u32 port_interface; /* Kernel module parameter variable for interface */
 	bool tc956x_port_pm_suspend; /* Port Suspend Status; True : port suspended, False : port resume */
+	bool tc956xmac_pm_wol_interrupt; /* Port-wise flag for clearing interrupt after resume. */
 #endif
 
 	/* set to 1 when ptp offload is enabled, else 0. */
@@ -609,6 +655,8 @@ struct tc956xmac_priv {
 #endif
 	/* Work struct for handling phy interrupt */
 	struct work_struct emac_phy_work;
+	u32 pm_saved_emac_rst; /* Save and restore EMAC Resets during suspend-resume sequence */
+	u32 pm_saved_emac_clk; /* Save and restore EMAC Clocks during suspend-resume sequence */
 
 };
 
