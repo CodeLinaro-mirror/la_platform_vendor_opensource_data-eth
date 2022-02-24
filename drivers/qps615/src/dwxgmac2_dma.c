@@ -38,6 +38,10 @@
  *  		  Threshold Limit for Activating Flow control 
  *  		  Threshold Limit for Deactivating Flow control 
  *  VERSION     : 01-00-14
+ *  08 Dec 2021 : 1. Added module parameter for Flow control thresholds per Queue
+ *  VERSION     : 01-00-30
+ *  02 Feb 2022 : 1. Tx Queue flushed and checked for status after Tx DMA stop
+ *  VERSION     : 01-00-40
  */
 
 #include <linux/iopoll.h>
@@ -254,28 +258,8 @@ static void dwxgmac2_dma_rx_mode(struct tc956xmac_priv *priv,
 
 		value |= XGMAC_EHFC;
 
-		/* Set Threshold for Activating Flow Control to min 2 frames,
-		 * i.e. 1500 * 2 = 3000 bytes.
-		 *
-		 * Set Threshold for Deactivating Flow Control to min 1 frame,
-		 * i.e. 1500 bytes.
-		 */
-		switch (fifosz) {
-		case 4096:
-			/* This violates the above formula because of FIFO size
-			 * limit therefore overflow may occur in spite of this.
-			 */
-			rfd = 0x03; /* Full-2.5K */
-			rfa = 0x01; /* Full-1.5K */
-			break;
-
-		default:
-		/* 13K Clear Trigger when Q(x) is filled with Max Size - 13K */
-			rfd = 46;
-		/* 13K Trigger when Q(x) is filled with Max Size - 13K */
-			rfa = 46;
-			break;
-		}
+		rfd = priv->plat->rx_queues_cfg[channel].rfd;
+		rfa = priv->plat->rx_queues_cfg[channel].rfa;
 
 		flow &= ~XGMAC_RFD;
 		flow |= rfd << XGMAC_RFD_SHIFT;
@@ -388,11 +372,28 @@ static void dwxgmac2_dma_start_tx(struct tc956xmac_priv *priv,
 static void dwxgmac2_dma_stop_tx(struct tc956xmac_priv *priv,
 					void __iomem *ioaddr, u32 chan)
 {
-	u32 value;
+	u32 value, limit;
 
 	value = readl(ioaddr + XGMAC_DMA_CH_TX_CONTROL(chan));
 	value &= ~XGMAC_TXST;
 	writel(value, ioaddr + XGMAC_DMA_CH_TX_CONTROL(chan));
+
+	/* Flush the Tx Queue */
+	value = readl(ioaddr + XGMAC_MTL_TXQ_OPMODE(chan));
+	value |= XGMAC_FTQ;
+	writel(value, ioaddr +  XGMAC_MTL_TXQ_OPMODE(chan));
+
+	/*Check the TxQ empty status with timeout of 10ms*/
+	limit = 10000;
+	while (limit--) {
+		if (!(readl(ioaddr + XGMAC_MTL_TXQ_Debug(chan)) & XGMAC_MTL_DEBUG_TXQSTS))
+			break;
+		udelay(1);
+	}
+	if (limit == 0)
+		KPRINT_ERR("Tx Queue did not get time to empty after flush operation\n");
+
+	DBGPR_FUNC(priv->device, "%s MTL TXQ status after flush: 0x%x, limit [%d]\n", __func__, readl(ioaddr + XGMAC_MTL_TXQ_Debug(chan)), limit);
 
 #ifndef DMA_OFFLOAD_ENABLE
 	value = readl(ioaddr + XGMAC_TX_CONFIG);
