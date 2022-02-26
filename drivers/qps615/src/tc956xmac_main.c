@@ -107,6 +107,11 @@
  *  VERSION     : 01-00-41
  *  14 Feb 2022 : 1. Reset assert and clock disable support during Link Down.
  *  VERSION     : 01-00-42
+ *  22 Feb 2022 : 1. Supported GPIO configuration save and restoration
+ *  VERSION     : 01-00-43
+ *  25 Feb 2022 : 1. XPCS module is re-initialized after link-up as MACxPONRST is asserted during link-down.
+ *		  2. Disable Rx side EEE LPI before configuring Rx Parser (FRP). Enable the same after Rx Parser configuration.
+ *  VERSION     : 01-00-44
 */
 
 #include <linux/clk.h>
@@ -907,6 +912,8 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 			return -EPERM;
 	}
 
+	priv->saved_gpio_config[gpio_pin].config = 1;
+
 	/* Write data to GPIO pin */
 	if(gpio_pin < GPIO_32) {
 		config = 1 << gpio_pin; 
@@ -926,6 +933,8 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 		writel(val, priv->ioaddr + GPIOO1_OFFSET);
 	}
 
+	priv->saved_gpio_config[gpio_pin].out_val = out_value;
+
 	/* Configure the GPIO pin in output direction */
 	if(gpio_pin < GPIO_32) {
 		config = ~(1 << gpio_pin) ;
@@ -937,6 +946,128 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 		writel(val & config, priv->ioaddr + GPIOE1_OFFSET);
 	}
 
+	return 0;
+}
+
+/**
+ *  tc956x_gpio_restore_configuration - to restore the saved configuration of GPIO
+ *  @priv: driver private structure
+ *  @remarks : Only GPIO0- GPIO06, GPI010-GPIO12 are allowed
+ */
+int tc956x_gpio_restore_configuration(struct tc956xmac_priv *priv)
+{
+	u32 config, val, gpio_pin, out_value;
+
+	DBGPR_FUNC(priv->device, "-->%s", __func__);
+
+	for (gpio_pin = 0; gpio_pin <= GPIO_12; gpio_pin++) {
+
+		/* Restore only the GPIOs which were configured/saved */
+		if (!(priv->saved_gpio_config[gpio_pin].config))
+			continue;
+
+		DBGPR_FUNC(priv->device, "%s : Restoring GPIO configuration for pin: %d, val: %d",
+				__func__, gpio_pin, priv->saved_gpio_config[gpio_pin].out_val);
+
+		/* Only GPIO0- GPIO06, GPI010-GPIO12 are allowed */
+		switch (gpio_pin) {
+			case GPIO_00:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_00;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_00_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_01:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_01;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_01_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_02:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_02;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_02_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_03:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_03;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_03_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_04:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_04;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_04_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_05:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_05;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_05_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_06:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_06;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_06_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_10:
+				val = readl(priv->ioaddr + NFUNCEN5_OFFSET);
+				val &= ~NFUNCEN5_GPIO_10;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN5_GPIO_10_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN5_OFFSET);
+				break;
+			case GPIO_11:
+				val = readl(priv->ioaddr + NFUNCEN5_OFFSET);
+				val &= ~NFUNCEN5_GPIO_11;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN5_GPIO_11_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN5_OFFSET);
+				break;
+			case GPIO_12:
+				val = readl(priv->ioaddr + NFUNCEN6_OFFSET);
+				val &= ~NFUNCEN6_GPIO_12;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN6_GPIO_12_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN6_OFFSET);
+				break;
+			default : 
+				netdev_err(priv->dev, "Invalid GPIO pin - %d\n", gpio_pin);
+				return -EPERM;
+		}
+
+		out_value = priv->saved_gpio_config[gpio_pin].out_val;
+
+		/* Write data to GPIO pin */
+		if(gpio_pin < GPIO_32) {
+			config = 1 << gpio_pin; 
+			val = readl(priv->ioaddr + GPIOO0_OFFSET);
+			val &= ~config;
+			if(out_value)
+				val |= config;
+
+			writel(val, priv->ioaddr + GPIOO0_OFFSET);
+		}  else {
+			config = 1 << (gpio_pin - GPIO_32);
+			val = readl(priv->ioaddr + GPIOO1_OFFSET);
+			val &= ~config;
+			if(out_value)
+				val |= config;
+
+			writel(val, priv->ioaddr + GPIOO1_OFFSET);
+		}
+
+		/* Configure the GPIO pin in output direction */
+		if(gpio_pin < GPIO_32) {
+			config = ~(1 << gpio_pin) ;
+			val = readl(priv->ioaddr + GPIOE0_OFFSET);
+			writel(val & config, priv->ioaddr + GPIOE0_OFFSET);
+		} else {
+			config = ~(1 << (gpio_pin - GPIO_32)) ;
+			val = readl(priv->ioaddr + GPIOE1_OFFSET);
+			writel(val & config, priv->ioaddr + GPIOE1_OFFSET);
+		}
+	}
 	return 0;
 }
 
@@ -6659,11 +6790,19 @@ int tc956xmac_rx_parser_configuration(struct tc956xmac_priv *priv)
 {
 	int ret = -EINVAL;
 
+	/* Disable XPCS Rx LPI to configure FRP in EEE mode */
+	if (priv->eee_enabled)
+		tc956x_xpcs_ctrl0_lrx(priv, false);
+
 	if (priv->hw->mac->rx_parser_init && priv->plat->rxp_cfg.enable)
 		ret = tc956xmac_rx_parser_init(priv,
 			priv->dev, priv->hw, priv->dma_cap.spram,
 			priv->dma_cap.frpsel, priv->dma_cap.frpes,
 			&priv->plat->rxp_cfg);
+
+	/* Enable XPCS Rx LPI after configuring FRP in EEE mode */
+	if (priv->eee_enabled)
+		tc956x_xpcs_ctrl0_lrx(priv, true);
 
 		/* spram feautre is not present in TC956X */
 	if (ret)
@@ -10943,6 +11082,8 @@ int tc956xmac_dvr_probe(struct device *device,
 	priv->dev = ndev;
 	priv->ioaddr = res->addr;
 
+	memset(priv->saved_gpio_config, 0, sizeof(struct tc956x_gpio_config) * (GPIO_12 + 1));
+
 	ret = tc956x_platform_probe(priv, res);
 	if (ret) {
 		dev_err(priv->device, "Platform probe error %d\n", ret);
@@ -11648,6 +11789,9 @@ static void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC
 	void *nrst_reg = NULL, *nclk_reg = NULL, *commonrst_reg = NULL, *commonclk_reg = NULL;
 	u32 nrst_val = 0, nclk_val = 0, commonrst_val = 0, commonclk_val = 0;
 	static u32 pm_saved_cmn_linkdown_rst = 0, pm_saved_cmn_linkdown_clk = 0;
+	int ret;
+	bool enable_en = true;
+
 	KPRINT_INFO("-->%s : Port %d", __func__, priv->port_num);
 	/* Select register address by port */
 	if (priv->port_num == 0) {
@@ -11728,6 +11872,24 @@ static void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC
 
 		tc956xmac_link_down_counter--; /* Decrement Counter Only when this api called */
 		priv->port_link_down = false;
+
+		/* Re-Init XPCS module as MACxPONRST is asserted during link-down */
+		ret = tc956x_xpcs_init(priv, priv->xpcsaddr);
+		if (ret < 0)
+			KPRINT_INFO("XPCS initialization error\n");
+
+		/*C37 AN enable*/
+		if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
+			enable_en = false;
+		else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII) {
+			if (priv->is_sgmii_2p5g == true)
+				enable_en = false;
+			else
+				enable_en = true;
+		} else
+			enable_en = true;
+
+		tc956x_xpcs_ctrl_ane(priv, enable_en);
 	}
 	KPRINT_INFO("%s : Port %d Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
 		readl(nrst_reg), readl(nclk_reg));
