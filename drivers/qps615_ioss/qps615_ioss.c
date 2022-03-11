@@ -1,4 +1,6 @@
-/* Copyright (c) 2021 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
+ * Copyright (c) 2021 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,6 +17,12 @@
 #include <linux/msm/ioss.h>
 #include "tc956x_ipa_intf.h"
 #include "tc956xmac.h"
+
+struct qps615_ioss_device {
+	struct ioss_device *idev;
+	struct tc956xmac_priv *_priv;
+	struct tc956x_regs regs_save;
+};
 
 static void *qps615_ioss_dma_alloc(struct ioss_device *idev,
 			       size_t size, dma_addr_t *daddr, gfp_t gfp,
@@ -70,13 +78,30 @@ static void qps615_ioss_free_buf(struct net_device *ndev, void *buf, size_t size
 
 static int qps615_ioss_open_device(struct ioss_device *idev)
 {
-	/* any event registration with toshiba */
+	struct qps615_ioss_device *qps615dev;
+
+	ioss_dev_dbg(idev, "%s", __func__);
+
+	qps615dev = kzalloc(sizeof(*qps615dev), GFP_KERNEL);
+	if (!qps615dev)
+		return -ENOMEM;
+
+	qps615dev->idev = idev;
+	qps615dev->_priv = netdev_priv(idev->net_dev);
+
+	idev->private = qps615dev;
+
 	return 0;
 }
 
 static int qps615_ioss_close_device(struct ioss_device *idev)
 {
-	/* any event registration with toshiba */
+	struct qps615_ioss_device *qps615dev = idev->private;
+
+	ioss_dev_dbg(idev, "%s", __func__);
+
+	kzfree(qps615dev);
+
 	return 0;
 }
 
@@ -566,6 +591,30 @@ static int qps615_ioss_channel_status(struct ioss_channel *ch, struct ioss_chann
 	return 0;
 }
 
+static int qps615_save_regs(struct ioss_device *idev,
+		void **regs, size_t *size)
+{
+	int rc = 0;
+	struct qps615_ioss_device *qps615dev = idev->private;
+	struct tc956x_regs *regs_save = &qps615dev->regs_save;
+
+	memset(regs_save, 0, sizeof(*regs_save));
+
+	rc = tc956x_dump_regs(idev->net_dev, regs_save);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to save qps615 device registers");
+		return rc;
+	}
+
+	if (regs)
+		*regs = regs_save;
+
+	if (size)
+		*size = sizeof(*regs_save);
+
+	return rc;
+}
+
 static struct ioss_driver_ops qps615_ioss_ops = {
 	.open_device = qps615_ioss_open_device,
 	.close_device = qps615_ioss_close_device,
@@ -585,6 +634,8 @@ static struct ioss_driver_ops qps615_ioss_ops = {
 	.get_device_statistics = qps615_ioss_device_statistics,
 	.get_channel_statistics = qps615_ioss_channel_statistics,
 	.get_channel_status = qps615_ioss_channel_status,
+
+	.save_regs = qps615_save_regs,
 };
 
 bool qps615_driver_match(struct device *dev)
