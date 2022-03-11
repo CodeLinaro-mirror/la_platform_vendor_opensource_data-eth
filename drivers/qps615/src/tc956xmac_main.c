@@ -11815,6 +11815,7 @@ static void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC
 	int ret;
 	bool enable_en = true;
 
+	return;
 	KPRINT_INFO("-->%s : Port %d", __func__, priv->port_num);
 	/* Select register address by port */
 	if (priv->port_num == 0) {
