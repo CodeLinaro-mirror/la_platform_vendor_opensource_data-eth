@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 20 Jan 2022
+Release Date: 25 Feb 2022
 
-Release Version: V_01-00-37 : Limited-tested version
+Release Version: V_01-00-44 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -442,3 +442,33 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 1. Skip resume_config and reset eMAC if port unavailable (PHY not connected) during suspend-resume.
 2. Restore clock after resume in set_power.
 3. Shifted Queuing Work to end of resume to prevent MSI disable on resume.
+
+## TC956X_Host_Driver_20220124_V_01-00-38:
+
+1. Set Clock control and Reset control register to default value on driver unload.
+
+## TC956X_Host_Driver_20220131_V_01-00-39:
+
+1. Debug dump API supported to dump registers during crash.
+
+## TC956X_Host_Driver_20220202_V_01-00-40:
+
+1. Tx Queue flushed and checked for status after Tx DMA stop.
+
+## TC956X_Host_Driver_20220204_V_01-00-41:
+
+1. DMA channel status cleared only for SW path allocated DMA channels. IPA path DMA channel status clearing is skipped.
+2. Ethtool statistics added to print doorbell SRAM area for all the channels.
+
+## TC956X_Host_Driver_20220214_V_01-00-42:
+
+1. Reset assert and clock disable support during Link Down.
+
+## TC956X_Host_Driver_20220222_V_01-00-43:
+
+1. Supported GPIO configuration save and restoration.
+
+## TC956X_Host_Driver_20220225_V_01-00-44:
+
+1. XPCS module is re-initialized after link-up as MACxPONRST is asserted during link-down.
+2. Disable Rx side EEE LPI before configuring Rx Parser (FRP). Enable the same after Rx Parser configuration.

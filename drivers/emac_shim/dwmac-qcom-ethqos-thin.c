@@ -2,6 +2,7 @@
 
 // Copyright (c) 2021 The Linux Foundation. All rights reserved.
 // Copyright (c) 2018-19 Linaro Limited
+// Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
 
 #include <linux/module.h>
 #include <linux/of.h>
@@ -604,6 +605,7 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 
 	ETHQOSINFO("Enter\n");
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_UNMOUNT);
+	cancel_work_sync(&ethqos->emac_fe_work);
 	destroy_workqueue(ethqos->wq);
 	mutex_destroy(&ethqos->lock);
 	ret = stmmac_pltfr_remove(pdev);
