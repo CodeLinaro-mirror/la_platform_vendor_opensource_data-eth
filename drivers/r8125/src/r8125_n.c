@@ -3203,6 +3203,7 @@ rtl8125_hw_set_timer_int_8125(struct rtl8125_private *tp,
                               u32 message_id,
                               u8 timer_intmiti_val)
 {
+		timer_intmiti_val = 0;
         switch (tp->HwSuppIntMitiVer) {
         case 4:
                 if (message_id < R8125_MAX_RX_QUEUES_VEC_V3) //ROK
@@ -7915,7 +7916,8 @@ rtl8125_init_software_variable(struct net_device *dev)
                 break;
         }
 
-        timer_count_v2 = (timer_count / 0x100);
+//        timer_count_v2 = (timer_count / 0x100);
+		timer_count_v2 = 0;
 
         tp->NicCustLedValue = RTL_R16(tp, CustomLED);
 
