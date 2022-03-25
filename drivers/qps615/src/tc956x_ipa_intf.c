@@ -883,6 +883,11 @@ int request_event(struct net_device *ndev, struct channel_info *channel, phys_ad
 	unsigned long flags;
         dma_addr_t addr;
 
+	if (port0_pdev == NULL) {
+		pr_err("%s: ERROR: Port1 must be binded after Port0\n", __func__);
+		return -ENODEV;
+	}
+
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
 		return -ENODEV;
@@ -1044,6 +1049,11 @@ EXPORT_SYMBOL_GPL(request_event);
 int release_event(struct net_device *ndev, struct channel_info *channel)
 {
 	struct tc956xmac_priv *priv;
+
+	if (port0_pdev == NULL) {
+		pr_err("%s: ERROR: Port1 must be removed before Port0\n", __func__);
+		return -ENODEV;
+	}
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
