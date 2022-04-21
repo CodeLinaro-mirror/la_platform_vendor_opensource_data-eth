@@ -333,10 +333,9 @@ struct rtl8125_ring *rtl8125_request_ring(struct net_device *ndev,
                 goto error_out;
 
         /* initialize descriptors to point to buffers allocated */
-        if (!rtnl_trylock()) {
+        if (!rtnl_trylock())
                 locked = false;
-                printk("r8125: RTNL0 already locked.\n");
-        }
+
         if (direction == RTL8125_CH_DIR_TX)
                 rtl8125_init_tx_ring(ring);
         else if (direction == RTL8125_CH_DIR_RX)
@@ -392,10 +391,9 @@ void rtl8125_release_ring(struct rtl8125_ring *ring)
         rtl8125_put_ring(ring);
         if (rtl8125_all_ring_released(tp)) {
                 struct net_device *dev = tp->dev;
-                if (!rtnl_trylock()) {
+                if (!rtnl_trylock())
                         locked = false;
-                        printk("r8125: RTNL1 already locked.\n");
-                }
+
                 if (netif_running(dev)) {
                         rtl8125_close(dev);
                         rtl8125_open(dev);
@@ -420,10 +418,8 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
         if (!(ring->direction == RTL8125_CH_DIR_TX || ring->direction == RTL8125_CH_DIR_RX))
                 return -EINVAL;
 
-        if (!rtnl_trylock()) {
+        if (!rtnl_trylock())
                 locked = false;
-                printk("r8125: RTNL2 already locked.\n");
-        }
 
         tp = ring->private;
         dev = tp->dev;
@@ -465,10 +461,8 @@ void rtl8125_disable_ring(struct rtl8125_ring *ring)
         tp = ring->private;
         dev = tp->dev;
 
-        if (!rtnl_trylock()) {
+        if (!rtnl_trylock())
                 locked = false;
-                printk("r8125: RTNL3 already locked.\n");
-        }
 
         rtl8125_hw_reset(dev);
         //rtl8125_tx_clear(tp);
@@ -515,10 +509,8 @@ int rtl8125_request_event(struct rtl8125_ring *ring, unsigned long flags,
                 /* Initialize any MSI-X/interrupt related register in HW */
                 u16 reg = message_id * 0x10;
 
-                if (!rtnl_trylock()) {
+                if (!rtnl_trylock())
                         locked = false;
-                        printk("r8125: RTNL4 already locked.\n");
-                }
 
                 ring->event.addr = rtl8125_eri_read(tp, reg, 4, ERIAR_MSIX);
                 ring->event.addr |= (u64)rtl8125_eri_read(tp, reg + 4, 4, ERIAR_MSIX) << 32;
@@ -566,10 +558,8 @@ void rtl8125_release_event(struct rtl8125_ring *ring)
         addr = ring->event.addr;
         data = ring->event.data;
 
-        if (!rtnl_trylock()) {
+        if (!rtnl_trylock())
                 locked = false;
-                printk("r8125: RTNL5 already locked.\n");
-        }
 
         rtl8125_eri_write(tp, reg, 4, (u64)addr & DMA_BIT_MASK(32), ERIAR_MSIX);
         rtl8125_eri_write(tp, reg + 4, 4, (u64)addr >> 32, ERIAR_MSIX);
@@ -593,10 +583,8 @@ int rtl8125_enable_event(struct rtl8125_ring *ring)
         if (!ring->event.allocated)
                 return -EINVAL;
 
-        if (!rtnl_trylock()) {
+        if (!rtnl_trylock())
                 locked = false;
-                printk("r8125: RTNL6 already locked.\n");
-        }
 
         /* Set interrupt moderation timer */
         rtl8125_set_ring_intr_mod(ring, ring->event.delay);
@@ -621,10 +609,8 @@ int rtl8125_disable_event(struct rtl8125_ring *ring)
         if (!ring->event.allocated)
                 return -EINVAL;
 
-        if (!rtnl_trylock()) {
+        if (!rtnl_trylock())
                 locked = false;
-                printk("r8125: RTNL7 already locked.\n");
-        }
 
         /* Disable interrupt */
         rtl8125_disable_hw_interrupt_v2(tp, ring->event.message_id);
