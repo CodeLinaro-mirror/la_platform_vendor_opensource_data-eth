@@ -22,7 +22,7 @@ static struct emac_ctrl_fe_virtio_dev *emac_ctrl_fe_ctx;
 
 static ATOMIC_NOTIFIER_HEAD(emac_ctrl_fe_notifier_chain);
 
-static __maybe_unused emac_ctrl_fe_notify(enum emac_ctrl_fe_gvm_event event, int nr_to_call , int *nr_calls)
+static int __maybe_unused emac_ctrl_fe_notify(enum emac_ctrl_fe_gvm_event event, int nr_to_call , int *nr_calls)
 {
 	int ret;
 	rcu_irq_enter_irqson();
