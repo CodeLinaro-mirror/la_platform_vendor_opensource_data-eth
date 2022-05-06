@@ -45,20 +45,15 @@ struct stmmac_desc_ops {
 				    unsigned int tcppayloadlen);
 	/* Set/get the owner of the descriptor */
 	void (*set_tx_owner)(struct dma_desc *p);
-	int (*get_tx_owner)(struct dma_desc *p);
 	/* Clean the tx descriptor as soon as the tx irq is received */
 	void (*release_tx_desc)(struct dma_desc *p, int mode);
 	/* Clear interrupt on tx frame completion. When this bit is
 	 * set an interrupt happens as soon as the frame is transmitted
 	 */
 	void (*set_tx_ic)(struct dma_desc *p);
-	/* Last tx segment reports the transmit status */
-	int (*get_tx_ls)(struct dma_desc *p);
 	/* Return the transmit status looking at the TDES1 */
 	int (*tx_status)(void *data, struct stmmac_extra_stats *x,
 			 struct dma_desc *p, void __iomem *ioaddr);
-	/* Get the buffer size from the descriptor */
-	int (*get_tx_len)(struct dma_desc *p);
 	/* Handle extra events on specific interrupts hw dependent */
 	void (*set_rx_owner)(struct dma_desc *p, int disable_rx_ic);
 	/* Get the receive frame size */
@@ -74,12 +69,8 @@ struct stmmac_desc_ops {
 	void (*get_timestamp)(void *desc, u64 *ts);
 	/* get rx timestamp status */
 	int (*get_rx_timestamp_status)(void *desc, void *next_desc);
-	/* Display ring */
-	void (*display_ring)(void *head, unsigned int size, bool rx);
 	/* set MSS via context descriptor */
 	void (*set_mss)(struct dma_desc *p, unsigned int mss);
-	/* get descriptor skbuff address */
-	void (*get_addr)(struct dma_desc *p, unsigned int *addr);
 	/* set descriptor skbuff address */
 	void (*set_addr)(struct dma_desc *p, dma_addr_t addr);
 	/* clear descriptor */
@@ -103,18 +94,12 @@ struct stmmac_desc_ops {
 	stmmac_do_void_callback(__priv, desc, prepare_tso_tx_desc, __args)
 #define stmmac_set_tx_owner(__priv, __args...) \
 	stmmac_do_void_callback(__priv, desc, set_tx_owner, __args)
-#define stmmac_get_tx_owner(__priv, __args...) \
-	stmmac_do_callback(__priv, desc, get_tx_owner, __args)
 #define stmmac_release_tx_desc(__priv, __args...) \
 	stmmac_do_void_callback(__priv, desc, release_tx_desc, __args)
 #define stmmac_set_tx_ic(__priv, __args...) \
 	stmmac_do_void_callback(__priv, desc, set_tx_ic, __args)
-#define stmmac_get_tx_ls(__priv, __args...) \
-	stmmac_do_callback(__priv, desc, get_tx_ls, __args)
 #define stmmac_tx_status(__priv, __args...) \
 	stmmac_do_callback(__priv, desc, tx_status, __args)
-#define stmmac_get_tx_len(__priv, __args...) \
-	stmmac_do_callback(__priv, desc, get_tx_len, __args)
 #define stmmac_set_rx_owner(__priv, __args...) \
 	stmmac_do_void_callback(__priv, desc, set_rx_owner, __args)
 #define stmmac_get_rx_frame_len(__priv, __args...) \
@@ -129,12 +114,8 @@ struct stmmac_desc_ops {
 	stmmac_do_void_callback(__priv, desc, get_timestamp, __args)
 #define stmmac_get_rx_timestamp_status(__priv, __args...) \
 	stmmac_do_callback(__priv, desc, get_rx_timestamp_status, __args)
-#define stmmac_display_ring(__priv, __args...) \
-	stmmac_do_void_callback(__priv, desc, display_ring, __args)
 #define stmmac_set_mss(__priv, __args...) \
 	stmmac_do_void_callback(__priv, desc, set_mss, __args)
-#define stmmac_get_desc_addr(__priv, __args...) \
-	stmmac_do_void_callback(__priv, desc, get_addr, __args)
 #define stmmac_set_desc_addr(__priv, __args...) \
 	stmmac_do_void_callback(__priv, desc, set_addr, __args)
 #define stmmac_clear_desc(__priv, __args...) \
@@ -181,7 +162,6 @@ struct stmmac_dma_ops {
 	void (*set_rx_tail_ptr)(void __iomem *ioaddr, u32 tail_ptr, u32 chan);
 	void (*set_tx_tail_ptr)(void __iomem *ioaddr, u32 tail_ptr, u32 chan);
 	void (*enable_tso)(void __iomem *ioaddr, bool en, u32 chan);
-	void (*qmode)(void __iomem *ioaddr, u32 channel, u8 qmode);
 	void (*set_bfsize)(void __iomem *ioaddr, int bfsize, u32 chan);
 	void (*dma_stats)(void __iomem *ioaddr,
 			  struct stmmac_extra_stats *x, u32 chan);
@@ -226,8 +206,6 @@ struct stmmac_dma_ops {
 	stmmac_do_void_callback(__priv, dma, set_tx_tail_ptr, __args)
 #define stmmac_enable_tso(__priv, __args...) \
 	stmmac_do_void_callback(__priv, dma, enable_tso, __args)
-#define stmmac_dma_qmode(__priv, __args...) \
-	stmmac_do_void_callback(__priv, dma, qmode, __args)
 #define stmmac_set_dma_bfsize(__priv, __args...) \
 	stmmac_do_void_callback(__priv, dma, set_bfsize, __args)
 #define stmmac_get_dma_stats(__priv, __args...) \

@@ -105,6 +105,16 @@
  *  VERSION     : 01-00-39
  *  04 Feb 2022 : 1. DMA channel status cleared only for SW path allocated DMA channels. IPA path DMA channel status clearing is skipped.
  *  VERSION     : 01-00-41
+ *  14 Feb 2022 : 1. Reset assert and clock disable support during Link Down.
+ *  VERSION     : 01-00-42
+ *  22 Feb 2022 : 1. Supported GPIO configuration save and restoration
+ *  VERSION     : 01-00-43
+ *  25 Feb 2022 : 1. XPCS module is re-initialized after link-up as MACxPONRST is asserted during link-down.
+ *		  2. Disable Rx side EEE LPI before configuring Rx Parser (FRP). Enable the same after Rx Parser configuration.
+ *  VERSION     : 01-00-44
+ *  09 Mar 2022 : 1. Handling of Non S/W path DMA channel abnormal interrupts in Driver and only TI & RI interrupts handled in FW.
+ *		  2. Reading MSI status for checking interrupt status of SW MSI.
+ *  VERSION     : 01-00-45
 */
 
 #include <linux/clk.h>
@@ -217,6 +227,9 @@ static const struct net_device_ops tc956xmac_netdev_ops;
 static void tc956xmac_init_fs(struct net_device *dev);
 static void tc956xmac_exit_fs(struct net_device *dev);
 #endif
+
+static u32 tc956xmac_link_down_counter = 0; /* Counter to count Link Down/Up for both port */
+static void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT_LINK_CHANGE_STATE state);
 
 #define TC956XMAC_COAL_TIMER(x) (jiffies + usecs_to_jiffies(x))
 
@@ -902,6 +915,8 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 			return -EPERM;
 	}
 
+	priv->saved_gpio_config[gpio_pin].config = 1;
+
 	/* Write data to GPIO pin */
 	if(gpio_pin < GPIO_32) {
 		config = 1 << gpio_pin; 
@@ -921,6 +936,8 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 		writel(val, priv->ioaddr + GPIOO1_OFFSET);
 	}
 
+	priv->saved_gpio_config[gpio_pin].out_val = out_value;
+
 	/* Configure the GPIO pin in output direction */
 	if(gpio_pin < GPIO_32) {
 		config = ~(1 << gpio_pin) ;
@@ -932,6 +949,128 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 		writel(val & config, priv->ioaddr + GPIOE1_OFFSET);
 	}
 
+	return 0;
+}
+
+/**
+ *  tc956x_gpio_restore_configuration - to restore the saved configuration of GPIO
+ *  @priv: driver private structure
+ *  @remarks : Only GPIO0- GPIO06, GPI010-GPIO12 are allowed
+ */
+int tc956x_gpio_restore_configuration(struct tc956xmac_priv *priv)
+{
+	u32 config, val, gpio_pin, out_value;
+
+	DBGPR_FUNC(priv->device, "-->%s", __func__);
+
+	for (gpio_pin = 0; gpio_pin <= GPIO_12; gpio_pin++) {
+
+		/* Restore only the GPIOs which were configured/saved */
+		if (!(priv->saved_gpio_config[gpio_pin].config))
+			continue;
+
+		DBGPR_FUNC(priv->device, "%s : Restoring GPIO configuration for pin: %d, val: %d",
+				__func__, gpio_pin, priv->saved_gpio_config[gpio_pin].out_val);
+
+		/* Only GPIO0- GPIO06, GPI010-GPIO12 are allowed */
+		switch (gpio_pin) {
+			case GPIO_00:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_00;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_00_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_01:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_01;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_01_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_02:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_02;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_02_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_03:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_03;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_03_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_04:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_04;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_04_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_05:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_05;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_05_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_06:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_06;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_06_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_10:
+				val = readl(priv->ioaddr + NFUNCEN5_OFFSET);
+				val &= ~NFUNCEN5_GPIO_10;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN5_GPIO_10_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN5_OFFSET);
+				break;
+			case GPIO_11:
+				val = readl(priv->ioaddr + NFUNCEN5_OFFSET);
+				val &= ~NFUNCEN5_GPIO_11;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN5_GPIO_11_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN5_OFFSET);
+				break;
+			case GPIO_12:
+				val = readl(priv->ioaddr + NFUNCEN6_OFFSET);
+				val &= ~NFUNCEN6_GPIO_12;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN6_GPIO_12_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN6_OFFSET);
+				break;
+			default : 
+				netdev_err(priv->dev, "Invalid GPIO pin - %d\n", gpio_pin);
+				return -EPERM;
+		}
+
+		out_value = priv->saved_gpio_config[gpio_pin].out_val;
+
+		/* Write data to GPIO pin */
+		if(gpio_pin < GPIO_32) {
+			config = 1 << gpio_pin; 
+			val = readl(priv->ioaddr + GPIOO0_OFFSET);
+			val &= ~config;
+			if(out_value)
+				val |= config;
+
+			writel(val, priv->ioaddr + GPIOO0_OFFSET);
+		}  else {
+			config = 1 << (gpio_pin - GPIO_32);
+			val = readl(priv->ioaddr + GPIOO1_OFFSET);
+			val &= ~config;
+			if(out_value)
+				val |= config;
+
+			writel(val, priv->ioaddr + GPIOO1_OFFSET);
+		}
+
+		/* Configure the GPIO pin in output direction */
+		if(gpio_pin < GPIO_32) {
+			config = ~(1 << gpio_pin) ;
+			val = readl(priv->ioaddr + GPIOE0_OFFSET);
+			writel(val & config, priv->ioaddr + GPIOE0_OFFSET);
+		} else {
+			config = ~(1 << (gpio_pin - GPIO_32)) ;
+			val = readl(priv->ioaddr + GPIOE1_OFFSET);
+			writel(val & config, priv->ioaddr + GPIOE1_OFFSET);
+		}
+	}
 	return 0;
 }
 
@@ -2383,6 +2522,9 @@ static void tc956xmac_mac_link_down(struct phylink_config *config,
 #ifdef TC956X_PM_DEBUG
 	pm_generic_suspend(priv->device);
 #endif
+	tc956xmac_link_down_counter++; /* Increment counter only when Link Down */
+	tc956xmac_link_change_set_power(priv, LINK_DOWN); /* Save, Assert and Disable Reset and Clock */
+	priv->port_link_down = true; /* Set per port flag to true */
 }
 
 #ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
@@ -2592,6 +2734,9 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 			       struct phy_device *phy)
 {
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
+
+	if (priv->port_link_down == true)
+		tc956xmac_link_change_set_power(priv, LINK_UP); /* Restore, De-assert and Enable Reset and Clock */
 
 	tc956xmac_mac_set_rx(priv, priv->ioaddr, true);
 #ifdef EEE
@@ -4814,7 +4959,11 @@ static int tc956xmac_open(struct net_device *dev)
 
 	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
 	phydev = mdiobus_get_phy(priv->mii, addr);
-  
+
+	if (priv->port_link_down == true) {
+		tc956xmac_link_change_set_power(priv, LINK_UP); /* Restore, De-assert and Enable Reset and Clock */
+	}
+
 	if (!phydev) {
 		netdev_err(priv->dev, "no phy at addr %d\n", addr);
 		return -ENODEV;
@@ -6540,12 +6689,28 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 	/* Checking if any RBUs occurred and updating the statistics corresponding to channel */
 
 	for (queue = 0; queue < queues_count; queue++) {
-		uiIntSts = readl(priv->ioaddr + XGMAC_DMA_CH_STATUS(queue));
-		if(uiIntSts & XGMAC_RBU) {
-			priv->xstats.rx_buf_unav_irq[queue]++;
-			uiIntclr |= XGMAC_RBU;
+		/* Assuming DMA Tx and Rx channels are used as pairs */
+		if ((priv->plat->tx_dma_ch_owner[queue] != USE_IN_TC956X_SW) ||
+		    (priv->plat->rx_dma_ch_owner[queue] != USE_IN_TC956X_SW)) {
+			uiIntSts = readl(priv->ioaddr + XGMAC_DMA_CH_STATUS(queue));
+			/* Handling Abnormal interrupts of NON S/W path, TI & RI are handled in FW */
+			if (unlikely(uiIntSts & XGMAC_AIS)) {
+				if (unlikely(uiIntSts & XGMAC_RBU)) {
+					priv->xstats.rx_buf_unav_irq[queue]++;
+					uiIntclr |= XGMAC_RBU;
+				}
+				if (unlikely(uiIntSts & XGMAC_TPS)) {
+					priv->xstats.tx_process_stopped_irq[queue]++;
+					uiIntclr |= XGMAC_TPS;
+				}
+				if (unlikely(uiIntSts & XGMAC_FBE)) {
+					priv->xstats.fatal_bus_error_irq[queue]++;
+					uiIntclr |= XGMAC_FBE;
+				}
+				uiIntclr |= XGMAC_AIS;
+			}
+			writel(uiIntclr, (priv->ioaddr + XGMAC_DMA_CH_STATUS(queue)));
 		}
-		writel(uiIntclr, (priv->ioaddr + XGMAC_DMA_CH_STATUS(queue)));
 	}
 
 	/* To handle GMAC own interrupts */
@@ -6590,6 +6755,10 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 	val = readl(priv->ioaddr + TC956X_MSI_INT_STS_OFFSET(priv->port_num));
 	if (val & TC956X_EXT_PHY_ETH_INT) {
 		KPRINT_INFO("PHY Interrupt %s \n", __func__);
+
+		if (priv->port_link_down == true)
+			tc956xmac_link_change_set_power(priv, LINK_UP); /* Restore, De-assert and Enable Reset and Clock */
+
 		/* Queue the work in system_wq */
 		if (priv->tc956x_port_pm_suspend == true) {
 			KPRINT_INFO("%s : (Do not queue PHY Work during suspend. Set WOL Interrupt flag) \n", __func__);
@@ -6604,6 +6773,7 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 		writel(val, priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num)); /* MSI_OUT_EN: Writing to disable MAC Ext Interrupt*/
 	}
 #ifdef TC956X_SW_MSI
+	val = readl(priv->ioaddr + TC956X_MSI_INT_STS_OFFSET(priv->port_num));
 	if (val & TC956X_SW_MSI_INT) {
 		//DBGPR_FUNC(priv->device, "%s SW MSI INT STS[%08x]\n", __func__, val);
 
@@ -6643,11 +6813,19 @@ int tc956xmac_rx_parser_configuration(struct tc956xmac_priv *priv)
 {
 	int ret = -EINVAL;
 
+	/* Disable XPCS Rx LPI to configure FRP in EEE mode */
+	if (priv->eee_enabled)
+		tc956x_xpcs_ctrl0_lrx(priv, false);
+
 	if (priv->hw->mac->rx_parser_init && priv->plat->rxp_cfg.enable)
 		ret = tc956xmac_rx_parser_init(priv,
 			priv->dev, priv->hw, priv->dma_cap.spram,
 			priv->dma_cap.frpsel, priv->dma_cap.frpes,
 			&priv->plat->rxp_cfg);
+
+	/* Enable XPCS Rx LPI after configuring FRP in EEE mode */
+	if (priv->eee_enabled)
+		tc956x_xpcs_ctrl0_lrx(priv, true);
 
 		/* spram feautre is not present in TC956X */
 	if (ret)
@@ -10927,6 +11105,8 @@ int tc956xmac_dvr_probe(struct device *device,
 	priv->dev = ndev;
 	priv->ioaddr = res->addr;
 
+	memset(priv->saved_gpio_config, 0, sizeof(struct tc956x_gpio_config) * (GPIO_12 + 1));
+
 	ret = tc956x_platform_probe(priv, res);
 	if (ret) {
 		dev_err(priv->device, "Platform probe error %d\n", ret);
@@ -10959,7 +11139,9 @@ int tc956xmac_dvr_probe(struct device *device,
 	priv->port_interface = res->port_interface;
 	priv->eee_enabled = res->eee_enabled;
 	priv->tx_lpi_timer = res->tx_lpi_timer;
-
+	priv->pm_saved_linkdown_rst = 0;
+	priv->pm_saved_linkdown_clk = 0;
+	priv->port_link_down = false;
 #ifdef DMA_OFFLOAD_ENABLE
 	priv->client_priv = NULL;
 	memset(priv->cm3_tamap, 0, sizeof(struct tc956xmac_cm3_tamap) * MAX_CM3_TAMAP_ENTRIES);
@@ -11396,9 +11578,6 @@ int tc956xmac_dvr_remove(struct device *dev)
 #endif
 	tc956xmac_stop_all_dma(priv);
 
-	if (tc956x_platform_remove(priv)) {
-		dev_err(priv->device, "Platform remove error\n");
-	}
 	tc956xmac_mac_set(priv, priv->ioaddr, false);
 	netif_carrier_off(ndev);
 	unregister_netdev(ndev);
@@ -11415,6 +11594,9 @@ int tc956xmac_dvr_remove(struct device *dev)
 		priv->hw->pcs != TC956XMAC_PCS_TBI &&
 		priv->hw->pcs != TC956XMAC_PCS_RTBI)
 		tc956xmac_mdio_unregister(ndev);
+	if (tc956x_platform_remove(priv)) {
+		dev_err(priv->device, "Platform remove error\n");
+	}
 #ifndef TC956X
 	destroy_workqueue(priv->wq);
 #endif
@@ -11613,6 +11795,129 @@ clean_exit:
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tc956xmac_resume);
+
+/*!
+ * \brief API to save and restore clock and reset during link down and link up.
+ *
+ * \details This fucntion saves the EMAC clock and reset bits before
+ * link down. And restores the same settings after link up.
+ *
+ * \param[in] priv - pointer to device private structure.
+ * \param[in] state - identify LINK DOWN and LINK DOWN operation.
+ *
+ * \return None
+ */
+static void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT_LINK_CHANGE_STATE state)
+{
+	void *nrst_reg = NULL, *nclk_reg = NULL, *commonrst_reg = NULL, *commonclk_reg = NULL;
+	u32 nrst_val = 0, nclk_val = 0, commonrst_val = 0, commonclk_val = 0;
+	static u32 pm_saved_cmn_linkdown_rst = 0, pm_saved_cmn_linkdown_clk = 0;
+	int ret;
+	bool enable_en = true;
+
+	KPRINT_INFO("-->%s : Port %d", __func__, priv->port_num);
+	/* Select register address by port */
+	if (priv->port_num == 0) {
+		nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
+		nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
+	} else {
+		nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL1_OFFSET;
+		nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL1_OFFSET;
+	}
+	if (state == LINK_DOWN) {
+		KPRINT_INFO("%s : Port %d Set Power for Link Down", __func__, priv->port_num);
+		nrst_val = readl(nrst_reg);
+		nclk_val = readl(nclk_reg);
+		KPRINT_INFO("%s : Port %d Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
+			nrst_val, nclk_val);
+		/* Save register values before Asserting reset and Clock Disable */
+		priv->pm_saved_linkdown_rst = ((~nrst_val) & NRSTCTRL_LINK_DOWN_SAVE); /* Save Non-Common De-Asserted Resets */
+		priv->pm_saved_linkdown_clk = (nclk_val & NCLKCTRL_LINK_DOWN_SAVE); /* Save Non-Common Enabled Clocks */
+		KPRINT_INFO("%s : Port %d priv->pm_saved_linkdown_rst %x priv->pm_saved_linkdown_clk %x", __func__, 
+			priv->port_num, priv->pm_saved_linkdown_rst, priv->pm_saved_linkdown_clk);
+		/* Assert Reset and Disable Clock */
+		nrst_val = nrst_val | NRSTCTRL_LINK_DOWN;
+		nclk_val = nclk_val & ~NCLKCTRL_LINK_DOWN;
+		KPRINT_INFO("%s : Port %d Wr RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
+			nrst_val, nclk_val);
+		writel(nrst_val, nrst_reg);
+		writel(nclk_val, nclk_reg);
+		if (tc956xmac_link_down_counter == TC956X_ALL_MAC_PORT_LINK_DOWN) {
+			/* Save Common register values */
+			commonrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
+			commonclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
+			commonrst_val = readl(commonrst_reg);
+			commonclk_val = readl(commonclk_reg);
+			KPRINT_INFO("%s : Port %d Common Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
+				commonrst_val, commonclk_val);
+			pm_saved_cmn_linkdown_rst = ((~commonrst_val) & NRSTCTRL_LINK_DOWN_CMN_SAVE); /* Save Common De-Asserted Resets */
+			pm_saved_cmn_linkdown_clk = commonclk_val & NCLKCTRL_LINK_DOWN_CMN_SAVE; /* Save Common Enabled Clocks */
+			KPRINT_INFO("%s : Port %d pm_saved_cmn_linkdown_rst %x pm_saved_cmn_linkdown_clk %x", __func__, 
+				priv->port_num, pm_saved_cmn_linkdown_rst, pm_saved_cmn_linkdown_clk);
+		}
+	} else if (state == LINK_UP) {
+		KPRINT_INFO("%s : Port %d Set Power for Link Up", __func__, priv->port_num);
+		if (tc956xmac_link_down_counter == TC956X_ALL_MAC_PORT_LINK_DOWN) {
+			/* Restore Common register values */
+			KPRINT_INFO("%s : Port %d pm_saved_cmn_linkdown_clk %x, pm_saved_cmn_linkdown_rst %x", __func__, 
+				priv->port_num, pm_saved_cmn_linkdown_clk, pm_saved_cmn_linkdown_rst);
+			/* Enable Common Clock and De-Assert Common Resets */
+			commonclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
+			commonrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
+			commonclk_val = readl(commonclk_reg);
+			commonrst_val = readl(commonrst_reg);
+			KPRINT_INFO("%s : Port %d Common Rd CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, 
+				commonclk_val, commonrst_val);
+			/* Clear Common Clocks only when both port suspends */
+			commonclk_val = (commonclk_val | pm_saved_cmn_linkdown_clk); /* Enable Common Saved Clock */
+			commonrst_val = (commonrst_val & (~pm_saved_cmn_linkdown_rst)); /* De-assert Common Saved Reset */
+			writel(commonclk_val, commonclk_reg);
+			writel(commonrst_val, commonrst_reg);
+			KPRINT_INFO("%s : Port %d Common Wr CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, 
+				commonclk_val, commonrst_val);
+			KPRINT_INFO("%s : Port %d Common Rd CLK Reg:%x, RST Reg:%x", __func__, priv->port_num, 
+				readl(commonclk_reg), readl(commonrst_reg));
+		}
+		/* Restore register values */
+		KPRINT_INFO("%s : Port %d pm_saved_linkdown_clk %x, pm_saved_linkdown_rst %x", __func__, 
+			priv->port_num, priv->pm_saved_linkdown_clk, priv->pm_saved_linkdown_rst);
+		nclk_val = readl(nclk_reg);
+		nrst_val = readl(nrst_reg);
+		KPRINT_INFO("%s : Port %d Rd CLK Reg:%x, RST Reg:%x", __func__, priv->port_num, 
+			nrst_val, nclk_val);
+		/* Restore values same as before link down */
+		nclk_val = (nclk_val | priv->pm_saved_linkdown_clk); /* Enable Saved Clock */
+		nrst_val = (nrst_val & (~(priv->pm_saved_linkdown_rst))); /* De-assert Saved Reset */
+		writel(nclk_val, nclk_reg);
+		writel(nrst_val, nrst_reg);
+		KPRINT_INFO("%s : Port %d Wr CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, 
+			nclk_val, nrst_val);
+
+		tc956xmac_link_down_counter--; /* Decrement Counter Only when this api called */
+		priv->port_link_down = false;
+
+		/* Re-Init XPCS module as MACxPONRST is asserted during link-down */
+		ret = tc956x_xpcs_init(priv, priv->xpcsaddr);
+		if (ret < 0)
+			KPRINT_INFO("XPCS initialization error\n");
+
+		/*C37 AN enable*/
+		if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
+			enable_en = false;
+		else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII) {
+			if (priv->is_sgmii_2p5g == true)
+				enable_en = false;
+			else
+				enable_en = true;
+		} else
+			enable_en = true;
+
+		tc956x_xpcs_ctrl_ane(priv, enable_en);
+	}
+	KPRINT_INFO("%s : Port %d Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
+		readl(nrst_reg), readl(nclk_reg));
+	KPRINT_INFO("<--%s : Port %d", __func__, priv->port_num);
+}
 
 #ifndef MODULE
 static int __init tc956xmac_cmdline_opt(char *str)
