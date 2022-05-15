@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -261,6 +262,8 @@ static ssize_t read_ch_statistics(struct file *file, char __user *user_buf,
 			 ch_stats.overflow_error);
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "underflow_errors",
 			 ch_stats.underflow_error);
+	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "desc_unavail",
+			 ch_stats.desc_unavail);
 
 	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
 	kfree(buf);
@@ -290,7 +293,8 @@ static ssize_t read_ch_stats(struct file *file, char __user *user_buf, size_t si
 		return -ENOMEM;
 
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", ch_stats.overflow_error);
-	len += scnprintf(buf + len, BUF_LEN - len, "%llu", ch_stats.underflow_error);
+	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", ch_stats.underflow_error);
+	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", ch_stats.desc_unavail);
 	len += scnprintf(buf + len, BUF_LEN - len, "\n");
 
 	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
