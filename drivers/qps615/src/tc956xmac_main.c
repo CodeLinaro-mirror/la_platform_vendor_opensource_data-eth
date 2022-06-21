@@ -5228,9 +5228,6 @@ dma_desc_error:
 static int tc956xmac_release(struct net_device *dev)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
-	/*TC956X_Host_Driver-limited-tested_20220302_V_01-00-44-QPSSW-113.patch*/
-	struct phy_device *phydev;
-	int addr = priv->plat->phy_addr;
 #ifdef ENABLE_TX_TIMER
 	u32 chan;
 #endif
@@ -5248,9 +5245,6 @@ static int tc956xmac_release(struct net_device *dev)
 	tc956xmac_stop_all_queues(priv);
 
 	tc956xmac_disable_all_queues(priv);
-	/*TC956X_Host_Driver-limited-tested_20220302_V_01-00-44-QPSSW-113.patch*/
-	/* MSI_OUT_EN: Disable all MSI*/
-	writel(0x00000000, priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num));
 #ifdef ENABLE_TX_TIMER
 	for (chan = 0; chan < priv->plat->tx_queues_to_use; chan++) {
 		if (priv->plat->tx_dma_ch_owner[chan] == USE_IN_TC956X_SW)
@@ -5267,14 +5261,6 @@ static int tc956xmac_release(struct net_device *dev)
 		if (priv->lpi_irq > 0)
 			free_irq(priv->lpi_irq, dev);
 #endif
-	}
-	/*TC956X_Host_Driver-limited-tested_20220302_V_01-00-44-QPSSW-113.patch*/
-	phydev = mdiobus_get_phy(priv->mii, addr);
-	if(phydev->drv != NULL) {
-		if ((true == priv->plat->phy_interrupt_mode) && (phydev->drv->config_intr)) {
-			DBGPR_FUNC((priv->device), "-->%s Flush work queue\n", __func__);
-			flush_work(&priv->emac_phy_work);
-		}
 	}
 	/* Stop TX/RX DMA and clear the descriptors */
 	tc956xmac_stop_all_dma(priv);
@@ -6712,9 +6698,6 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 				if (unlikely(uiIntSts & XGMAC_RBU)) {
 					priv->xstats.rx_buf_unav_irq[queue]++;
 					uiIntclr |= XGMAC_RBU;
-				}
-				if (unlikely(uiIntSts & XGMAC_TBU)) {
-					uiIntclr |= XGMAC_TBU;
 				}
 				if (unlikely(uiIntSts & XGMAC_TPS)) {
 					priv->xstats.tx_process_stopped_irq[queue]++;
