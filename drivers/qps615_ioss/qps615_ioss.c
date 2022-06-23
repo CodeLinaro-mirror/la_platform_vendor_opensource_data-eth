@@ -529,6 +529,16 @@ static int qps615_ioss_device_statistics(struct ioss_device *idev,
 static int qps615_ioss_channel_statistics(struct ioss_channel *ch,
 		struct ioss_channel_stats *statistics)
 {
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct tc956xmac_priv *priv = netdev_priv(idev->net_dev);
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
+		statistics->desc_unavail = priv->xstats.rx_buf_unav_irq[ch->id];
+		statistics->overflow_error = priv->xstats.overflow_error;
+	} else {
+		statistics->underflow_error = priv->xstats.tx_underflow;
+	}
+
 	return 0;
 }
 
