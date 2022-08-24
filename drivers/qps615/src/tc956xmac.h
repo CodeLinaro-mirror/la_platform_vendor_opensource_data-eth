@@ -152,6 +152,9 @@
  *  29 Apr 2022 : 1. Added variable for tracking port release status and Lock for syncing linkdown, port rlease and release of offloaded DMA channels
  *		  2. Version update.
  *  VERSION     : 01-00-51
+*  15 Jun 2022 : 1. Added debugfs support for module specific register dump
+*		 2. Version update.
+*  VERSION	   : 01-00-52 
  *  31 Aug 2022 : 1. Added Fix for configuring Rx Parser when EEE is enabled and RGMII Interface is used
  *		  2. Version update.
  *  VERSION     : 01-00-54
@@ -718,6 +721,9 @@ struct tc956xmac_priv {
 
 	unsigned long link_state;
 	bool link_down_rst; /* For light-weight release and open during link-down */
+#ifdef CONFIG_DEBUG_FS
+	struct dentry *debugfs_dir; /* debugfs structure pointer for port specific */
+#endif
 };
 
 struct tc956x_version {

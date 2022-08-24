@@ -163,6 +163,8 @@
  *  29 Apr 2022 : 1. Module parameter added for selecting Power saving at Link down and default is disabled
  *		  2. Version update
  *  VERSION     : 01-00-51
+*  15 Jun 2022 : 1. Version update
+*  VERSION	   : 01-00-52
  *  31 Aug 2022 : 1. Version update
  *  VERSION     : 01-00-54
  *  02 Sep 2022 : 1. 2500Base-X support for line speeds 2.5Gbps, 1Gbps, 100Mbps.
