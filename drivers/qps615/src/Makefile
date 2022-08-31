@@ -21,6 +21,8 @@ DMA_OFFLOAD = 1
 ccflags-y += -DFIRMWARE_NAME='"qps615_fw.bin"'
 ccflags-y += -DCONFIG_TC956X_PLATFORM_SUPPORT
 
+ccflags-y += -DNENABLE_V_01-00-52
+
 obj-$(CONFIG_QPS615) += qps615.o
 qps615-y += tc956xmac_main.o tc956xmac_ethtool.o tc956xmac_mdio.o \
 	      mmc_core.o tc956xmac_hwtstamp.o tc956xmac_ptp.o tc956x_xpcs.o tc956x_pma.o \
