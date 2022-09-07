@@ -154,9 +154,15 @@
  *  VERSION     : 01-00-51
  *  15 Jun 2022 : 1. Added debugfs support for module specific register dump
  *		  2. Version update.
- *  VERSION     : 01-00-52 
+ *  VERSION     : 01-00-52
  *  08 Aug 2022 : 1. Version update 
  *  VERSION     : 01-00-53
+ *  31 Aug 2022 : 1. Added Fix for configuring Rx Parser when EEE is enabled and RGMII Interface is used
+ *		  2. Version update.
+ *  VERSION     : 01-00-54
+ *  02 Sep 2022 : 1. 2500Base-X support for line speeds 2.5Gbps, 1Gbps, 100Mbps.
+ *		  2. Version update
+ *  VERSION     : 01-00-55
  */
 
 #ifndef __TC956XMAC_H__
@@ -212,7 +218,7 @@
 #define IRQ_DEV_NAME(x)		(((x) == RM_PF0_ID) ? ("eth0") : ("eth1"))
 #define WOL_IRQ_DEV_NAME(x)	(((x) == RM_PF0_ID) ? ("eth0_wol") : ("eth1_wol"))
 
-#define DRV_MODULE_VERSION	"V_01-00-53"
+#define DRV_MODULE_VERSION	"V_01-00-55"
 #define TC956X_FW_MAX_SIZE	(64*1024)
 
 #define ATR_AXI4_SLV_BASE		0x0800
@@ -342,7 +348,7 @@
 #define ENABLE_XFI_INTERFACE		1 /* XFI/SFI, this is same as USXGMII, except XPCS autoneg disabled */
 #define ENABLE_RGMII_INTERFACE		2
 #define ENABLE_SGMII_INTERFACE		3
-
+#define ENABLE_2500BASE_X_INTERFACE	4
 #define MTL_FPE_AFSZ_64		0
 #define MTL_FPE_AFSZ_128	1
 #define MTL_FPE_AFSZ_192	2
@@ -356,6 +362,8 @@
 #define CM3_TAMAP_SRC_ADDR_START	0x60000000
 
 #define	TC956XMAC_ALIGN(x)		ALIGN(ALIGN(x, SMP_CACHE_BYTES), 16)
+
+#define TC956X_MAX_LINK_DELAY		800
 
 #ifdef DMA_OFFLOAD_ENABLE
 struct tc956xmac_cm3_tamap {
@@ -705,6 +713,7 @@ struct tc956xmac_priv {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs_dir; /* debugfs structure pointer for port specific */
 #endif
+	unsigned long link_state;
 };
 
 struct tc956x_version {
