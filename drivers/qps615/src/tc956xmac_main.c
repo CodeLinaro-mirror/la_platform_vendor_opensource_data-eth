@@ -855,7 +855,6 @@ int tc956x_print_debug_regs(struct net_device *net_device, struct tc956x_regs *r
 	return 0;
 }
 
-#ifdef ENABLE_V_01-00-52
 static DEFINE_SPINLOCK(reg_dump_lock);
 static void dump_all_reg(struct tc956xmac_priv *priv)
 {
@@ -1559,7 +1558,6 @@ int tc956xmac_cleanup_debugfs(struct net_device *net_device)
 
 }
 #endif/* End of CONFIG_DEBUG_FS */
-#endif/* End of ENABLE_V_01-00-52 */
 
 /**
  *  tc956x_GPIO_OutputConfigPin - to configure GPIO as output and write the value
@@ -5712,11 +5710,8 @@ static int tc956xmac_open(struct net_device *dev)
 
 	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
 	phydev = mdiobus_get_phy(priv->mii, addr);
-
-#ifdef ENABLE_V_01-00-52
 #ifdef CONFIG_DEBUG_FS
 	tc956xmac_create_debugfs(priv->dev);/*Creating Debugfs*/
-#endif
 #endif
 
 	mutex_lock(&priv->port_ld_release_lock);
@@ -6008,13 +6003,9 @@ static int tc956xmac_release(struct net_device *dev)
 				+ TX_TIMER_SRAM_OFFSET(priv->port_num));
 
 #endif
-
-#ifdef ENABLE_V_01-00-52
 #ifdef CONFIG_DEBUG_FS
 	tc956xmac_cleanup_debugfs(priv->dev);
 #endif
-#endif
-
 	/* Stop and disconnect the PHY */
 	if (priv->phylink) {
 		phylink_stop(priv->phylink);
@@ -7540,7 +7531,7 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 				value = readl(priv->ioaddr + XGMAC_DMA_CH_INT_EN(queue));
 				value &= ~XGMAC_RBUE;
 				writel(value, priv->ioaddr + XGMAC_DMA_CH_INT_EN(queue));
-				KPRINT_DEBUG1("***RBU INT disabled***XGMAC_DMA_CH_INT_EN[%d]***** :0x%x\n", queue, readl(priv->ioaddr + XGMAC_DMA_CH_INT_EN(queue)));
+				printk("***RBU INT disabled***XGMAC_DMA_CH_INT_EN[%d]***** :0x%x\n", queue, readl(priv->ioaddr + XGMAC_DMA_CH_INT_EN(queue)));
 			}
 		}
 	}
