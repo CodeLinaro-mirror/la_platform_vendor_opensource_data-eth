@@ -145,17 +145,20 @@ struct emac_ctrl_fe_cb_info {
 int emac_ctrl_fe_register_ready_cb(void (*emac_ctrl_fe_ready_cb)(void *user_data),
 	void *user_data)
 {
-	if (emac_ctrl_fe_ctx->emac_ctrl_fe_ready == true) {
+	int ret = 0;
+
+	if (emac_ctrl_fe_ctx && emac_ctrl_fe_ctx->emac_ctrl_fe_ready) {
 		/*call the callback*/
-		EMAC_CTL_FE_INFO("Trigger FE Ready CB \n");
+		EMAC_CTL_FE_INFO("Trigger FE Ready CB\n");
 		if (emac_ctrl_fe_ready_cb)
 			emac_ctrl_fe_ready_cb(user_data);
 
 	}
 	else {
-		EMAC_CTL_FE_INFO("FE Not Ready Yet \n");
+		EMAC_CTL_FE_INFO("FE Not Support or Ready Yet\n");
+		ret = -EINVAL;
 	}
-	return 0;
+	return ret;
 }
 EXPORT_SYMBOL(emac_ctrl_fe_register_ready_cb);
 
