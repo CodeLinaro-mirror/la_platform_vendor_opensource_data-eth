@@ -251,7 +251,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 		if (ioss_ipa_fill_pipe_info(ch, &cp->ipa_pi)) {
 			ioss_dev_err(idev, "Failed to fill pipe info");
-			return -EFAULT;
+			goto err_ioss_pipe_info;
 		}
 
 		list_add_tail(&cp->ipa_pi.link, &ec->pipe_list);
@@ -266,14 +266,14 @@ int ioss_ipa_register(struct ioss_interface *iface)
 				sizeof(*ii->pipe_hdl_list), GFP_KERNEL);
 	if (!ii->pipe_hdl_list) {
 		ioss_dev_err(idev, "Failed to alloc pipe hdl list");
-		return -EINVAL;
+		goto err_pipe_hdl;
 	}
 
 	ii->netdev_name = net_dev->name;
 
 	if (ioss_ipa_fill_hdrs(iface)) {
 		ioss_dev_err(idev, "Failed to fill partial headers");
-		return -EINVAL;
+		goto err_ipa_fill_hdrs;
 	}
 #endif
 
@@ -283,13 +283,13 @@ int ioss_ipa_register(struct ioss_interface *iface)
 #endif
 	if (ipa_eth_client_conn_pipes(ec)) {
 		ioss_dev_err(idev, "Failed to connect pipes");
-		return -EINVAL;
+		goto err_ipa_conn_pipes;
 	}
 
 	/* vote for bw */
 	if (ioss_ipa_vote_bw(iface)) {
 		ioss_dev_err(idev, "Failed to vote for bandwidth");
-		return -EINVAL;
+		goto err_ipa_vote_bw;
 	}
 
 	/* Retrieve output from conn_pipes call */
@@ -315,7 +315,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	if (ipa_eth_client_reg_intf(ii)) {
 		ioss_dev_err(idev, "Failed to register interface");
-		return -EINVAL;
+		goto err_ipa_reg_intf;
 	}
 
 #if IPA_ETH_API_VER < 2
@@ -327,6 +327,38 @@ int ioss_ipa_register(struct ioss_interface *iface)
 #endif
 
 	return 0;
+
+err_ipa_reg_intf:
+	ioss_for_each_channel(ch, iface) {
+		ch->event.paddr = 0;
+		ch->event.data = 0;
+	}
+err_ipa_vote_bw:
+	if (ipa_eth_client_disconn_pipes(ec))
+		ioss_dev_err(idev, "Failed to disconnect pipes");
+err_ipa_conn_pipes:
+#if IPA_ETH_API_VER < 2
+	memset(hdr_v4, 0, sizeof(*hdr_v4));
+	memset(hdr_v6, 0, sizeof(*hdr_v6));
+#endif
+err_ipa_fill_hdrs:
+#if IPA_ETH_API_VER < 2
+	kfree(ii->pipe_hdl_list);
+#endif
+err_pipe_hdl:
+	ioss_for_each_channel(ch, iface) {
+		struct ioss_ch_priv *cp = ch->ioss_priv;
+		struct ipa_eth_client_pipe_info *pi = &cp->ipa_pi;
+		struct ipa_eth_pipe_setup_info *si = &pi->info;
+
+		kfree(si->data_buff_list);
+		memset(&cp->ipa_pi, 0, sizeof(cp->ipa_pi));
+	}
+err_ioss_pipe_info:
+	memset(ii, 0, sizeof(*ii));
+	memset(ec, 0, sizeof(*ec));
+
+	return -EINVAL;
 }
 
 int ioss_ipa_unregister(struct ioss_interface *iface)
