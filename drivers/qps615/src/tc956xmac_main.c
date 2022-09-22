@@ -5159,7 +5159,7 @@ static int tc956xmac_open(struct net_device *dev)
 		rd_val |= (1 << MSI_INT_EXT_PHY);
 	}
 
-	/* rd_val |= (1 << 2); *//* Disable MSI for MAC EVENT Interrupt */
+	rd_val |= (1 << 2); /* Disable MSI for MAC EVENT Interrupt */
 	/* Disable MAC Event and XPCS interrupt */
 	rd_val = ENABLE_MSI_INTR & (~rd_val);
 
