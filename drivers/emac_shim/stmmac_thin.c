@@ -1869,7 +1869,6 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 		stmmac_set_desc_addr(priv, p, buf->addr);
 
 		rx_q->rx_count_frames++;
-		rx_q->rx_count_frames += priv->rx_coal_frames;
 		if (rx_q->rx_count_frames > priv->rx_coal_frames)
 			rx_q->rx_count_frames = 0;
 		use_rx_wd = priv->use_riwt && rx_q->rx_count_frames;
@@ -2801,6 +2800,7 @@ int stmmac_dvr_probe(struct device *device,
 	ndev->features |= ndev->hw_features | NETIF_F_HIGHDMA;
 	ndev->watchdog_timeo = msecs_to_jiffies(watchdog);
 #ifdef STMMAC_VLAN_TAG_USED
+	ndev->vlan_features |= ndev->hw_features;
 	/* Both mac100 and gmac support receive VLAN tag detection */
 	ndev->features |= NETIF_F_HW_VLAN_CTAG_RX | NETIF_F_HW_VLAN_STAG_RX;
 	ndev->features |= NETIF_F_HW_VLAN_CTAG_FILTER |
@@ -2890,11 +2890,10 @@ int stmmac_dvr_remove(struct device *dev)
 
 	if (priv->emac_state > EMAC_INIT_ST) {
 		stmmac_stop_dma(priv);
-
 		netif_carrier_off(ndev);
-		unregister_netdev(ndev);
 	}
 
+	unregister_netdev(ndev);
 	if (priv->plat->stmmac_rst)
 		reset_control_assert(priv->plat->stmmac_rst);
 	destroy_workqueue(priv->wq);
