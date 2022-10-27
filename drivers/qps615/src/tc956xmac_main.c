@@ -296,9 +296,6 @@ extern unsigned int mac0_en_lp_pause_frame_cnt;
 extern unsigned int mac1_en_lp_pause_frame_cnt;
 extern unsigned int mac_power_save_at_link_down;
 
-extern unsigned int mac0_force_speed_mode;
-extern unsigned int mac1_force_speed_mode;
-
 extern int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data);
 
 static int dwxgmac2_rx_parser_read_entry(struct tc956xmac_priv *priv,

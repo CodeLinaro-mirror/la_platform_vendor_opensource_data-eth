@@ -710,9 +710,7 @@ struct tc956xmac_priv {
 	struct mutex port_ld_release_lock; /* Mutex lock to handle (set and clear) flag to notify 
 						appropriate sequence of link down & up */
 	struct tc956x_gpio_config saved_gpio_config[GPIO_12 + 1]; /* Only GPIO0- GPIO06, GPI010-GPIO12 are used */
-#ifdef CONFIG_DEBUG_FS
-	struct dentry *debugfs_dir; /* debugfs structure pointer for port specific */
-#endif
+
 	unsigned long link_state;
 };
 
