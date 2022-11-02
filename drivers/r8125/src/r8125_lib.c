@@ -4,7 +4,7 @@
 # r8168 is the Linux device driver released for Realtek Gigabit Ethernet
 # controllers with PCI-Express interface.
 #
-# Copyright(c) 2021 Realtek Semiconductor Corp. All rights reserved.
+# Copyright(c) 2022 Realtek Semiconductor Corp. All rights reserved.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
@@ -425,6 +425,8 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
         dev = tp->dev;
 
         /* Start the ring if needed */
+        netif_tx_disable(dev);
+        _rtl8125_wait_for_quiescence(dev);
         rtl8125_hw_reset(dev);
         rtl8125_tx_clear(tp);
         rtl8125_rx_clear(tp);
@@ -434,6 +436,12 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
 
         rtl8125_hw_config(dev);
         rtl8125_hw_start(dev);
+
+#ifdef CONFIG_R8125_NAPI
+        rtl8125_enable_napi(tp);
+#endif//CONFIG_R8125_NAPI
+
+        netif_tx_start_all_queues(dev);
 
         if (locked)
                 rtnl_unlock();
@@ -722,32 +730,6 @@ EXPORT_SYMBOL(rtl8125_lib_reset_prepare);
 
 void rtl8125_lib_reset_complete(struct rtl8125_private *tp)
 {
-        int i;
-
-        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
-                struct rtl8125_ring *ring = &tp->lib_tx_ring[i];
-
-                if (!ring->allocated)
-                        continue;
-
-                if (ring->event.enabled)
-                        rtl8125_enable_event(ring);
-
-                rtl8125_init_tx_ring(ring);
-        }
-
-        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
-                struct rtl8125_ring *ring = &tp->lib_rx_ring[i];
-
-                if (!ring->allocated)
-                        continue;
-
-                if (ring->event.enabled)
-                        rtl8125_enable_event(ring);
-
-                rtl8125_init_rx_ring(ring);
-        }
-
         atomic_notifier_call_chain(&tp->lib_nh,
                                    RTL8125_NOTIFY_RESET_COMPLETE, NULL);
 }
@@ -866,6 +848,35 @@ int rtl8125_lib_save_regs(struct net_device *ndev, struct rtl8125_regs_save *sta
         return 0;
 }
 EXPORT_SYMBOL(rtl8125_lib_save_regs);
+
+void rtl8125_init_lib_ring(struct rtl8125_private *tp)
+{
+        int i;
+
+        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
+                struct rtl8125_ring *ring = &tp->lib_tx_ring[i];
+
+                if (!ring->allocated)
+                        continue;
+
+                if (ring->event.enabled)
+                        rtl8125_enable_event(ring);
+
+                rtl8125_init_tx_ring(ring);
+        }
+
+        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
+                struct rtl8125_ring *ring = &tp->lib_rx_ring[i];
+
+                if (!ring->allocated)
+                        continue;
+
+                if (ring->event.enabled)
+                        rtl8125_enable_event(ring);
+
+                rtl8125_init_rx_ring(ring);
+        }
+}
 
 /*
 int rtl8125_lib_printf_macio_regs(struct net_device *ndev, struct rtl8125_regs_save *stats)
