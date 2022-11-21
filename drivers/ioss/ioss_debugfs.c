@@ -445,6 +445,7 @@ int ioss_debugfs_add_idev(struct ioss_device *idev)
 
 err_debugfs:
 	debugfs_remove_recursive(idev->debugfs);
+	idev->debugfs = NULL;
 	return -EFAULT;
 }
 
