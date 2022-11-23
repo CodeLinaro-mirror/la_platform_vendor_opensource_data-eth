@@ -244,6 +244,12 @@ static int disable_pm_support = 1;
 static int disable_pm_support = 0;
 #endif
 
+#ifdef ENABLE_DOUBLE_VLAN
+static int enable_double_vlan = 1;
+#else
+static int enable_double_vlan = 0;
+#endif
+
 MODULE_AUTHOR("Realtek and the Linux r8125 crew <netdev@vger.kernel.org>");
 MODULE_DESCRIPTION("Realtek RTL8125 2.5Gigabit Ethernet driver");
 
@@ -294,6 +300,9 @@ MODULE_PARM_DESC(enable_ptp_master_mode, "Enable PTP Master Mode.");
 
 module_param(disable_pm_support, int, 0);
 MODULE_PARM_DESC(disable_pm_support, "Disable PM support.");
+
+module_param(enable_double_vlan, int, 0);
+MODULE_PARM_DESC(enable_double_vlan, "Enable Double VLAN.");
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,0)
 module_param_named(debug, debug.msg_enable, int, 0);
@@ -800,6 +809,7 @@ static int proc_get_driver_variable(struct seq_file *m, void *v)
         seq_printf(m, "hwoptimize\t0x%lx\n", hwoptimize);
         seq_printf(m, "proc_init_num\t0x%x\n", proc_init_num);
         seq_printf(m, "s0_magic_packet\t0x%x\n", s0_magic_packet);
+        seq_printf(m, "enable_double_vlan\t0x%x\n", enable_double_vlan);
         seq_printf(m, "HwSuppMagicPktVer\t0x%x\n", tp->HwSuppMagicPktVer);
         seq_printf(m, "HwSuppLinkChgWakeUpVer\t0x%x\n", tp->HwSuppLinkChgWakeUpVer);
         seq_printf(m, "HwSuppD0SpeedUpVer\t0x%x\n", tp->HwSuppD0SpeedUpVer);
@@ -1194,6 +1204,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         "hwoptimize\t0x%lx\n"
                         "proc_init_num\t0x%x\n"
                         "s0_magic_packet\t0x%x\n"
+                        "enable_double_vlan\t0x%x\n"
                         "HwSuppMagicPktVer\t0x%x\n"
                         "HwSuppLinkChgWakeUpVer\t0x%x\n"
                         "HwSuppD0SpeedUpVer\t0x%x\n"
@@ -1310,6 +1321,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         hwoptimize,
                         proc_init_num,
                         s0_magic_packet,
+                        enable_double_vlan,
                         tp->HwSuppMagicPktVer,
                         tp->HwSuppLinkChgWakeUpVer,
                         tp->HwSuppD0SpeedUpVer,
@@ -3433,6 +3445,38 @@ static int rtl8125_disable_eee_plus(struct rtl8125_private *tp)
         }
 
         return ret;
+}
+
+static void rtl8125_enable_double_vlan(struct rtl8125_private *tp)
+{
+        switch (tp->mcfg) {
+        case CFG_METHOD_2:
+        case CFG_METHOD_3:
+        case CFG_METHOD_4:
+        case CFG_METHOD_5:
+        case CFG_METHOD_6:
+        case CFG_METHOD_7:
+                RTL_W16(tp, DOUBLE_VLAN_CONFIG, 0xf002);
+                break;
+        default:
+                break;
+        }
+}
+
+static void rtl8125_disable_double_vlan(struct rtl8125_private *tp)
+{
+        switch (tp->mcfg) {
+        case CFG_METHOD_2:
+        case CFG_METHOD_3:
+        case CFG_METHOD_4:
+        case CFG_METHOD_5:
+        case CFG_METHOD_6:
+        case CFG_METHOD_7:
+                RTL_W16(tp, DOUBLE_VLAN_CONFIG, 0);
+                break;
+        default:
+                break;
+        }
 }
 
 static void
@@ -10578,6 +10622,11 @@ rtl8125_hw_config(struct net_device *dev)
 
         if (tp->EnableTxNoClose)
                 RTL_W32(tp, TxConfig, (RTL_R32(tp, TxConfig) | BIT_6));
+
+        if (enable_double_vlan)
+                rtl8125_enable_double_vlan(tp);
+        else
+                rtl8125_disable_double_vlan(tp);
 
         if (tp->mcfg == CFG_METHOD_2 ||
             tp->mcfg == CFG_METHOD_3 ||
