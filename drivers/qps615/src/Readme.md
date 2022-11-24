@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 02 Sep 2022
+Release Date: 29 Apr 2022
 
-Release Version: V_01-00-55 : Limited-tested version
+Release Version: V_01-00-51 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -65,8 +65,8 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
        argument info:
 	     mac0_interface: For PORT0 interface mode setting
 	     mac1_interface: For PORT1 interface mode setting
-	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII, 4: 2500Base-X]
-	     y = [0: USXGMII (unsupported), 1: XFI (unsupported), 2: RGMII, 3: SGMII(default), 4: 2500Base-X]
+	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII]
+	     y = [0: USXGMII (unsupported), 1: XFI (unsupported), 2: RGMII, 3: SGMII(default)]
   
     If invalid and unsupported modes are passed as kernel module parameter, the default interface mode will be selected.
 
@@ -509,9 +509,3 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 3. Triggering Power saving at Link down after releasing of Offloaded DMA channels.
 4. Added kernel Module parameter for selecting Power saving at Link down and default is disabled.
 5. Added Lock for syncing linkdown, port rlease and release of offloaded DMA channels.
-
-## TC956X_Host_Driver_20220831_V_01-00-54:
-1. Fix for configuring Rx Parser when EEE is enabled and RGMII Interface is used
-
-## TC956X_Host_Driver_202200902_V_01-00-55:
-1. 2500Base-X support for line speeds 2.5Gbps, 1Gbps, 100Mbps.
