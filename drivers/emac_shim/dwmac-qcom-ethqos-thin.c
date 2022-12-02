@@ -567,12 +567,13 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		if (!emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,
 						    (void *)ethqos))
 			break;
-		ETHQOSINFO("emac_ctrl_fe_register_ready_cb failed\n");
 		cond_resched();
 		count++;
 	}
-	if (count == 10)
-		goto err_reg;
+	if (count == 10) {
+		ret = -EINVAL;
+		goto err_fe;
+	}
 
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe end");
@@ -580,11 +581,20 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	ETHQOSINFO("End\n");
 	return 0;
 
+err_fe:
+	stmmac_pltfr_remove(pdev);
+	platform_set_drvdata(pdev, NULL);
 err_reg:
 	destroy_workqueue(ethqos->wq);
+	emac_emb_smmu_exit();
 	mutex_destroy(&ethqos->lock);
 err_smmu:
 	of_platform_depopulate(&pdev->dev);
+	ETHQOSERR("Ethernet probe exit with ret = %d\n", ret);
+	if (ipc_emac_log_ctxt)
+		ipc_log_context_destroy(ipc_emac_log_ctxt);
+	ipc_emac_log_ctxt = NULL;
+
 	return ret;
 }
 
@@ -615,7 +625,7 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 	of_platform_depopulate(&pdev->dev);
 
-	if (!ipc_emac_log_ctxt)
+	if (ipc_emac_log_ctxt)
 		ipc_log_context_destroy(ipc_emac_log_ctxt);
 	ipc_emac_log_ctxt = NULL;
 

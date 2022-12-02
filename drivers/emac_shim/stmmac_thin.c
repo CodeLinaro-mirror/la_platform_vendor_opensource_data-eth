@@ -1869,7 +1869,6 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 		stmmac_set_desc_addr(priv, p, buf->addr);
 
 		rx_q->rx_count_frames++;
-		rx_q->rx_count_frames += priv->rx_coal_frames;
 		if (rx_q->rx_count_frames > priv->rx_coal_frames)
 			rx_q->rx_count_frames = 0;
 		use_rx_wd = priv->use_riwt && rx_q->rx_count_frames;
@@ -2891,11 +2890,10 @@ int stmmac_dvr_remove(struct device *dev)
 
 	if (priv->emac_state > EMAC_INIT_ST) {
 		stmmac_stop_dma(priv);
-
 		netif_carrier_off(ndev);
-		unregister_netdev(ndev);
 	}
 
+	unregister_netdev(ndev);
 	if (priv->plat->stmmac_rst)
 		reset_control_assert(priv->plat->stmmac_rst);
 	destroy_workqueue(priv->wq);
