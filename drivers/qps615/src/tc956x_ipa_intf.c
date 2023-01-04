@@ -862,16 +862,12 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	}
 	mutex_unlock(&priv->port_ld_release_lock);
 
-	return 0;
-
 err_invalid_ch_dir:
 	kfree(channel->buff_pool_addr.buff_pool_va_addrs_base);
+	kfree(channel->buff_pool_addr.buff_pool_dma_addrs_base);
 	channel->desc_addr.desc_dma_addrs_base = 0;
 	kfree(channel);
-
 	return ret;
-
-
 }
 EXPORT_SYMBOL_GPL(release_channel);
 
