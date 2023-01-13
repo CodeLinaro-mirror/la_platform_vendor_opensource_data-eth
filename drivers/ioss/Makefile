@@ -1,12 +1,10 @@
-
-ifeq ($(building_out_of_srctree),1)
-ccflags-y += -I$(src)/../ioss/include/
+ifeq ($(KP_MODULE_ROOT),)
+	KP_MODULE_ROOT=$(KERNEL_SRC)/$(M)
 endif
 
-ccflags-y += -I$(srctree)/$(src)/include
-ccflags-y += -I$(src)/include
+M ?= $(shell pwd)
 
-obj-$(CONFIG_IOSS) += ioss.o
+KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 
 ioss-y := \
 	ioss_main.o \
@@ -18,4 +16,20 @@ ioss-y := \
 	ioss_ipa.o \
 	ioss_ipa_hal.o \
 	ioss_mem.o \
-	ioss_utils.o
+	ioss_utils.o \
+	ioss_platform.o
+
+KBUILD_OPTIONS+=KBUILD_DTC_INCLUDE=$(KP_MODULE_ROOT)
+KBUILD_OPTIONS+=CONFIG_IOSS=m
+
+all:
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)
+
+modules_install:
+	$(MAKE) M=$(M) -C $(KERNEL_SRC) modules_install
+
+clean:
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) clean
+
+%:
+	$(MAKE) -C $(KERNEL_SRC) M=$(M) $@ $(KBUILD_OPTIONS)
