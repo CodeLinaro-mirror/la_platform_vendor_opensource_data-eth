@@ -2921,11 +2921,10 @@ int stmmac_suspend(struct device *dev)
 	mutex_lock(&priv->lock);
 
 	netif_device_detach(ndev);
-	stmmac_stop_queue(priv);
-
 	stmmac_disable_queue(priv);
 
-	del_timer_sync(&priv->tx_queue.txtimer);
+	if (!priv->tx_coal_timer_disable)
+		del_timer_sync(&priv->tx_queue.txtimer);
 
 	/* Stop TX/RX DMA */
 	stmmac_stop_dma(priv);
