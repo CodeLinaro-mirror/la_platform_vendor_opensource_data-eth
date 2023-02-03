@@ -596,7 +596,7 @@ static int ioss_net_teardown_events(struct ioss_interface *iface)
 	return rc;
 }
 
-static void ioss_iface_set_online(struct ioss_interface *iface)
+void ioss_iface_set_online(struct ioss_interface *iface)
 {
 	int rc;
 	struct ioss_device *idev = ioss_iface_dev(iface);
@@ -659,7 +659,7 @@ err_alloc_channels:
 	return;
 }
 
-static void ioss_iface_set_offline(struct ioss_interface *iface)
+void ioss_iface_set_offline(struct ioss_interface *iface)
 {
 	int rc;
 	struct ioss_device *idev = ioss_iface_dev(iface);
@@ -783,6 +783,14 @@ int ioss_net_watch_device(struct ioss_device *idev)
 	if (rc) {
 		ioss_dev_err(idev,
 			"Failed to register netdev notifier for %s",
+			idev->net_dev->name);
+		goto err_register;
+	}
+
+	rc = ioss_debugfs_add_vlan_tag_filter(idev);
+	if (rc) {
+		ioss_dev_err(idev,
+			"Failed in creating debugfs node for vlan_tag_filter for %s",
 			idev->net_dev->name);
 		goto err_register;
 	}
