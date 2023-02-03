@@ -337,6 +337,7 @@ struct ioss_device {
 	void *private;
 
 	bool unbinding;
+	int vlan_tag_filter;
 
 	struct {
 		u64 apps_suspend;
