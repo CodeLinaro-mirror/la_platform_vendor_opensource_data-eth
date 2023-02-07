@@ -4555,7 +4555,7 @@ rtl8125_set_speed_xmii(struct net_device *dev,
                         ctrl_2500 |= RTK_ADVERTISE_2500FULL;
 
                 //flow control
-                if (dev->mtu <= ETH_DATA_LEN && tp->fcpause == rtl8125_fc_full)
+                if (tp->fcpause == rtl8125_fc_full)
                         auto_nego |= ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM;
 
                 tp->phy_auto_nego_reg = auto_nego;
