@@ -67,15 +67,18 @@ static void emac_fe_ev_wq(struct work_struct *work)
 				break;
 
 			priv->emac_state = EMAC_HW_UP_ST;
-			if (ethqos->suspended &&
-			    !stmmac_resume(priv->device)) {
-				ETHQOSINFO("resume on HW up\n");
+			if (ethqos->suspended) {
+				if (priv->dev_inited &&
+				    !stmmac_resume(priv->device))
+					ETHQOSINFO("resume on HW up\n");
 				ethqos->suspended = false;
 			} else if (priv->dev_opened &&
 				   !priv->dev_inited) {
 				ETHQOSINFO("init driver on HW up\n");
 				stmmac_dvr_init(priv->dev);
 				priv->add_filter(priv->dev);
+			} else {
+				ETHQOSINFO("Device not opened when HW up\n");
 			}
 			break;
 		case EMAC_HW_DOWN:
@@ -633,6 +636,7 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 	if (ipc_emac_log_ctxt)
 		ipc_log_context_destroy(ipc_emac_log_ctxt);
 	ipc_emac_log_ctxt = NULL;
+	ETHQOSINFO("Exit\n");
 
 	return ret;
 }
@@ -652,7 +656,7 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct qcom_ethqos *ethqos;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
-	int ret;
+	int ret = 0;
 
 	ETHQOSINFO("Enter Suspend\n");
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded")) {
@@ -673,8 +677,12 @@ static int qcom_ethqos_suspend(struct device *dev)
 
 	priv = netdev_priv(ndev);
 
-	if (ethqos->suspended) {
-		ETHQOSINFO("Driver not resumed, just unregister emac fe\n");
+	if (ethqos->suspended || !priv->dev_inited) {
+		/* Device interface is not up (stmmac_open is not called)
+		   but netif_running still returns true. Need to add more
+		   check to skip suspend.
+		*/
+		ETHQOSINFO("Driver not open/resumed, unregister emac fe\n");
 		ret = 0;
 		goto unregister;
 	}
