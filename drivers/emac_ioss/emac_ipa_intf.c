@@ -13,6 +13,7 @@
  */
 
 #include <linux/dma-mapping.h>
+#include <qcom_scm.h>
 #include "common.h"
 #include "stmmac.h"
 #include "dwxgmac2.h"
@@ -447,7 +448,6 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 	struct channel_info *channel;
 	struct stmmac_priv *priv;
 	struct qcom_ethqos *ethqos;
-	u32 reg = 0;
 
 	if (!channel_input->ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -535,9 +535,7 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 	}
 
 	/* Disabling interrupts on all channels */
-	reg = readl(ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
-	reg &= ~(MASK_ALL_IPA_CH);
-	writel(reg, ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
+	qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, EMAC_SELECT_ALLCH);
 
 	/* Configure DMA registers */
 	if (channel_input->ch_dir == CH_DIR_TX) {
@@ -856,9 +854,9 @@ EXPORT_SYMBOL_GPL(release_event);
 int enable_event(struct net_device *ndev, struct channel_info *channel)
 {
 	struct stmmac_priv *priv;
-	u32 reg;
 	struct qcom_ethqos *ethqos;
 	int ret;
+	u32 reg = 0;
 
 	ioss_log_msg(NULL, "%s: Start", __func__);
 
@@ -898,13 +896,11 @@ int enable_event(struct net_device *ndev, struct channel_info *channel)
 	}
 
 	if (channel->direction == CH_DIR_TX) {
-		reg = readl(ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
-		reg |=  EMAC0_IPA_TX_INTR_EN;
-		writel(reg, ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
+		reg |= (EMAC_CHANNEL_INTR_EN | EMAC0_IPA_TX_INTR_EN);
+		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
 	} else if (channel->direction == CH_DIR_RX) {
-		reg = readl(ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
-		reg |= EMAC0_IPA_RX_INTR_EN;
-		writel(reg, ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
+		reg |= (EMAC_CHANNEL_INTR_EN | EMAC0_IPA_RX_INTR_EN);
+		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel direction\n", __func__);
@@ -932,8 +928,8 @@ EXPORT_SYMBOL_GPL(enable_event);
 int disable_event(struct net_device *ndev, struct channel_info *channel)
 {
 	struct stmmac_priv *priv;
-	u32 reg;
 	struct qcom_ethqos *ethqos;
+	u32 reg = 0;
 
 	ioss_log_msg(NULL, "%s: Start", __func__);
 
@@ -973,13 +969,11 @@ int disable_event(struct net_device *ndev, struct channel_info *channel)
 	}
 
 	if (channel->direction == CH_DIR_TX) {
-		reg = readl(ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
-		reg &=  ~EMAC0_IPA_TX_INTR_EN;
-		writel(reg, ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
+		reg = EMAC0_IPA_TX_INTR_EN;
+		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
 	} else if (channel->direction == CH_DIR_RX) {
-		reg = readl(ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
-		reg &= ~EMAC0_IPA_RX_INTR_EN;
-		writel(reg, ethqos->rgmii_base + EMAC0_EMAC_INTERRUPT_ENABLE);
+		reg = EMAC0_IPA_RX_INTR_EN;
+		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel direction\n", __func__);

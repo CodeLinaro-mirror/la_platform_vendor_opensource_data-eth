@@ -27,6 +27,10 @@
 #define XGMAC_AE_SHIFT	31
 #define XGMAC_MBC_SHIFT	24
 
+/* Supporting MACROs for SCM API's */
+#define EMAC_SELECT_ALLCH		0xFFFF
+#define EMAC_CHANNEL_INTR_EN	(0x1 << 31)
+
 enum channel_dir {
 	CH_DIR_RX,
 	CH_DIR_TX,
