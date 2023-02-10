@@ -50,8 +50,9 @@ struct qcom_ethqos {
 
 	unsigned int emac_ver;
 	bool suspended;
+	bool fe_registered;
 
-	struct mutex lock;
+	spinlock_t lock;
 	struct workqueue_struct *wq;
 	struct work_struct emac_fe_rdy_work;
 
