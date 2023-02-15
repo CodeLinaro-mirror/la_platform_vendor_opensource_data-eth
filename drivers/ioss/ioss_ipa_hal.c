@@ -113,9 +113,9 @@ static int fill_ntn3_si(enum ipa_eth_client_type ctype, struct ioss_channel *ch)
 	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(idev));
 
 	ntn->bar_addr = pci_resource_start(pdev, NTN_BAR_MMIO);
-
-	ioss_dev_log(idev, "NTN: bar=%pap, q=%u\n",
-		&ntn->bar_addr, ch->id);
+	ntn->ioc_mod_threshold = ch->event.mod_count_min;
+	ioss_dev_log(idev, "NTN: bar=%pap, q=%u, ioc_threshold=%d\n",
+		&ntn->bar_addr, ch->id, ntn->ioc_mod_threshold);
 
 	ntn->tail_ptr_offs = ch->tail_ptr_addr;
 
