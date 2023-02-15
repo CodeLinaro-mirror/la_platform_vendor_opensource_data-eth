@@ -10113,15 +10113,11 @@ rtl8125_set_rxbufsize(struct rtl8125_private *tp,
                       struct net_device *dev)
 {
         unsigned int mtu = dev->mtu;
-		printk("rh: %s | Enter\n",__func__);
-		if (enable_double_vlan) {
+
+	if (enable_double_vlan)
         	tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 1 + 4 : RX_BUF_SIZE;
-			printk("rh: %s | enable_double_vlan = 1 | tp->rx_buf_sz = %d\n",__func__,tp->rx_buf_sz);
-		}	else {
+	else
        		tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 1 : RX_BUF_SIZE;
-			printk("rh: %s | enable_double_vlan = 0 | tp->rx_buf_sz = %d\n",__func__,tp->rx_buf_sz);
-		}
-		printk("rh: %s | Exit\n",__func__);
 }
 
 static void rtl8125_free_irq(struct rtl8125_private *tp)
@@ -10573,8 +10569,6 @@ rtl8125_hw_config(struct net_device *dev)
         struct pci_dev *pdev = tp->pci_dev;
         u16 mac_ocp_data;
 
-		printk("rh: %s | Entry\n",__func__);
-
         RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
 
         rtl8125_hw_reset(dev);
@@ -10852,14 +10846,8 @@ rtl8125_hw_config(struct net_device *dev)
         break;
         }
 
-		printk("rh: %s | Before | RxMaxSize = %d\n",__func__,RxMaxSize);
-		printk("rh: %s | Before | tp->rx_buf_sz = %d\n",__func__,tp->rx_buf_sz);
-
         RTL_W16(tp, RxMaxSize, tp->rx_buf_sz);
 		
-		printk("rh: %s | After | RxMaxSize = %d\n",__func__,RxMaxSize);
-		printk("rh: %s | After | tp->rx_buf_sz = %d\n",__func__,tp->rx_buf_sz);
-
         rtl8125_disable_rxdvgate(dev);
 
         if (!tp->pci_cfg_is_read) {
@@ -10913,7 +10901,6 @@ rtl8125_hw_config(struct net_device *dev)
         rtl8125_disable_cfg9346_write(tp);
 
         udelay(10);
-		printk("rh: %s | Exit\n",__func__);
 }
 
 void
