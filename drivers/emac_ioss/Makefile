@@ -7,8 +7,7 @@ M ?= $(shell pwd)
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 
 iemac_ioss-y := \
-	emac_ioss.o \
-	emac_ipa_intf.o
+	emac_ioss.o
 
 KBUILD_OPTIONS+=KBUILD_DTC_INCLUDE=$(KP_MODULE_ROOT)
 KBUILD_OPTIONS+=CONFIG_EMAC_IOSS=m
