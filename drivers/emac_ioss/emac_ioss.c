@@ -14,14 +14,12 @@
 
 #include <linux/module.h>
 #include <linux/debugfs.h>
-#include <linux/platform_device.h>
-//#include "stmmac.h"
+#include "stmmac.h"
 #include "ioss/include/linux/msm/ioss.h"
-#include "stmmac_ipa_intf.h"
-//#include "dwmac-qcom-ethqos.h"
+#include "emac_ipa_intf.h"
+#include "dwmac-qcom-ethqos.h"
 
 void *ipc_stmmac_log_ctxt;
-#define DRIVER_NAME "qcom-ethqos"
 
 struct stmmac_ioss_device {
 	struct ioss_device *idev;
@@ -378,7 +376,9 @@ static int stmmac_ioss_device_statistics(struct ioss_device *idev,
 	memset(&stats, 0, sizeof(stats));
 	stats.n_stats = strings_count;
 
+	rtnl_lock();
 	ops->get_ethtool_stats(idev->net_dev, &stats, data);
+	rtnl_unlock();
 
 	ops->get_strings(idev->net_dev, ETH_SS_STATS, strings);
 
@@ -440,7 +440,7 @@ bool stmmac_driver_match(struct device *dev)
 
 	/* Just match the driver name */
 	rc = (dev->bus == &platform_bus_type) &&
-		!strcmp(to_platform_driver(dev->driver)->driver.name, DRIVER_NAME);
+		!strcmp(to_platform_driver(dev->driver)->driver.name, DRV_NAME);
 
 	ioss_log_dbg(NULL, "%s: MATCH %s, bool = %d, strcmp=%s",
 				__func__, dev_name(dev),
@@ -451,7 +451,7 @@ bool stmmac_driver_match(struct device *dev)
 }
 
 static struct ioss_driver stmmac_ioss_drv = {
-	.name = DRIVER_NAME "_ioss",
+	.name = DRV_NAME "_ioss",
 	.match = stmmac_driver_match,
 	.ops = &stmmac_ioss_ops,
 	.filter_types = IOSS_RXF_BE,
