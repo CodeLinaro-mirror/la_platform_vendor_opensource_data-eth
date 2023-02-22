@@ -5,7 +5,7 @@ endif
 ccflags-y += -I$(srctree)/$(src)/include
 ccflags-y += -I$(src)/include
 
-obj-$(CONFIG_IOSS) += ioss.o
+obj-m += ioss.o
 
 ioss-y := \
 	ioss_main.o \
