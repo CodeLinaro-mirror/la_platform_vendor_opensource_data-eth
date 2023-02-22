@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -17,6 +17,7 @@
 #include <linux/pci.h>
 #include <linux/pm_wakeup.h>
 #include <linux/refcount.h>
+#include <linux/ethtool.h>
 
 /**
  *   API
@@ -152,6 +153,7 @@ struct ioss {
 	struct platform_device *pdev;
 
 	struct notifier_block pci_bus_nb;
+	struct notifier_block plat_bus_nb;
 
 	void *ioss_priv;
 
@@ -661,5 +663,9 @@ int __ioss_pci_register_driver(struct ioss_driver *drv, struct module *owner);
 	__ioss_pci_register_driver(driver, THIS_MODULE)
 
 void ioss_pci_unregister_driver(struct ioss_driver *drv);
+
+int ioss_plat_register_driver(struct ioss_driver *idrv, struct module *owner);
+
+void ioss_plat_unregister_driver(struct ioss_driver *drv);
 
 #endif /* _IOSS_H_ */

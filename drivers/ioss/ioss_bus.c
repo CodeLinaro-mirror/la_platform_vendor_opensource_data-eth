@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -50,6 +51,7 @@ static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 	struct device *real_dev = dev->parent;
 	struct ioss_driver *idrv = to_ioss_driver(drv);
 	struct ioss_device *idev = to_ioss_device(dev);
+	int rc;
 
 	if (dev->type != &ioss_idev_type)
 		return false;
@@ -60,9 +62,13 @@ static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 	 * matching the device driver with the IOSS driver. Otherwise use a
 	 * simple name matching against the IOSS driver name.
 	 */
-	return idrv->match ?
+	rc = idrv->match ?
 			idrv->match(real_dev) :
 			!strcmp(idrv->name, real_dev->driver->name);
+
+	ioss_dev_dbg(idev, "Matching against %s, rc = %d, real_dev->driver->name =%s", idrv->name, rc, real_dev->driver->name);
+
+	return rc;
 }
 
 static ssize_t show_suspend_ipa_offload(struct device *dev,
@@ -154,7 +160,7 @@ err_notifier:
 	return rc;
 }
 
-static int ioss_bus_remove(struct device *dev)
+static void ioss_bus_remove(struct device *dev)
 {
 	int rc;
 	struct ioss_device *idev = to_ioss_device(dev);
@@ -167,20 +173,16 @@ static int ioss_bus_remove(struct device *dev)
 	rc = ioss_net_unwatch_device(idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to unwatch device");
-		return rc;
 	}
 
 	rc = ioss_dev_op(idev, close_device, idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to close device");
-		return rc;
 	}
 
 	ioss_unregister_panic_notifier(idev);
 	ioss_pci_restore_pm_ops(idev);
 	device_init_wakeup(dev, false);
-
-	return 0;
 }
 
 static int __ioss_bus_suspend_idev(struct device *dev, pm_message_t state)
@@ -375,8 +377,6 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	}
 
 	if (!dev->driver || !dev->driver->pm) {
-		ioss_log_err(NULL,
-			"Driver %s does not support PM callbacks", dev_name(dev));
 		return NULL;
 	}
 
@@ -408,11 +408,11 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 	/* Free channels */
 	list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
 		list_del(&ch->node);
-		kzfree(ch->ioss_priv);
-		kzfree(ch);
+		kfree_sensitive(ch->ioss_priv);
+		kfree_sensitive(ch);
 	}
 
-	kzfree(iface->ioss_priv);
+	kfree_sensitive(iface->ioss_priv);
 
 	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
 		if (ioss_devices[i] == idev) {
@@ -421,13 +421,12 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 		}
 	}
 
-	kzfree(idev);
+	kfree_sensitive(idev);
 }
 
 int ioss_bus_register_idev(struct ioss_device *idev)
 {
 	if (ioss_of_parse(idev)) {
-		ioss_dev_err(idev, "Failed to parse devicetree");
 		return -EINVAL;
 	}
 

@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -252,6 +253,7 @@ static bool disable_tcm;
 module_param(disable_tcm, bool, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(disable_tcm, "Disable use of LLCC TCM memory allocator");
 
+#ifdef LLCC_ENABLE
 static int ioss_net_select_llcc_config(struct ioss_channel *ch)
 {
 	u32 ring_size;
@@ -285,25 +287,31 @@ static int ioss_net_select_llcc_config(struct ioss_channel *ch)
 
 	return 0;
 }
+#endif
 
 static void ioss_net_select_channel_config(struct ioss_channel *ch)
 {
+#ifdef LLCC_ENABLE
 	struct ioss_device *idev = ioss_ch_dev(ch);
 	u32 link_speed = ch->iface->link_speed;
 	u32 max_ddr_bw = idev->root->max_ddr_bandwidth;
+#endif
 
 	ch->config = ch->default_config;
 
+#ifdef LLCC_ENABLE
 	if (ch->direction == IOSS_CH_DIR_TX && link_speed > max_ddr_bw)
 		ioss_net_select_llcc_config(ch);
+#endif
 }
 
 static void ioss_net_deselect_channel_config(struct ioss_channel *ch)
 {
+#ifdef LLCC_ENABLE
 	if (ch->config.buff_alctr == &ioss_llcc_alctr)
 		ioss_llcc_alctr.put(
 			ch->config.ring_size * ch->config.buff_size);
-
+#endif
 	ch->config = ch->default_config;
 }
 
@@ -635,18 +643,10 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		goto err_enable_channels;
 	}
 
-	rc = ioss_pci_disable_pc(idev);
-	if (rc) {
-		ioss_dev_err(idev, "Failed to disable PCI power collapse");
-		goto err_disable_pc;
-	}
-
 	iface->state = IOSS_IF_ST_ONLINE;
 
 	return;
 
-err_disable_pc:
-	ioss_net_disable_channels(iface);
 err_enable_channels:
 	ioss_net_teardown_events(iface);
 err_setup_events:
@@ -675,12 +675,6 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 	ioss_dev_log(idev, "Bringing down %s", idev->net_dev->name);
 
 	iface->state = IOSS_IF_ST_OFFLINE;
-
-	rc = ioss_pci_enable_pc(idev);
-	if (rc) {
-		ioss_dev_err(idev, "Failed to enable PCI power collapse");
-		iface->state = IOSS_IF_ST_ERROR;
-	}
 
 	rc = ioss_net_disable_channels(iface);
 	if (rc) {
@@ -841,6 +835,21 @@ int ioss_net_link_device(struct ioss_device *idev)
 	rtnl_lock();
 	for_each_net(net) {
 		for_each_netdev(net, net_dev) {
+			ioss_dev_log(idev, "%s: netdev=%s, dev=%s",
+						__func__,
+						net_dev->name,
+						dev_name(&net_dev->dev));
+			if(net_dev->dev.parent) {
+			ioss_dev_log(idev, "%s: net_dev->dev.parent = %s, idev->dev.parent =%s",
+						__func__,
+						dev_name(net_dev->dev.parent),
+						dev_name(idev->dev.parent));
+				}
+			else
+				ioss_dev_log(idev, "%s: netdev =%s, dev=%s has parent null",
+							__func__,
+							net_dev->name,
+							dev_name(&net_dev->dev));
 			if (net_dev->dev.parent == idev->dev.parent) {
 				idev->net_dev = net_dev;
 				break;

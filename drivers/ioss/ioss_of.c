@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -23,7 +24,7 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 
 	ch->ioss_priv = kzalloc(sizeof(struct ioss_ch_priv), GFP_KERNEL);
 	if (!ch->ioss_priv) {
-		kfree(ch);
+		kfree_sensitive(ch);
 		return -ENOMEM;
 	}
 
@@ -90,8 +91,8 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 	return 0;
 
 err:
-	kfree(ch->ioss_priv);
-	kfree(ch);
+	kfree_sensitive(ch->ioss_priv);
+	kfree_sensitive(ch);
 
 	return -EINVAL;
 }
@@ -145,12 +146,12 @@ err:
 
 		list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
 			list_del(&ch->node);
-			kzfree(ch->ioss_priv);
-			kzfree(ch);
+			kfree_sensitive(ch->ioss_priv);
+			kfree_sensitive(ch);
 		}
 	}
 
-	kfree(iface->ioss_priv);
+	kfree_sensitive(iface->ioss_priv);
 
 	return -EINVAL;
 }
