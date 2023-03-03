@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -45,6 +46,11 @@ static void ioss_ipa_ready_notif(void *userdata)
 	if (ioss_pci_start(ioss)) {
 		set_bit(IOSS_ST_ERROR, &ioss->status);
 		ioss_log_err(NULL, "Failed to start PCI sub-system");
+		return;
+	}
+	if (ioss_plat_start(ioss)) {
+		set_bit(IOSS_ST_ERROR, &ioss->status);
+		ioss_log_err(NULL, "Failed to start Platform sub-system");
 		return;
 	}
 }
@@ -114,8 +120,8 @@ err:
 	if (ioss->wq)
 		destroy_workqueue(ioss->wq);
 
-	kzfree(ioss->ioss_priv);
-	kzfree(ioss);
+	kfree_sensitive(ioss->ioss_priv);
+	kfree_sensitive(ioss);
 
 	platform_set_drvdata(pdev, NULL);
 	np->data = NULL;
@@ -131,13 +137,17 @@ static int ioss_remove(struct platform_device *pdev)
 
 	ipa_eth_unregister_ready_cb(&ioss_priv->ipa_ready);
 
+	ioss_log_msg(NULL, "Call IOSS PCI stop");
 	/* Safe to call even if ioss_pci_start() was not called */
 	ioss_pci_stop(ioss);
 
+	/* Safe to call even if ioss_pci_start() was not called */
+	ioss_plat_stop(ioss);
+	ioss_log_msg(NULL, "Done IOSS Platform stop");
 	destroy_workqueue(ioss->wq);
 
-	kzfree(ioss->ioss_priv);
-	kzfree(ioss);
+	kfree_sensitive(ioss->ioss_priv);
+	kfree_sensitive(ioss);
 
 	platform_set_drvdata(pdev, NULL);
 	np->data = NULL;
@@ -202,7 +212,6 @@ err_platform:
 err_debugfs:
 	bus_unregister(&ioss_bus);
 err_bus:
-	ioss_log_deinit();
 	return rc;
 }
 module_init(ioss_module_init);
