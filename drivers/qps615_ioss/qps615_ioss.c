@@ -279,12 +279,14 @@ enum {
 	FLT_TYPE_IP4,
 	FLT_TYPE_IP6,
 	FLT_TYPE_VLAN,
+	FLT_TYPE_ARP,
+	FLT_TYPE_DVLAN,
 
 	/* Must be the last entry */
 	FLT_NUM_TYPES,
 };
 
-static int qps615_set_filter_info(struct rx_filter_info *filter_info)
+static int qps615_set_filter_info(struct rx_filter_info *filter_info, struct ioss_device *idev)
 {
 	if (ARRAY_SIZE(filter_info->entries) < FLT_NUM_TYPES)
 		return -EFAULT;
@@ -341,9 +343,45 @@ static int qps615_set_filter_info(struct rx_filter_info *filter_info)
 	filter_info->entries[FLT_TYPE_VLAN].res2 = 0;
 	filter_info->entries[FLT_TYPE_VLAN].ok_index = 0;
 	filter_info->entries[FLT_TYPE_VLAN].res3 = 0;
-	filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 2;
+	if (idev->vlan_tag_filter)
+		filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 1;
+	else
+		filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 2;
 	filter_info->entries[FLT_TYPE_VLAN].res4 = 0;
 
+	/* 0x0806  Address Resolution Protocol (ARP)
+	 * Only Check for 0x08 and 0x06
+	 */
+	filter_info->entries[FLT_TYPE_ARP].match_data = 0x00000608;
+	filter_info->entries[FLT_TYPE_ARP].match_en = 0x0000FFFF;
+	filter_info->entries[FLT_TYPE_ARP].af = 1;
+	filter_info->entries[FLT_TYPE_ARP].rf = 0;
+	filter_info->entries[FLT_TYPE_ARP].im = 0;
+	filter_info->entries[FLT_TYPE_ARP].nc = 0;
+	filter_info->entries[FLT_TYPE_ARP].res1 = 0;
+	filter_info->entries[FLT_TYPE_ARP].frame_offset = 3;
+	filter_info->entries[FLT_TYPE_ARP].res2 = 0;
+	filter_info->entries[FLT_TYPE_ARP].ok_index = 0;
+	filter_info->entries[FLT_TYPE_ARP].res3 = 0;
+	filter_info->entries[FLT_TYPE_ARP].dma_ch_no = 2;
+	filter_info->entries[FLT_TYPE_ARP].res4 = 0;
+
+	/* 0x88A8  Double vlan tag (802.1ad)
+	 * Only Check for 0x88 and 0xA8
+	 */
+	filter_info->entries[FLT_TYPE_DVLAN].match_data = 0x0000A888;
+	filter_info->entries[FLT_TYPE_DVLAN].match_en = 0x0000FFFF;
+	filter_info->entries[FLT_TYPE_DVLAN].af = 1;
+	filter_info->entries[FLT_TYPE_DVLAN].rf = 0;
+	filter_info->entries[FLT_TYPE_DVLAN].im = 0;
+	filter_info->entries[FLT_TYPE_DVLAN].nc = 0;
+	filter_info->entries[FLT_TYPE_DVLAN].res1 = 0;
+	filter_info->entries[FLT_TYPE_DVLAN].frame_offset = 3;
+	filter_info->entries[FLT_TYPE_DVLAN].res2 = 0;
+	filter_info->entries[FLT_TYPE_DVLAN].ok_index = 0;
+	filter_info->entries[FLT_TYPE_DVLAN].res3 = 0;
+	filter_info->entries[FLT_TYPE_DVLAN].dma_ch_no = 2;
+	filter_info->entries[FLT_TYPE_DVLAN].res4 = 0;
 	return 0;
 }
 
@@ -352,7 +390,7 @@ static int __qps615_ioss_enable_filters(struct ioss_channel *ch)
 	struct net_device *net_dev = ioss_ch_dev(ch)->net_dev;
 	enum ioss_filter_types filters = ch->filter_types;
 	struct rx_filter_info filter_info;
-
+	struct ioss_device *idev = ioss_ch_dev(ch);
 	memset(&filter_info, 0, sizeof(filter_info));
 
 	if (!filters)
@@ -366,7 +404,7 @@ static int __qps615_ioss_enable_filters(struct ioss_channel *ch)
 
 		clear_rx_filter(net_dev);
 
-		if (qps615_set_filter_info(&filter_info)) {
+		if (qps615_set_filter_info(&filter_info, idev)) {
 			ioss_dev_err(ioss_ch_dev(ch),
 					"Failed to set FRP filters");
 			return -EFAULT;
