@@ -6188,7 +6188,7 @@ rtl8125_exit_oob(struct net_device *dev)
                 rtl8125_wait_ll_share_fifo_ready(dev);
 
                 rtl8125_mac_ocp_write(tp, 0xC0AA, 0x07D0);
-                rtl8125_mac_ocp_write(tp, 0xC0A6, 0x01B5);
+                rtl8125_mac_ocp_write(tp, 0xC0A6, 0x04E2);
                 rtl8125_mac_ocp_write(tp, 0xC01E, 0x5555);
 
                 rtl8125_wait_ll_share_fifo_ready(dev);
