@@ -18,6 +18,7 @@
 #include "ioss/include/linux/msm/ioss.h"
 #include "emac_ipa_intf.h"
 #include "dwmac-qcom-ethqos.h"
+#include "common.h"
 
 void *ipc_stmmac_log_ctxt;
 
@@ -403,18 +404,63 @@ static int stmmac_ioss_device_statistics(struct ioss_device *idev,
 	return 0;
 }
 
-/*
 static int stmmac_ioss_channel_statistics(struct ioss_channel *ch,
-					  struct ioss_channel_stats *statistics)
+		struct ioss_channel_stats *statistics)
 {
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
+		statistics->desc_unavail = priv->xstats.rxq_stats[ch->id].rx_buf_unav_irq;
+		statistics->overflow_error = priv->xstats.overflow_error;
+	} else {
+		statistics->underflow_error = priv->xstats.tx_underflow;
+	}
+
 	return 0;
 }
 
 static int stmmac_ioss_channel_status(struct ioss_channel *ch, struct ioss_channel_status *status)
 {
+	u64 *data;
+	int strings_count = 0;
+	struct ethtool_stats stats;
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
+	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
+
+	if (ops == NULL || ops->get_sset_count == NULL ||
+		ops->get_ethtool_stats == NULL || ops->get_strings == NULL)
+		return -EOPNOTSUPP;
+
+	strings_count = ops->get_sset_count(idev->net_dev, ETH_SS_STATS);
+
+	data = kcalloc(strings_count, sizeof(u64), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	memset(&stats, 0, sizeof(stats));
+	stats.n_stats = strings_count;
+
+	rtnl_lock();
+	ops->get_ethtool_stats(idev->net_dev, &stats, data);
+	rtnl_unlock();
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
+		status->ring_size = priv->xstats.rxq_stats[ch->id].rxch_desc_ring_len;
+		status->head_ptr = priv->xstats.rxq_stats[ch->id].rxch_desc_list_laddr;
+		status->tail_ptr = priv->xstats.rxq_stats[ch->id].rxch_desc_tail;
+	} else {
+		status->ring_size = priv->xstats.txq_stats[ch->id].txch_desc_ring_len;
+		status->head_ptr = priv->xstats.txq_stats[ch->id].txch_desc_list_laddr;
+		status->tail_ptr = priv->xstats.txq_stats[ch->id].txch_desc_tail;
+	}
+	kfree_sensitive(data);
+
 	return 0;
 }
-*/
+
+
 static struct ioss_driver_ops stmmac_ioss_ops = {
 	.open_device = stmmac_ioss_open_device,
 	.close_device = stmmac_ioss_close_device,
@@ -432,6 +478,8 @@ static struct ioss_driver_ops stmmac_ioss_ops = {
 	.disable_event = stmmac_ioss_disable_event,
 
 	.get_device_statistics = stmmac_ioss_device_statistics,
+	.get_channel_statistics = stmmac_ioss_channel_statistics,
+	.get_channel_status = stmmac_ioss_channel_status,
 };
 
 bool stmmac_driver_match(struct device *dev)
