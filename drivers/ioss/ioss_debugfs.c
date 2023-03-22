@@ -374,70 +374,6 @@ static ssize_t read_ch_stat(struct file *file, char __user *user_buf, size_t siz
 	return ret_cnt;
 }
 
-static ssize_t read_vlan_filter(struct file *file,
-			    char __user *user_buf,
-			    size_t count, loff_t *ppos) {
-
-	unsigned int len = 0, buf_len = 2000;
-	char *buf;
-	ssize_t ret_cnt;
-	struct ioss_device *idev = file->private_data;
-
-	buf = kzalloc(buf_len, GFP_KERNEL);
-
-	if (!buf)
-		return -ENOMEM;
-
-	if (idev->vlan_tag_filter) {
-		len += scnprintf(buf + len, buf_len - len,
-			"Vlan tagged packets to take software path\n");
-	} else {
-		len += scnprintf(buf + len, buf_len - len,
-			"Vlan tagged packets to take ipa path\n");
-	}
-	ret_cnt = simple_read_from_buffer(user_buf, count, ppos, buf, len);
-	kfree(buf);
-
-	return ret_cnt;
-}
-
-static ssize_t write_vlan_filter(struct file *file,
-			    const char __user *user_buf,
-			    size_t count, loff_t *ppos) {
-
-	char *in_buf;
-	int buf_len = 2000;
-	unsigned long ret;
-	struct ioss_device *idev = file->private_data;
-	struct ioss_interface *iface = &idev->interface;
-
-	in_buf = kzalloc(buf_len, GFP_KERNEL);
-
-	if (!in_buf)
-		return -ENOMEM;
-
-	ret = copy_from_user(in_buf, user_buf, buf_len);
-	if (ret) {
-		return -EFAULT;
-	}
-
-	ret = sscanf(in_buf, "%d", &idev->vlan_tag_filter);
-	kfree(in_buf);
-
-	ioss_iface_set_offline(iface);
-
-	ioss_iface_set_online(iface);
-
-	return count;
-}
-
-static const struct file_operations fops_vlan_filter = {
-	.read = read_vlan_filter,
-	.write = write_vlan_filter,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
 
 static const struct file_operations fops_idev_statistics = {
 	.read = read_idev_statistics,
@@ -480,28 +416,6 @@ static const struct file_operations fops_ch_stat = {
 	.owner = THIS_MODULE,
 	.llseek = default_llseek,
 };
-
-int ioss_debugfs_add_vlan_tag_filter(struct ioss_device *idev)
-{
-	struct dentry *vlan_filter = NULL;
-
-	idev->vlan_tag_filter = 0;
-
-	vlan_filter = debugfs_create_file("vlan_filter", 0444, idev->debugfs, idev,
-		     &fops_vlan_filter);
-
-	if (IS_ERR_OR_NULL(vlan_filter)) {
-		ioss_dev_err(idev, "Failed to create vlan_filter debugfs file for %s", idev->net_dev->name);
-		goto err_debugfs;
-	}
-
-	return 0;
-
-err_debugfs:
-	debugfs_remove_recursive(idev->debugfs);
-	idev->debugfs = NULL;
-	return -EFAULT;
-}
 
 int ioss_debugfs_add_idev(struct ioss_device *idev)
 {
