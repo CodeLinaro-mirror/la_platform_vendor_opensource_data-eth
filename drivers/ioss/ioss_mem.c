@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/iommu.h>
@@ -36,12 +36,12 @@ struct ioss_mem_allocator ioss_default_alctr = {
 	.pa = default_mem_pa,
 };
 
+#ifdef LLCC_ENABLE
 /* LLCC Memory Allocator */
-
 #include <linux/soc/qcom/llcc-qcom.h>
 #include <linux/soc/qcom/llcc-tcm.h>
 #include <linux/dma-noncoherent.h>
-
+#include <linux/dma-map-ops.h>
 
 bool tcm_in_use;
 static struct llcc_tcm_data *tcm_mem;
@@ -158,3 +158,4 @@ struct ioss_mem_allocator ioss_llcc_alctr = {
 	.get = llcc_mem_get,
 	.put = llcc_mem_put,
 };
+#endif

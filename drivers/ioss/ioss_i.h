@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -13,7 +14,8 @@
 
 #include <linux/ipa_eth.h>
 
-#include <linux/msm/ioss.h>
+#include "include/linux/msm/ioss.h"
+#include <linux/panic_notifier.h>
 
 enum ioss_statuses {
 	IOSS_ST_ERROR,
@@ -60,6 +62,8 @@ void ioss_pci_restore_pm_ops(struct ioss_device *idev);
 int ioss_pci_enable_pc(struct ioss_device *idev);
 int ioss_pci_disable_pc(struct ioss_device *idev);
 
+int ioss_plat_start(struct ioss *ioss);
+void ioss_plat_stop(struct ioss *ioss);
 
 int ioss_of_parse(struct ioss_device *idev);
 

@@ -6,21 +6,12 @@ M ?= $(shell pwd)
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 
-ioss-y := \
-	ioss_main.o \
-	ioss_bus.o \
-	ioss_pci.o \
-	ioss_net.o \
-	ioss_debugfs.o \
-	ioss_of.o \
-	ioss_ipa.o \
-	ioss_ipa_hal.o \
-	ioss_mem.o \
-	ioss_utils.o \
-	ioss_platform.o
+iemac_ioss-y := \
+	emac_ioss.o \
+	emac_ipa_intf.o
 
 KBUILD_OPTIONS+=KBUILD_DTC_INCLUDE=$(KP_MODULE_ROOT)
-KBUILD_OPTIONS+=CONFIG_IOSS=m
+KBUILD_OPTIONS+=CONFIG_EMAC_IOSS=m
 
 all:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)
