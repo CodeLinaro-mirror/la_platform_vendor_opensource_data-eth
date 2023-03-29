@@ -1271,16 +1271,20 @@ static int stmmac_release(struct net_device *dev)
 		/* We should do clean up only when they are inited */
 		stmmac_stop_queue(priv);
 
-		stmmac_disable_queue(priv);
+		/* if emac_state is EMAC_INIT_ST then below
+		 * cleanup already covered by stmmac_suspend.*/
+		if (priv->emac_state != EMAC_INIT_ST) {
+			stmmac_disable_queue(priv);
 
-		if (!priv->tx_coal_timer_disable)
-			del_timer_sync(&priv->tx_queue.txtimer);
+			if (!priv->tx_coal_timer_disable)
+				del_timer_sync(&priv->tx_queue.txtimer);
+
+			/* Stop TX/RX DMA and clear the descriptors */
+			stmmac_stop_dma(priv);
+		}
 
 		/* Free the IRQ line */
 		free_irq(dev->irq, dev);
-
-		/* Stop TX/RX DMA and clear the descriptors */
-		stmmac_stop_dma(priv);
 
 		/* Release and free the Rx/Tx resources */
 		free_dma_desc_resources(priv);
