@@ -206,3 +206,10 @@ int ioss_of_parse(struct ioss_device *idev)
 
 	return __ioss_of_parse(idev, np);
 }
+
+#ifdef LLCC_ENABLE
+bool ioss_of_parse_llcc(struct ioss_device *idev)
+{
+	return of_property_read_bool(idev->dev.parent->of_node, "qcom,llcc_enabled");
+}
+#endif
