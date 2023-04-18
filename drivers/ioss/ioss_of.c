@@ -113,6 +113,10 @@ static int ioss_of_parse_v2(struct ioss_device *idev, struct device_node *np)
 		goto err;
 	}
 
+	/*To disable auto resume of ioss during PM*/
+	key = "qcom,ioss_auto_resume_disabled";
+	iface->auto_resume_disabled = of_property_read_bool(np, key);
+
 	/* Parse channels */
 	key = "qcom,ioss_channels";
 	count = of_count_phandle_with_args(np, "qcom,ioss_channels", NULL);
