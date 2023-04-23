@@ -17,6 +17,10 @@
 #include "include/linux/msm/ioss.h"
 #include <linux/panic_notifier.h>
 
+#if IS_ENABLED(CONFIG_QCOM_LLCC)
+#define LLCC_ENABLE
+#endif
+
 enum ioss_statuses {
 	IOSS_ST_ERROR,
 	IOSS_ST_PROBED,
@@ -50,10 +54,14 @@ struct ioss_iface_priv {
 };
 
 extern struct ioss_mem_allocator ioss_default_alctr;
-extern struct ioss_mem_allocator ioss_llcc_alctr;
 
 extern unsigned long ioss_ver;
 extern unsigned long ioss_api_ver;
+
+#ifdef LLCC_ENABLE
+extern struct ioss_mem_allocator ioss_llcc_alctr;
+bool ioss_of_parse_llcc(struct ioss_device *idev);
+#endif
 
 int ioss_pci_start(struct ioss *ioss);
 void ioss_pci_stop(struct ioss *ioss);

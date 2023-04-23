@@ -39,8 +39,6 @@ struct ioss_mem_allocator ioss_default_alctr = {
 #ifdef LLCC_ENABLE
 /* LLCC Memory Allocator */
 #include <linux/soc/qcom/llcc-qcom.h>
-#include <linux/soc/qcom/llcc-tcm.h>
-#include <linux/dma-noncoherent.h>
 #include <linux/dma-map-ops.h>
 
 bool tcm_in_use;
