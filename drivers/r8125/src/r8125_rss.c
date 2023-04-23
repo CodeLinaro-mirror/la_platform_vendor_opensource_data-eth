@@ -41,8 +41,6 @@ enum rtl8125_rss_register_content {
         RSS_CTRL_IPV4_SUPP  = (1 << 1),
         RSS_CTRL_TCP_IPV6_SUPP  = (1 << 2),
         RSS_CTRL_IPV6_SUPP  = (1 << 3),
-        RSS_CTRL_IPV6_EXT_SUPP  = (1 << 4),
-        RSS_CTRL_TCP_IPV6_EXT_SUPP  = (1 << 5),
         RSS_HALF_SUPP  = (1 << 7),
         RSS_CTRL_UDP_IPV4_SUPP  = (1 << 11),
         RSS_CTRL_UDP_IPV6_SUPP  = (1 << 12),
@@ -133,9 +131,7 @@ static int _rtl8125_set_rss_hash_opt(struct rtl8125_private *tp)
         rss_ctrl |= RSS_CTRL_TCP_IPV4_SUPP
                     | RSS_CTRL_IPV4_SUPP
                     | RSS_CTRL_IPV6_SUPP
-                    | RSS_CTRL_IPV6_EXT_SUPP
-                    | RSS_CTRL_TCP_IPV6_SUPP
-                    | RSS_CTRL_TCP_IPV6_EXT_SUPP;
+                    | RSS_CTRL_TCP_IPV6_SUPP;
 
         if (rss_flags & RTL_8125_RSS_FLAG_HASH_UDP_IPV4)
                 rss_ctrl |= RSS_CTRL_UDP_IPV4_SUPP;
@@ -243,9 +239,7 @@ static int rtl8125_set_rss_hash_opt(struct rtl8125_private *tp,
                 rss_ctrl |= RSS_CTRL_TCP_IPV4_SUPP
                             | RSS_CTRL_IPV4_SUPP
                             | RSS_CTRL_IPV6_SUPP
-                            | RSS_CTRL_IPV6_EXT_SUPP
-                            | RSS_CTRL_TCP_IPV6_SUPP
-                            | RSS_CTRL_TCP_IPV6_EXT_SUPP;
+                            | RSS_CTRL_TCP_IPV6_SUPP;
 
                 rss_ctrl &= ~(RSS_CTRL_UDP_IPV4_SUPP |
                               RSS_CTRL_UDP_IPV6_SUPP);
