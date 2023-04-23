@@ -10115,9 +10115,9 @@ rtl8125_set_rxbufsize(struct rtl8125_private *tp,
         unsigned int mtu = dev->mtu;
 
 	if (enable_double_vlan)
-		tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 4 : RX_BUF_SIZE;
+        	tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 1 + 4 : RX_BUF_SIZE;
 	else
-		tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 : RX_BUF_SIZE;
+       		tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 1 : RX_BUF_SIZE;
 }
 
 static void rtl8125_free_irq(struct rtl8125_private *tp)

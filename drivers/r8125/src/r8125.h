@@ -469,11 +469,7 @@ This is free software, and you are welcome to redistribute it under certain cond
 #define NUM_TX_DESC MAX_NUM_TX_DESC    /* Number of Tx descriptor registers */
 #define NUM_RX_DESC MAX_NUM_RX_DESC    /* Number of Rx descriptor registers */
 
-#ifdef ENABLE_DOUBLE_VLAN
-#define RX_BUF_SIZE 0x05F6  /* 0x05F6 = 1526 bytes */
-#else
-#define RX_BUF_SIZE 0x05F2  /* 0x05F2 = 1522 bytes */
-#endif
+#define RX_BUF_SIZE 0x05F3  /* 0x05F3 = 1522bye + 1 */
 
 #define R8125_MAX_TX_QUEUES (2)
 #define R8125_MAX_RX_QUEUES (4)
