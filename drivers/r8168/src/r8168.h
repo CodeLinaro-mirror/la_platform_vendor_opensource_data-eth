@@ -2,7 +2,7 @@
 /*
 ################################################################################
 #
-# r8125 is the Linux device driver released for Realtek 2.5Gigabit Ethernet
+# r8168 is the Linux device driver released for Realtek Gigabit Ethernet
 # controllers with PCI-Express interface.
 #
 # Copyright(c) 2022 Realtek Semiconductor Corp. All rights reserved.
@@ -32,30 +32,14 @@
  *  US6,570,884, US6,115,776, and US6,327,625.
  ***********************************************************************************/
 
-#ifndef __R8125_H
-#define __R8125_H
-
-//#include <linux/pci.h>
 #include <linux/ethtool.h>
-#include <linux/interrupt.h>
-#include <linux/version.h>
-#include "r8125_dash.h"
-#include "r8125_realwow.h"
-#include "r8125_ptp.h"
-#include "r8125_rss.h"
-#ifdef ENABLE_LIB_SUPPORT
-#include "r8125_lib.h"
-#endif
+#include "r8168_dash.h"
+#include "r8168_realwow.h"
+#include "r8168_fiber.h"
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,32)
 typedef int netdev_tx_t;
 #endif
-
-/*
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,12,0)&& !defined(ENABLE_LIB_SUPPORT)
-#define RTL_USE_NEW_INTR_API
-#endif
-*/
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
 #define skb_transport_offset(skb) (skb->h.raw - skb->data)
@@ -146,11 +130,11 @@ do { \
 #endif
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(4,0,0)
 
-#define RTL_ALLOC_SKB_INTR(napi, length) dev_alloc_skb(length)
-#ifdef CONFIG_R8125_NAPI
+#define RTL_ALLOC_SKB_INTR(tp, length) dev_alloc_skb(length)
+#ifdef CONFIG_R8168_NAPI
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,19,0)
 #undef RTL_ALLOC_SKB_INTR
-#define RTL_ALLOC_SKB_INTR(napi, length) napi_alloc_skb(napi, length)
+#define RTL_ALLOC_SKB_INTR(tp, length) napi_alloc_skb(&tp->napi, length)
 #endif
 #endif
 
@@ -173,7 +157,7 @@ do { \
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,37)
-#define ENABLE_R8125_PROCFS
+#define ENABLE_R8168_PROCFS
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
@@ -285,26 +269,26 @@ do { \
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
 #ifdef CONFIG_NET_POLL_CONTROLLER
-#define RTL_NET_POLL_CONTROLLER dev->poll_controller=rtl8125_netpoll
+#define RTL_NET_POLL_CONTROLLER dev->poll_controller=rtl8168_netpoll
 #else
 #define RTL_NET_POLL_CONTROLLER
 #endif
 
-#ifdef CONFIG_R8125_VLAN
-#define RTL_SET_VLAN dev->vlan_rx_register=rtl8125_vlan_rx_register
+#ifdef CONFIG_R8168_VLAN
+#define RTL_SET_VLAN dev->vlan_rx_register=rtl8168_vlan_rx_register
 #else
 #define RTL_SET_VLAN
 #endif
 
-#define RTL_NET_DEVICE_OPS(ops) dev->open=rtl8125_open; \
-                    dev->hard_start_xmit=rtl8125_start_xmit; \
-                    dev->get_stats=rtl8125_get_stats; \
-                    dev->stop=rtl8125_close; \
-                    dev->tx_timeout=rtl8125_tx_timeout; \
-                    dev->set_multicast_list=rtl8125_set_rx_mode; \
-                    dev->change_mtu=rtl8125_change_mtu; \
-                    dev->set_mac_address=rtl8125_set_mac_address; \
-                    dev->do_ioctl=rtl8125_do_ioctl; \
+#define RTL_NET_DEVICE_OPS(ops) dev->open=rtl8168_open; \
+                    dev->hard_start_xmit=rtl8168_start_xmit; \
+                    dev->get_stats=rtl8168_get_stats; \
+                    dev->stop=rtl8168_close; \
+                    dev->tx_timeout=rtl8168_tx_timeout; \
+                    dev->set_multicast_list=rtl8168_set_rx_mode; \
+                    dev->change_mtu=rtl8168_change_mtu; \
+                    dev->set_mac_address=rtl8168_set_mac_address; \
+                    dev->do_ioctl=rtl8168_do_ioctl; \
                     RTL_NET_POLL_CONTROLLER; \
                     RTL_SET_VLAN;
 #else
@@ -330,16 +314,27 @@ do { \
 //Hardware will continue interrupt 10 times after interrupt finished.
 #define RTK_KEEP_INTERRUPT_COUNT (10)
 
-//the low 32 bit address of receive buffer must be 8-byte alignment.
+//Due to the hardware design of RTL8111B, the low 32 bit address of receive
+//buffer must be 8-byte alignment.
 #ifndef NET_IP_ALIGN
 #define NET_IP_ALIGN        2
 #endif
 #define RTK_RX_ALIGN        8
 
-#ifdef CONFIG_R8125_NAPI
+#ifdef CONFIG_R8168_NAPI
 #define NAPI_SUFFIX "-NAPI"
 #else
 #define NAPI_SUFFIX ""
+#endif
+#ifdef ENABLE_FIBER_SUPPORT
+#define FIBER_SUFFIX "-FIBER"
+#else
+#define FIBER_SUFFIX ""
+#endif
+#ifdef ENABLE_REALWOW_SUPPORT
+#define REALWOW_SUFFIX "-REALWOW"
+#else
+#define REALWOW_SUFFIX ""
 #endif
 #if defined(ENABLE_DASH_PRINTER_SUPPORT)
 #define DASH_SUFFIX "-PRINTER"
@@ -349,34 +344,16 @@ do { \
 #define DASH_SUFFIX ""
 #endif
 
-#if defined(ENABLE_REALWOW_SUPPORT)
-#define REALWOW_SUFFIX "-REALWOW"
-#else
-#define REALWOW_SUFFIX ""
-#endif
-
-#if defined(ENABLE_PTP_SUPPORT)
-#define PTP_SUFFIX "-PTP"
-#else
-#define PTP_SUFFIX ""
-#endif
-
-#if defined(ENABLE_RSS_SUPPORT)
-#define RSS_SUFFIX "-RSS"
-#else
-#define RSS_SUFFIX ""
-#endif
-
-#define RTL8125_VERSION "9.010.01" NAPI_SUFFIX DASH_SUFFIX REALWOW_SUFFIX PTP_SUFFIX RSS_SUFFIX
-#define MODULENAME "r8125"
+#define RTL8168_VERSION "8.051.02" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX
+#define MODULENAME "r8168"
 #define PFX MODULENAME ": "
 
 #define GPL_CLAIM "\
-r8125  Copyright (C) 2022 Realtek NIC software team <nicfae@realtek.com> \n \
+r8168  Copyright (C) 2022 Realtek NIC software team <nicfae@realtek.com> \n \
 This program comes with ABSOLUTELY NO WARRANTY; for details, please see <http://www.gnu.org/licenses/>. \n \
 This is free software, and you are welcome to redistribute it under certain conditions; see <http://www.gnu.org/licenses/>. \n"
 
-#ifdef RTL8125_DEBUG
+#ifdef RTL8168_DEBUG
 #define assert(expr) \
         if(!(expr)) {                   \
             printk( "Assertion failed! %s,%s,%s,line=%d\n", \
@@ -386,17 +363,17 @@ This is free software, and you are welcome to redistribute it under certain cond
 #else
 #define assert(expr) do {} while (0)
 #define dprintk(fmt, args...)   do {} while (0)
-#endif /* RTL8125_DEBUG */
+#endif /* RTL8168_DEBUG */
 
-#define R8125_MSG_DEFAULT \
+#define R8168_MSG_DEFAULT \
     (NETIF_MSG_DRV | NETIF_MSG_PROBE | NETIF_MSG_IFUP | NETIF_MSG_IFDOWN)
 
-#ifdef CONFIG_R8125_NAPI
-#define rtl8125_rx_hwaccel_skb      vlan_hwaccel_receive_skb
-#define rtl8125_rx_quota(count, quota)  min(count, quota)
+#ifdef CONFIG_R8168_NAPI
+#define rtl8168_rx_hwaccel_skb      vlan_hwaccel_receive_skb
+#define rtl8168_rx_quota(count, quota)  min(count, quota)
 #else
-#define rtl8125_rx_hwaccel_skb      vlan_hwaccel_rx
-#define rtl8125_rx_quota(count, quota)  count
+#define rtl8168_rx_hwaccel_skb      vlan_hwaccel_rx
+#define rtl8168_rx_quota(count, quota)  count
 #endif
 
 /* MAC address length */
@@ -417,7 +394,7 @@ This is free software, and you are welcome to redistribute it under certain cond
 #endif
 
 #define Reserved2_data  7
-#define RX_DMA_BURST    7   /* Maximum PCI burst, '7' is unlimited */
+#define RX_DMA_BURST    7   /* Maximum PCI burst, '6' is 1024 */
 #define TX_DMA_BURST_unlimited  7
 #define TX_DMA_BURST_1024   6
 #define TX_DMA_BURST_512    5
@@ -442,55 +419,36 @@ This is free software, and you are welcome to redistribute it under certain cond
 #define RxEarly_off_V2 (1 << 11)
 #define Rx_Single_fetch_V2 (1 << 14)
 
-#define R8125_REGS_SIZE     (256)
-#define R8125_MAC_REGS_SIZE     (256)
-#define R8125_PHY_REGS_SIZE     (16*2)
-#define R8125_EPHY_REGS_SIZE  	(31*2)
-#define R8125_ERI_REGS_SIZE  	(0x100)
-#define R8125_REGS_DUMP_SIZE     (0x400)
-#define R8125_PCI_REGS_SIZE  	(0x100)
-#define R8125_NAPI_WEIGHT   64
+#define R8168_REGS_SIZE     (256)
+#define R8168_MAC_REGS_SIZE     (256)
+#define R8168_PHY_REGS_SIZE     (16*2)
+#define R8168_EPHY_REGS_SIZE  	(31*2)
+#define R8168_ERI_REGS_SIZE  	(0x100)
+#define R8168_REGS_DUMP_SIZE     (0x400)
+#define R8168_PCI_REGS_SIZE  	(0x100)
+#define R8168_NAPI_WEIGHT   64
 
-#define R8125_MAX_MSIX_VEC_8125B   32
-#define R8125_MIN_MSIX_VEC_8125B   17
-#define R8125_MAX_MSIX_VEC   32
-#define R8125_MAX_RX_QUEUES_VEC_V3 (16)
-
-#define RTL8125_TX_TIMEOUT  (6 * HZ)
-#define RTL8125_LINK_TIMEOUT    (1 * HZ)
-#define RTL8125_ESD_TIMEOUT (2 * HZ)
+#define RTL8168_TX_TIMEOUT  (6 * HZ)
+#define RTL8168_LINK_TIMEOUT    (1 * HZ)
+#define RTL8168_ESD_TIMEOUT (2 * HZ)
 
 #define MAX_NUM_TX_DESC 1024    /* Maximum number of Tx descriptor registers */
 #define MAX_NUM_RX_DESC 1024    /* Maximum number of Rx descriptor registers */
 
-#define MIN_NUM_TX_DESC 256    /* Minimum number of Tx descriptor registers */
-#define MIN_NUM_RX_DESC 256    /* Minimum number of Rx descriptor registers */
+#define MIN_NUM_TX_DESC 32    /* Minimum number of Tx descriptor registers */
+#define MIN_NUM_RX_DESC 32    /* Minimum number of Rx descriptor registers */
 
-#define NUM_TX_DESC MAX_NUM_TX_DESC    /* Number of Tx descriptor registers */
-#define NUM_RX_DESC MAX_NUM_RX_DESC    /* Number of Rx descriptor registers */
+#define NUM_TX_DESC 256    /* Number of Tx descriptor registers */
+#define NUM_RX_DESC 256    /* Number of Rx descriptor registers */
 
-#ifdef ENABLE_DOUBLE_VLAN
-#define RX_BUF_SIZE 0x05F6  /* 0x05F6 = 1526 bytes */
-#else
-#define RX_BUF_SIZE 0x05F2  /* 0x05F2 = 1522 bytes */
-#endif
-
-#define R8125_MAX_TX_QUEUES (2)
-#define R8125_MAX_RX_QUEUES (4)
-#define R8125_MAX_QUEUES R8125_MAX_RX_QUEUES
+#define RX_BUF_SIZE 0x05F3  /* 0x05F3 = 1522bye + 1 */
 
 #define OCP_STD_PHY_BASE	0xa400
 
 //Channel Wait Count
-#define R8125_CHANNEL_WAIT_COUNT (20000)
-#define R8125_CHANNEL_WAIT_TIME (1)  // 1us
-#define R8125_CHANNEL_EXIT_DELAY_TIME (20)  //20us
-
-#ifdef ENABLE_LIB_SUPPORT
-#define R8125_MULTI_RX_Q(tp) 0
-#else
-#define R8125_MULTI_RX_Q(tp) (tp->num_rx_rings > 1)
-#endif
+#define R8168_CHANNEL_WAIT_COUNT (20000)
+#define R8168_CHANNEL_WAIT_TIME (1)  // 1us
+#define R8168_CHANNEL_EXIT_DELAY_TIME (20)  //20us
 
 #define NODE_ADDRESS_SIZE 6
 
@@ -523,7 +481,7 @@ This is free software, and you are welcome to redistribute it under certain cond
 #endif
 
 #ifndef NETDEV_TX_LOCKED
-#define NETDEV_TX_LOCKED -1t /* driver tx lock was already taken */
+#define NETDEV_TX_LOCKED -1 /* driver tx lock was already taken */
 #endif
 
 #ifndef ADVERTISED_Pause
@@ -554,37 +512,8 @@ This is free software, and you are welcome to redistribute it under certain cond
 #define ADVERTISE_1000HALF  0x100
 #endif
 
-#ifndef ADVERTISED_2500baseX_Full
-#define ADVERTISED_2500baseX_Full  0x8000
-#endif
-
-#define RTK_ADVERTISE_2500FULL  0x80
-#define RTK_LPA_ADVERTISE_2500FULL  0x20
-#define RTK_LPA_ADVERTISE_5000FULL  0x40
-#define RTK_LPA_ADVERTISE_10000FULL  0x800
-
-#define RTK_EEE_ADVERTISE_2500FULL  0x01
-#define RTK_LPA_EEE_ADVERTISE_2500FULL  0x01
-
-/* Tx NO CLOSE */
-#define MAX_TX_NO_CLOSE_DESC_PTR_V2 0x10000
-#define TX_NO_CLOSE_SW_PTR_MASK_V2 0x1FFFF
-
 #ifndef ETH_MIN_MTU
 #define ETH_MIN_MTU  68
-#endif
-
-#define D0_SPEED_UP_SPEED_DISABLE    0
-#define D0_SPEED_UP_SPEED_1000       1
-#define D0_SPEED_UP_SPEED_2500       2
-
-#define RTL8125_MAC_MCU_PAGE_SIZE 256 //256 words
-
-#ifndef WRITE_ONCE
-#define WRITE_ONCE(var, val) (*((volatile typeof(val) *)(&(var))) = (val))
-#endif
-#ifndef READ_ONCE
-#define READ_ONCE(var) (*((volatile typeof(var) *)(&(var))))
 #endif
 
 /*****************************************************************************/
@@ -672,23 +601,6 @@ typedef int napi_budget;
 #else
 #define RTL_NAPI_DEL(priv)   netif_napi_del(&priv->napi)
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(2,6,27)
-
-/*****************************************************************************/
-#ifdef CONFIG_R8125_NAPI
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0)
-#define RTL_NAPI_CONSUME_SKB_ANY(skb, budget)          napi_consume_skb(skb, budget)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
-#define RTL_NAPI_CONSUME_SKB_ANY(skb, budget)          dev_consume_skb_any(skb);
-#else
-#define RTL_NAPI_CONSUME_SKB_ANY(skb, budget)          dev_kfree_skb_any(skb);
-#endif  //LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0)
-#else   //CONFIG_R8125_NAPI
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
-#define RTL_NAPI_CONSUME_SKB_ANY(skb, budget)          dev_consume_skb_any(skb);
-#else
-#define RTL_NAPI_CONSUME_SKB_ANY(skb, budget)          dev_kfree_skb_any(skb);
-#endif
-#endif  //CONFIG_R8125_NAPI
 
 /*****************************************************************************/
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,9)
@@ -1134,7 +1046,15 @@ struct _kc_ethtool_pauseparam {
 
 /*****************************************************************************/
 
-enum RTL8125_registers {
+enum RTL8168_DSM_STATE {
+        DSM_MAC_INIT = 1,
+        DSM_NIC_GOTO_D3 = 2,
+        DSM_IF_DOWN = 3,
+        DSM_NIC_RESUME_D3 = 4,
+        DSM_IF_UP = 5,
+};
+
+enum RTL8168_registers {
         MAC0            = 0x00,     /* Ethernet hardware address. */
         MAC4            = 0x04,
         MAR0            = 0x08,     /* Multicast filter. */
@@ -1146,7 +1066,6 @@ enum RTL8125_registers {
         TxHDescStartAddrLow = 0x28,
         TxHDescStartAddrHigh    = 0x2c,
         FLASH           = 0x30,
-        INT_CFG0_8125   = 0x34,
         ERSR            = 0x36,
         ChipCmd         = 0x37,
         TxPoll          = 0x38,
@@ -1174,7 +1093,6 @@ enum RTL8125_registers {
         PMCH            = 0x6F,
         ERIDR           = 0x70,
         ERIAR           = 0x74,
-        INT_CFG1_8125   = 0x7A,
         EPHY_RXER_NUM   = 0x7C,
         EPHYAR          = 0x80,
         TimeInt2        = 0x8C,
@@ -1204,64 +1122,9 @@ enum RTL8125_registers {
         CMAC_IBIMR0     = 0xFA,
         CMAC_IBISR0     = 0xFB,
         FuncForceEvent  = 0xFC,
-        //8125
-        IMR0_8125          = 0x38,
-        ISR0_8125          = 0x3C,
-        TPPOLL_8125        = 0x90,
-        IMR1_8125          = 0x800,
-        ISR1_8125          = 0x802,
-        IMR2_8125          = 0x804,
-        ISR2_8125          = 0x806,
-        IMR3_8125          = 0x808,
-        ISR3_8125          = 0x80A,
-        BACKUP_ADDR0_8125  = 0x19E0,
-        BACKUP_ADDR1_8125  = 0X19E4,
-        TCTR0_8125         = 0x0048,
-        TCTR1_8125         = 0x004C,
-        TCTR2_8125         = 0x0088,
-        TCTR3_8125         = 0x001C,
-        TIMER_INT0_8125    = 0x0058,
-        TIMER_INT1_8125    = 0x005C,
-        TIMER_INT2_8125    = 0x008C,
-        TIMER_INT3_8125    = 0x00F4,
-        INT_MITI_V2_0_RX   = 0x0A00,
-        INT_MITI_V2_0_TX   = 0x0A02,
-        INT_MITI_V2_1_RX   = 0x0A08,
-        INT_MITI_V2_1_TX   = 0x0A0A,
-        IMR_V2_CLEAR_REG_8125 = 0x0D00,
-        ISR_V2_8125           = 0x0D04,
-        IMR_V2_SET_REG_8125   = 0x0D0C,
-        TDU_STA_8125       = 0x0D08,
-        RDU_STA_8125       = 0x0D0A,
-        DOUBLE_VLAN_CONFIG = 0x1000,
-        TX_NEW_CTRL        = 0x203E,
-        TNPDS_Q1_LOW_8125  = 0x2100,
-        PLA_TXQ0_IDLE_CREDIT = 0x2500,
-        PLA_TXQ1_IDLE_CREDIT = 0x2504,
-        SW_TAIL_PTR0_8125  = 0x2800,
-        HW_CLO_PTR0_8125   = 0x2802,
-        RDSAR_Q1_LOW_8125  = 0x4000,
-        RSS_CTRL_8125      = 0x4500,
-        Q_NUM_CTRL_8125    = 0x4800,
-        RSS_KEY_8125       = 0x4600,
-        RSS_INDIRECTION_TBL_8125_V2 = 0x4700,
-        EEE_TXIDLE_TIMER_8125   = 0x6048,
-        PTP_CTRL_8125      = 0x6800,
-        PTP_STATUS_8125    = 0x6802,
-        PTP_ISR_8125       = 0x6804,
-        PTP_IMR_8125       = 0x6805,
-        PTP_TIME_CORRECT_CMD_8125    = 0x6806,
-        PTP_SOFT_CONFIG_Time_NS_8125 = 0x6808,
-        PTP_SOFT_CONFIG_Time_S_8125  = 0x680C,
-        PTP_LOCAL_Time_SUB_NS_8125   = 0x6814,
-        PTP_LOCAL_Time_NS_8125       = 0x6818,
-        PTP_LOCAL_Time_S_8125        = 0x681C,
-        PTP_Time_SHIFTER_S_8125      = 0x6856,
-        PPS_RISE_TIME_NS_8125        = 0x68A0,
-        PPS_RISE_TIME_S_8125         = 0x68A4,
 };
 
-enum RTL8125_register_content {
+enum RTL8168_register_content {
         /* InterruptStatusBits */
         SYSErr      = 0x8000,
         PCSTimeout  = 0x4000,
@@ -1274,19 +1137,12 @@ enum RTL8125_register_content {
         TxOK        = 0x0004,
         RxErr       = 0x0002,
         RxOK        = 0x0001,
-        RxDU1       = 0x0002,
-        RxOK1       = 0x0001,
 
         /* RxStatusDesc */
         RxRWT = (1 << 22),
         RxRES = (1 << 21),
         RxRUNT = (1 << 20),
         RxCRC = (1 << 19),
-
-        RxRWT_V3 = (1 << 18),
-        RxRES_V3 = (1 << 20),
-        RxRUNT_V3 = (1 << 19),
-        RxCRC_V3 = (1 << 17),
 
         /* ChipCmdBits */
         StopReq  = 0x80,
@@ -1321,13 +1177,9 @@ enum RTL8125_register_content {
         /* RxConfigBits */
         Reserved2_shift = 13,
         RxCfgDMAShift = 8,
-        EnableRxDescV3 = (1 << 24),
-        EnableOuterVlan = (1 << 23),
-        EnableInnerVlan = (1 << 22),
         RxCfg_128_int_en = (1 << 15),
         RxCfg_fet_multi_en = (1 << 14),
         RxCfg_half_refetch = (1 << 13),
-        RxCfg_pause_slot_en = (1 << 11),
         RxCfg_9356SEL = (1 << 6),
 
         /* TxConfigBits */
@@ -1345,20 +1197,21 @@ enum RTL8125_register_content {
         PMEnable    = (1 << 0), /* Power Management Enable */
 
         /* Config2 register */
+        ClkReqEn	= (1 << 7),	/* Clock Request Enable */
         PMSTS_En    = (1 << 5),
 
         /* Config3 register */
         Isolate_en  = (1 << 12), /* Isolate enable */
         MagicPacket = (1 << 5), /* Wake up when receives a Magic Packet */
-        LinkUp      = (1 << 4), /* This bit is reserved in RTL8125B.*/
+        LinkUp      = (1 << 4), /* This bit is reserved in RTL8168B.*/
         /* Wake up when the cable connection is re-established */
-        ECRCEN      = (1 << 3), /* This bit is reserved in RTL8125B*/
-        Jumbo_En0   = (1 << 2), /* This bit is reserved in RTL8125B*/
-        RDY_TO_L23  = (1 << 1), /* This bit is reserved in RTL8125B*/
-        Beacon_en   = (1 << 0), /* This bit is reserved in RTL8125B*/
+        ECRCEN      = (1 << 3), /* This bit is reserved in RTL8168B*/
+        Jumbo_En0   = (1 << 2), /* This bit is reserved in RTL8168B*/
+        RDY_TO_L23  = (1 << 1), /* This bit is reserved in RTL8168B*/
+        Beacon_en   = (1 << 0), /* This bit is reserved in RTL8168B*/
 
         /* Config4 register */
-        Jumbo_En1   = (1 << 1), /* This bit is reserved in RTL8125B*/
+        Jumbo_En1   = (1 << 1), /* This bit is reserved in RTL8168B*/
 
         /* Config5 register */
         BWF     = (1 << 6), /* Accept Broadcast wakeup frame */
@@ -1366,6 +1219,7 @@ enum RTL8125_register_content {
         UWF     = (1 << 4), /* Accept Unicast wakeup frame */
         LanWake     = (1 << 1), /* LanWake enable/disable */
         PMEStatus   = (1 << 0), /* PME status can be reset by PCI RST# */
+        ASPM_en	    = (1 << 0),	/* ASPM enable */
 
         /* CPlusCmd */
         EnableBist  = (1 << 15),
@@ -1374,8 +1228,8 @@ enum RTL8125_register_content {
         Force_halfdup   = (1 << 12),
         Force_rxflow_en = (1 << 11),
         Force_txflow_en = (1 << 10),
-        Cxpl_dbg_sel    = (1 << 9),//This bit is reserved in RTL8125B
-        ASF     = (1 << 8),//This bit is reserved in RTL8125C
+        Cxpl_dbg_sel    = (1 << 9),//This bit is reserved in RTL8168B
+        ASF     = (1 << 8),//This bit is reserved in RTL8168C
         PktCntrDisable  = (1 << 7),
         RxVlan      = (1 << 6),
         RxChkSum    = (1 << 5),
@@ -1385,9 +1239,8 @@ enum RTL8125_register_content {
         INTT_2      = 0x0002,
         INTT_3      = 0x0003,
 
-        /* rtl8125_PHYstatus */
+        /* rtl8168_PHYstatus */
         PowerSaveStatus = 0x80,
-        _2500bpsF = 0x400,
         TxFlowCtrl = 0x40,
         RxFlowCtrl = 0x20,
         _1000bpsF = 0x10,
@@ -1419,7 +1272,6 @@ enum RTL8125_register_content {
         EPHYAR_Write = 0x80000000,
         EPHYAR_Read = 0x00000000,
         EPHYAR_Reg_Mask = 0x3f,
-        EPHYAR_Reg_Mask_v2 = 0x7f,
         EPHYAR_Reg_shift = 16,
         EPHYAR_Data_Mask = 0xffff,
 
@@ -1482,24 +1334,6 @@ enum RTL8125_register_content {
         /* GPIO */
         GPIO_en = (1 << 0),
 
-        /* PTP */
-        PTP_ISR_TOK = (1 << 1),
-        PTP_ISR_TER = (1 << 2),
-        PTP_EXEC_CMD = (1 << 7),
-        PTP_ADJUST_TIME_NS_NEGATIVE = (1 << 30),
-        PTP_ADJUST_TIME_S_NEGATIVE = (1ULL << 48),
-
-        /* New Interrupt Bits */
-        INT_CFG0_ENABLE_8125 = (1 << 0),
-        INT_CFG0_TIMEOUT0_BYPASS_8125 = (1 << 1),
-        INT_CFG0_MITIGATION_BYPASS_8125 = (1 << 2),
-        ISRIMR_V2_ROK_Q0     = (1 << 0),
-        ISRIMR_TOK_Q0        = (1 << 16),
-        ISRIMR_TOK_Q1        = (1 << 18),
-        ISRIMR_V2_LINKCHG    = (1 << 21),
-
-        /* Magic Number */
-        RTL8125_MAGIC_NUMBER = 0x0badbadbadbadbadull,
 };
 
 enum _DescStatusBit {
@@ -1507,11 +1341,6 @@ enum _DescStatusBit {
         RingEnd     = (1 << 30), /* End of descriptor ring */
         FirstFrag   = (1 << 29), /* First segment of a packet */
         LastFrag    = (1 << 28), /* Final segment of a packet */
-
-        DescOwn_V3     = (DescOwn), /* Descriptor is owned by NIC */
-        RingEnd_V3     = (RingEnd), /* End of descriptor ring */
-        FirstFrag_V3   = (1 << 25), /* First segment of a packet */
-        LastFrag_V3    = (1 << 24), /* Final segment of a packet */
 
         /* Tx private */
         /*------ offset 0 of tx descriptor ------*/
@@ -1526,12 +1355,12 @@ enum _DescStatusBit {
         TxTCPCS     = (1 << 16), /* Calculate TCP/IP checksum */
         TxVlanTag   = (1 << 17), /* Add VLAN tag */
 
-        /*@@@@@@ offset 4 of tx descriptor => bits for RTL8125 only     begin @@@@@@*/
+        /*@@@@@@ offset 4 of tx descriptor => bits for RTL8168C/CP only     begin @@@@@@*/
         TxUDPCS_C   = (1 << 31), /* Calculate UDP/IP checksum */
         TxTCPCS_C   = (1 << 30), /* Calculate TCP/IP checksum */
         TxIPCS_C    = (1 << 29), /* Calculate IP checksum */
         TxIPV6F_C   = (1 << 28), /* Indicate it is an IPv6 packet */
-        /*@@@@@@ offset 4 of tx descriptor => bits for RTL8125 only     end @@@@@@*/
+        /*@@@@@@ offset 4 of tx descriptor => bits for RTL8168C/CP only     end @@@@@@*/
 
 
         /* Rx private */
@@ -1549,41 +1378,15 @@ enum _DescStatusBit {
         RxTCPF      = (1 << 14), /* TCP/IP checksum failed */
         RxVlanTag   = (1 << 16), /* VLAN tag available */
 
-        /*@@@@@@ offset 0 of rx descriptor => bits for RTL8125 only     begin @@@@@@*/
+        /*@@@@@@ offset 0 of rx descriptor => bits for RTL8168C/CP only     begin @@@@@@*/
         RxUDPT      = (1 << 18),
         RxTCPT      = (1 << 17),
-        /*@@@@@@ offset 0 of rx descriptor => bits for RTL8125 only     end @@@@@@*/
+        /*@@@@@@ offset 0 of rx descriptor => bits for RTL8168C/CP only     end @@@@@@*/
 
-        /*@@@@@@ offset 4 of rx descriptor => bits for RTL8125 only     begin @@@@@@*/
+        /*@@@@@@ offset 4 of rx descriptor => bits for RTL8168C/CP only     begin @@@@@@*/
         RxV6F       = (1 << 31),
         RxV4F       = (1 << 30),
-        /*@@@@@@ offset 4 of rx descriptor => bits for RTL8125 only     end @@@@@@*/
-
-
-        PID1_v3        = (1 << 29), /* Protocol ID bit 1/2 */
-        PID0_v3        = (1 << 28), /* Protocol ID bit 2/2 */
-
-#define RxProtoUDP_v3  (PID1_v3)
-#define RxProtoTCP_v3  (PID0_v3)
-#define RxProtoIP_v3   (PID1_v3 | PID0_v3)
-#define RxProtoMask_v3 RxProtoIP_v3
-
-        RxIPF_v3       = (1 << 26), /* IP checksum failed */
-        RxUDPF_v3      = (1 << 25), /* UDP/IP checksum failed */
-        RxTCPF_v3      = (1 << 24), /* TCP/IP checksum failed */
-        RxSCTPF_v3     = (1 << 23), /* TCP/IP checksum failed */
-        RxVlanTag_v3   = (RxVlanTag), /* VLAN tag available */
-
-        /*@@@@@@ offset 0 of rx descriptor => bits for RTL8125 only     begin @@@@@@*/
-        RxUDPT_v3      = (1 << 29),
-        RxTCPT_v3      = (1 << 28),
-        RxSCTP_v3      = (1 << 27),
-        /*@@@@@@ offset 0 of rx descriptor => bits for RTL8125 only     end @@@@@@*/
-
-        /*@@@@@@ offset 4 of rx descriptor => bits for RTL8125 only     begin @@@@@@*/
-        RxV6F_v3       = (RxV6F),
-        RxV4F_v3       = (RxV4F),
-        /*@@@@@@ offset 4 of rx descriptor => bits for RTL8125 only     end @@@@@@*/
+        /*@@@@@@ offset 4 of rx descriptor => bits for RTL8168C/CP only     end @@@@@@*/
 };
 
 enum features {
@@ -1637,95 +1440,19 @@ enum effuse {
         EFUSE_SUPPORT_V1,
         EFUSE_SUPPORT_V2,
         EFUSE_SUPPORT_V3,
-        EFUSE_SUPPORT_V4,
 };
 #define RsvdMask    0x3fffc000
-#define RsvdMaskV3  0x3fff8000
 
 struct TxDesc {
         u32 opts1;
         u32 opts2;
         u64 addr;
-        u32 reserved0;
-        u32 reserved1;
-        u32 reserved2;
-        u32 reserved3;
 };
 
 struct RxDesc {
         u32 opts1;
         u32 opts2;
         u64 addr;
-};
-
-struct RxDescV3 {
-        union {
-                struct {
-                        u32 rsv1;
-                        u32 rsv2;
-                } RxDescDDWord1;
-        };
-
-        union {
-                struct {
-                        u32 RSSResult;
-                        u16 HeaderBufferLen;
-                        u16 HeaderInfo;
-                } RxDescNormalDDWord2;
-
-                struct {
-                        u32 rsv5;
-                        u32 rsv6;
-                } RxDescDDWord2;
-        };
-
-        union {
-                u64   addr;
-
-                struct {
-                        u32 TimeStampLow;
-                        u32 TimeStampHigh;
-                } RxDescTimeStamp;
-
-                struct {
-                        u32 rsv8;
-                        u32 rsv9;
-                } RxDescDDWord3;
-        };
-
-        union {
-                struct {
-                        u32 opts2;
-                        u32 opts1;
-                } RxDescNormalDDWord4;
-
-                struct {
-                        u16 TimeStampHHigh;
-                        u16 rsv11;
-                        u32 opts1;
-                } RxDescPTPDDWord4;
-        };
-};
-
-enum rxdesc_type {
-        RXDESC_TYPE_NORMAL=0,
-        RXDESC_TYPE_NEXT,
-        RXDESC_TYPE_PTP,
-        RXDESC_TYPE_MAX
-};
-
-//Rx Desc Type
-enum rx_desc_ring_type {
-        RX_DESC_RING_TYPE_UNKNOWN=0,
-        RX_DESC_RING_TYPE_1,
-        RX_DESC_RING_TYPE_2,
-        RX_DESC_RING_TYPE_3,
-        RX_DESC_RING_TYPE_MAX
-};
-
-enum rx_desc_len {
-        RX_DESC_LEN_TYPE_1 = (sizeof(struct RxDesc)),
-        RX_DESC_LEN_TYPE_3 = (sizeof(struct RxDescV3))
 };
 
 struct ring_info {
@@ -1754,293 +1481,26 @@ struct pci_resource {
         u32 pci_sn_h;
 };
 
-enum r8125_flag {
-        R8125_FLAG_DOWN = 0,
-        R8125_FLAG_TASK_RESET_PENDING,
-        R8125_FLAG_TASK_ESD_CHECK_PENDING,
-        R8125_FLAG_TASK_LINKCHG_CHECK_PENDING,
-        R8125_FLAG_MAX
+/* Flow Control Settings */
+enum rtl8168_fc_mode {
+        rtl8168_fc_none = 0,
+        rtl8168_fc_rx_pause,
+        rtl8168_fc_tx_pause,
+        rtl8168_fc_full,
+        rtl8168_fc_default
 };
 
-struct rtl8125_tx_ring {
-        void* priv;
-        u32 index;
-        u32 cur_tx; /* Index into the Tx descriptor buffer of next Rx pkt. */
-        u32 dirty_tx;
-        u32 num_tx_desc; /* Number of Tx descriptor registers */
-        struct TxDesc *TxDescArray; /* 256-aligned Tx descriptor ring */
-        dma_addr_t TxPhyAddr;
-        u32 TxDescAllocSize;
-        struct ring_info tx_skb[MAX_NUM_TX_DESC]; /* Tx data buffers */
-
-        u32 NextHwDesCloPtr;
-        u32 BeginHwDesCloPtr;
-
-        u16 hw_clo_ptr_reg;
-        u16 sw_tail_ptr_reg;
-
-        u16 tdsar_reg; /* Transmit Descriptor Start Address */
-};
-
-struct rtl8125_rx_ring {
-        void* priv;
-        u32 index;
-        u32 cur_rx; /* Index into the Rx descriptor buffer of next Rx pkt. */
-        u32 dirty_rx;
-        u32 num_rx_desc; /* Number of Rx descriptor registers */
-        struct RxDesc *RxDescArray; /* 256-aligned Rx descriptor ring */
-        u32 RxDescAllocSize;
-        u64 RxDescPhyAddr[MAX_NUM_RX_DESC]; /* Rx desc physical address*/
-        dma_addr_t RxPhyAddr;
-        struct sk_buff *Rx_skbuff[MAX_NUM_RX_DESC]; /* Rx data buffers */
-
-        u16 rdsar_reg; /* Receive Descriptor Start Address */
-};
-
-struct r8125_napi {
-#ifdef CONFIG_R8125_NAPI
+struct rtl8168_private {
+        void __iomem *mmio_addr;    /* memory map physical address */
+        struct pci_dev *pci_dev;    /* Index of PCI device */
+        struct net_device *dev;
+#ifdef CONFIG_R8168_NAPI
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
         struct napi_struct napi;
 #endif
 #endif
-        void* priv;
-        int index;
-};
-
-struct r8125_irq {
-        irq_handler_t	handler;
-        unsigned int	vector;
-        u8		requested;
-        char		name[IFNAMSIZ + 10];
-};
-
-#pragma pack(1)
-struct rtl8125_regs {
-        //00
-        u8 mac_id[6];
-        u16 reg_06;
-        u8 mar[8];
-        //10
-        u64 dtccr;
-        u16 ledsel0;
-        u16 legreg;
-        u32 tctr3;
-        //20
-        u32 txq0_dsc_st_addr_0;
-        u32 txq0_dsc_st_addr_2;
-        u64 reg_28;
-        //30
-        u16 rit;
-        u16 ritc;
-        u16 reg_34;
-        u8 reg_36;
-        u8 command;
-        u32 imr0;
-        u32 isr0;
-        //40
-        u32 tcr;
-        u32 rcr;
-        u32 tctr0;
-        u32 tctr1;
-        //50
-        u8 cr93c46;
-        u8 config0;
-        u8 config1;
-        u8 config2;
-        u8 config3;
-        u8 config4;
-        u8 config5;
-        u8 tdfnr;
-        u32 timer_int0;
-        u32 timer_int1;
-        //60
-        u32 gphy_mdcmdio;
-        u32 csidr;
-        u32 csiar;
-        u16 phy_status;
-        u8 config6;
-        u8 pmch;
-        //70
-        u32 eridr;
-        u32 eriar;
-        u16 config7;
-        u16 reg_7a;
-        u32 ephy_rxerr_cnt;
-        //80
-        u32 ephy_mdcmdio;
-        u16 ledsel2;
-        u16 ledsel1;
-        u32 tctr2;
-        u32 timer_int2;
-        //90
-        u8 tppoll0;
-        u8 reg_91;
-        u16 reg_92;
-        u16 led_feature;
-        u16 ledsel3;
-        u16 eee_led_config;
-        u16 reg_9a;
-        u32 reg_9c;
-        //a0
-        u32 reg_a0;
-        u32 reg_a4;
-        u32 reg_a8;
-        u32 reg_ac;
-        //b0
-        u32 patch_dbg;
-        u32 reg_b4;
-        u32 gphy_ocp;
-        u32 reg_bc;
-        //c0
-        u32 reg_c0;
-        u32 reg_c4;
-        u32 reg_c8;
-        u16 otp_cmd;
-        u16 otp_pg_config;
-        //d0
-        u16 phy_pwr;
-        u8 twsi_ctrl;
-        u8 oob_ctrl;
-        u16 mac_dbgo;
-        u16 mac_dbg;
-        u16 reg_d8;
-        u16 rms;
-        u32 efuse_data;
-        //e0
-        u16 cplus_cmd;
-        u16 reg_e2;
-        u32 rxq0_dsc_st_addr_0;
-        u32 rxq0_dsc_st_addr_2;
-        u16 reg_ec;
-        u16 tx10midle_cnt;
-        //f0
-        u16 misc0;
-        u16 misc1;
-        u32 timer_int3;
-        u32 cmac_ib;
-        u16 reg_fc;
-        u16 sw_rst;
-};
-#pragma pack()
-
-struct rtl8125_regs_save {
-        union {
-                u8 mac_io[R8125_MAC_REGS_SIZE];
-
-                struct rtl8125_regs mac_reg;
-        };
-        u16 pcie_phy[R8125_EPHY_REGS_SIZE/2];
-        u16 eth_phy[R8125_PHY_REGS_SIZE/2];
-        u32 eri_reg[R8125_ERI_REGS_SIZE/4];
-        u32 pci_reg[R8125_PCI_REGS_SIZE/4];
-        u16 sw_tail_ptr_reg[R8125_MAX_TX_QUEUES];
-        u16 hw_clo_ptr_reg[R8125_MAX_TX_QUEUES];
-
-        //ktime_t begin_ktime;
-        //ktime_t end_ktime;
-        //u64 duration_ns;
-
-        u16 sw0_tail_ptr;
-        u16 next_hwq0_clo_ptr;
-        u16 sw1_tail_ptr;
-        u16 next_hwq1_clo_ptr;
-
-        u16 int_miti_rxq0;
-        u16 int_miti_txq0;
-        u16 int_miti_rxq1;
-        u16 int_miti_txq1;
-        u8 int_config;
-        u32 imr_new;
-        u32 isr_new;
-
-        u8 tdu_status;
-        u16 rdu_status;
-
-        u16 tc_mode;
-
-        u32 txq1_dsc_st_addr_0;
-        u32 txq1_dsc_st_addr_2;
-
-        u32 pla_tx_q0_idle_credit;
-        u32 pla_tx_q1_idle_credit;
-
-        u32 rxq1_dsc_st_addr_0;
-        u32 rxq1_dsc_st_addr_2;
-
-        u32 rss_ctrl;
-        u8 rss_key[RTL8125_RSS_KEY_SIZE];
-        u8 rss_i_table[RTL8125_MAX_INDIRECTION_TABLE_ENTRIES];
-        u16 rss_queue_num_sel_r;
-};
-
-struct rtl8125_counters {
-        /* legacy */
-        u64 tx_packets;
-        u64 rx_packets;
-        u64 tx_errors;
-        u32 rx_errors;
-        u16 rx_missed;
-        u16 align_errors;
-        u32 tx_one_collision;
-        u32 tx_multi_collision;
-        u64 rx_unicast;
-        u64 rx_broadcast;
-        u32 rx_multicast;
-        u16 tx_aborted;
-        u16 tx_underrun;
-
-        /* extended */
-        u64 tx_octets;
-        u64 rx_octets;
-        u64 rx_multicast64;
-        u64 tx_unicast64;
-        u64 tx_broadcast64;
-        u64 tx_multicast64;
-        u32 tx_pause_on;
-        u32 tx_pause_off;
-        u32 tx_pause_all;
-        u32 tx_deferred;
-        u32 tx_late_collision;
-        u32 tx_all_collision;
-        u32 tx_aborted32;
-        u32 align_errors32;
-        u32 rx_frame_too_long;
-        u32 rx_runt;
-        u32 rx_pause_on;
-        u32 rx_pause_off;
-        u32 rx_pause_all;
-        u32 rx_unknown_opcode;
-        u32 rx_mac_error;
-        u32 tx_underrun32;
-        u32 rx_mac_missed;
-        u32 rx_tcam_dropped;
-        u32 tdu;
-        u32 rdu;
-};
-
-/* Flow Control Settings */
-enum rtl8125_fc_mode {
-        rtl8125_fc_none = 0,
-        rtl8125_fc_rx_pause,
-        rtl8125_fc_tx_pause,
-        rtl8125_fc_full,
-        rtl8125_fc_default
-};
-
-struct rtl8125_private {
-        void __iomem *mmio_addr;    /* memory map physical address */
-        struct pci_dev *pci_dev;    /* Index of PCI device */
-        struct net_device *dev;
-        struct r8125_napi r8125napi[R8125_MAX_MSIX_VEC];
-        struct r8125_irq irq_tbl[R8125_MAX_MSIX_VEC];
-        unsigned int irq_nvecs;
-        unsigned int max_irq_nvecs;
-        unsigned int min_irq_nvecs;
-        //struct msix_entry msix_entries[R8125_MAX_MSIX_VEC];
         struct net_device_stats stats;  /* statistics of net device */
-#ifdef ENABLE_PTP_SUPPORT
         spinlock_t lock;        /* spin lock flag */
-#endif
         u32 msg_enable;
         u32 tx_tcp_csum_cmd;
         u32 tx_udp_csum_cmd;
@@ -2049,47 +1509,38 @@ struct rtl8125_private {
         int max_jumbo_frame_size;
         int chipset;
         u32 mcfg;
-        //u32 cur_rx; /* Index into the Rx descriptor buffer of next Rx pkt. */
-        //u32 cur_tx; /* Index into the Tx descriptor buffer of next Rx pkt. */
-        //u32 dirty_rx;
-        //u32 dirty_tx;
-        //struct TxDesc *TxDescArray; /* 256-aligned Tx descriptor ring */
-        //struct RxDesc *RxDescArray; /* 256-aligned Rx descriptor ring */
-        //dma_addr_t TxPhyAddr;
-        //dma_addr_t RxPhyAddr;
-        //struct sk_buff *Rx_skbuff[MAX_NUM_RX_DESC]; /* Rx data buffers */
-        //struct ring_info tx_skb[MAX_NUM_TX_DESC];   /* Tx data buffers */
+        u32 cur_rx; /* Index into the Rx descriptor buffer of next Rx pkt. */
+        u32 cur_tx; /* Index into the Tx descriptor buffer of next Rx pkt. */
+        u32 dirty_rx;
+        u32 dirty_tx;
+        u32 num_rx_desc; /* Number of Rx descriptor registers */
+        u32 num_tx_desc; /* Number of Tx descriptor registers */
+        struct TxDesc *TxDescArray; /* 256-aligned Tx descriptor ring */
+        struct RxDesc *RxDescArray; /* 256-aligned Rx descriptor ring */
+        dma_addr_t TxPhyAddr;
+        dma_addr_t RxPhyAddr;
+        u32 TxDescAllocSize;
+        u32 RxDescAllocSize;
+        struct sk_buff *Rx_skbuff[MAX_NUM_RX_DESC]; /* Rx data buffers */
+        struct ring_info tx_skb[MAX_NUM_TX_DESC];   /* Tx data buffers */
         unsigned rx_buf_sz;
-        u16 HwSuppNumTxQueues;
-        u16 HwSuppNumRxQueues;
-        unsigned int num_tx_rings;
-        unsigned int num_rx_rings;
-        struct rtl8125_tx_ring tx_ring[R8125_MAX_TX_QUEUES];
-        struct rtl8125_rx_ring rx_ring[R8125_MAX_RX_QUEUES];
-#ifdef ENABLE_LIB_SUPPORT
-        struct atomic_notifier_head lib_nh;
-        struct rtl8125_ring lib_tx_ring[R8125_MAX_TX_QUEUES];
-        struct rtl8125_ring lib_rx_ring[R8125_MAX_RX_QUEUES];
-#endif
-        //struct timer_list esd_timer;
-        //struct timer_list link_timer;
+        struct timer_list esd_timer;
+        struct timer_list link_timer;
         struct pci_resource pci_cfg_space;
         unsigned int esd_flag;
         unsigned int pci_cfg_is_read;
-        unsigned int rtl8125_rx_config;
+        unsigned int rtl8168_rx_config;
         u16 cp_cmd;
-        u32 intr_mask;
-        u32 timer_intr_mask;
-        u16 isr_reg[R8125_MAX_QUEUES];
-        u16 imr_reg[R8125_MAX_QUEUES];
+        u16 intr_mask;
+        u16 timer_intr_mask;
+        int irq;
         int phy_auto_nego_reg;
         int phy_1000_ctrl_reg;
-        int phy_2500_ctrl_reg;
         u8 org_mac_addr[NODE_ADDRESS_SIZE];
-        struct rtl8125_counters *tally_vaddr;
+        struct rtl8168_counters *tally_vaddr;
         dma_addr_t tally_paddr;
 
-#ifdef CONFIG_R8125_VLAN
+#ifdef CONFIG_R8168_VLAN
         struct vlan_group *vlgrp;
 #endif
         u8  wol_enabled;
@@ -2100,7 +1551,7 @@ struct rtl8125_private {
         u8  duplex;
         u32 speed;
         u32 advertising;
-        enum rtl8125_fc_mode fcpause;
+        enum rtl8168_fc_mode fcpause;
         u16 eeprom_len;
         u16 cur_page;
         u32 bios_setting;
@@ -2115,15 +1566,10 @@ struct rtl8125_private {
         unsigned int (*phy_reset_pending)(struct net_device *);
         unsigned int (*link_ok)(struct net_device *);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
-        struct work_struct reset_task;
-        struct work_struct esd_task;
-        struct work_struct linkchg_task;
+        struct work_struct task;
 #else
-        struct delayed_work reset_task;
-        struct delayed_work esd_task;
-        struct delayed_work linkchg_task;
+        struct delayed_work task;
 #endif
-        DECLARE_BITMAP(task_flags, R8125_FLAG_MAX);
         unsigned features;
 
         u8 org_pci_offset_99;
@@ -2144,16 +1590,11 @@ struct rtl8125_private {
         u16 sw_ram_code_ver;
         u16 hw_ram_code_ver;
 
-        u8 RequireRduNonStopPatch;
-
         u8 rtk_enable_diag;
 
         u8 ShortPacketSwChecksum;
 
         u8 UseSwPaddingShortPkt;
-
-        void *ShortPacketEmptyBuffer;
-        dma_addr_t ShortPacketEmptyBufferPhy;
 
         u8 RequireAdcBiasPatch;
         u16 AdcBiasPatchIoffset;
@@ -2165,19 +1606,22 @@ struct rtl8125_private {
 
         u8 RequiredSecLanDonglePatch;
 
-        u8 RequirePhyMdiSwapPatch;
-
-        u8 RequireLSOPatch;
-
         u32 HwFiberModeVer;
         u32 HwFiberStat;
+        u8 HwFiberLedMode;
         u8 HwSwitchMdiToFiber;
+
+        u8 HwSuppSerDesPhyVer;
+
+        u8 HwSuppPhyOcpVer;
+
+        u8 HwSuppAspmClkIntrLock;
 
         u16 NicCustLedValue;
 
-        u8 HwSuppMagicPktVer;
+        u8 HwSuppUpsVer;
 
-        u8 HwSuppLinkChgWakeUpVer;
+        u8 HwSuppMagicPktVer;
 
         u8 HwSuppCheckPhyDisableModeVer;
 
@@ -2186,30 +1630,18 @@ struct rtl8125_private {
         u16 phy_reg_aner;
         u16 phy_reg_anlpar;
         u16 phy_reg_gbsr;
-        u16 phy_reg_status_2500;
 
         u32 HwPcieSNOffset;
 
-        u8 HwSuppTxNoCloseVer;
-        u8 EnableTxNoClose;
-
-        u8 HwSuppIsrVer;
-        u8 HwCurrIsrVer;
-
-        u8 HwSuppIntMitiVer;
-
-        u8 HwSuppExtendTallyCounterVer;
-
-        u8 check_keep_link_speed;
-        u8 resume_not_chg_speed;
-
-        u8 HwSuppD0SpeedUpVer;
-        u8 D0SpeedUpSpeed;
-
-        u8 ring_lib_enabled;
+        u8 HwSuppEsdVer;
+        u8 TestPhyOcpReg;
+        u16 BackupPhyFuseDout_15_0;
+        u16 BackupPhyFuseDout_31_16;
+        u16 BackupPhyFuseDout_47_32;
+        u16 BackupPhyFuseDout_63_48;
 
         const char *fw_name;
-        struct rtl8125_fw *rtl_fw;
+        struct rtl8168_fw *rtl_fw;
         u32 ocp_base;
 
         //Dash+++++++++++++++++
@@ -2226,9 +1658,9 @@ struct rtl8125_private {
         u16 AfterSendToFwBufLen;
         u8 AfterSendToFwBuf[SEND_TO_FW_BUF_SIZE];
         u16 SendToFwBufferLen;
-        u32 SizeOfSendToFwBuffer;
-        u32 SizeOfSendToFwBufferMemAlloc;
-        u32 NumOfSendToFwBuffer;
+        u32 SizeOfSendToFwBuffer ;
+        u32 SizeOfSendToFwBufferMemAlloc ;
+        u32 NumOfSendToFwBuffer ;
 
         u8 OobReq;
         u8 OobAck;
@@ -2241,44 +1673,36 @@ struct rtl8125_private {
 
         u8 DashFwDisableRx;
 
-        void *UnalignedSendToFwBufferVa;
-        void *SendToFwBuffer;
-        u64 SendToFwBufferPhy;
+        void *SendToFwBuffer ;
+        dma_addr_t SendToFwBufferPhy ;
         u8 SendingToFw;
-        dma_addr_t UnalignedSendToFwBufferPa;
         PTX_DASH_SEND_FW_DESC TxDashSendFwDesc;
-        u64 TxDashSendFwDescPhy;
-        u8 *UnalignedTxDashSendFwDescVa;
+        dma_addr_t TxDashSendFwDescPhy;
         u32 SizeOfTxDashSendFwDescMemAlloc;
-        u32 SizeOfTxDashSendFwDesc;
-        u32 NumTxDashSendFwDesc;
-        u32 CurrNumTxDashSendFwDesc;
-        u32 LastSendNumTxDashSendFwDesc;
-        dma_addr_t UnalignedTxDashSendFwDescPa;
+        u32 SizeOfTxDashSendFwDesc ;
+        u32 NumTxDashSendFwDesc ;
+        u32 CurrNumTxDashSendFwDesc ;
+        u32 LastSendNumTxDashSendFwDesc ;
 
-        u32 NumRecvFromFwBuffer;
-        u32 SizeOfRecvFromFwBuffer;
-        u32 SizeOfRecvFromFwBufferMemAlloc;
-        void *RecvFromFwBuffer;
-        u64 RecvFromFwBufferPhy;
+        u32 NumRecvFromFwBuffer ;
+        u32 SizeOfRecvFromFwBuffer ;
+        u32 SizeOfRecvFromFwBufferMemAlloc ;
+        void *RecvFromFwBuffer ;
+        dma_addr_t RecvFromFwBufferPhy ;
 
-        void *UnalignedRecvFromFwBufferVa;
-        dma_addr_t UnalignedRecvFromFwBufferPa;
         PRX_DASH_FROM_FW_DESC RxDashRecvFwDesc;
-        u64 RxDashRecvFwDescPhy;
-        u8 *UnalignedRxDashRecvFwDescVa;
+        dma_addr_t RxDashRecvFwDescPhy;
         u32 SizeOfRxDashRecvFwDescMemAlloc;
-        u32 SizeOfRxDashRecvFwDesc;
-        u32 NumRxDashRecvFwDesc;
-        u32 CurrNumRxDashRecvFwDesc;
-        dma_addr_t UnalignedRxDashRecvFwDescPa;
+        u32 SizeOfRxDashRecvFwDesc ;
+        u32 NumRxDashRecvFwDesc ;
+        u32 CurrNumRxDashRecvFwDesc ;
         u8 DashReqRegValue;
         u16 HostReqValue;
 
         u32 CmacResetIsrCounter;
-        u8 CmacResetIntr;
-        u8 CmacResetting;
-        u8 CmacOobIssueCmacReset;
+        u8 CmacResetIntr ;
+        u8 CmacResetting ;
+        u8 CmacOobIssueCmacReset ;
         u32 CmacResetbyFwCnt;
 
 #if defined(ENABLE_DASH_PRINTER_SUPPORT)
@@ -2301,95 +1725,16 @@ struct rtl8125_private {
         //Realwow--------------
 #endif //ENABLE_REALWOW_SUPPORT
 
-        struct ethtool_eee eee;
+        u32 eee_adv_t;
+        u8 eee_enabled;
 
-#ifdef ENABLE_R8125_PROCFS
+        u32 dynamic_aspm_packet_count;
+
+#ifdef ENABLE_R8168_PROCFS
         //Procfs support
         struct proc_dir_entry *proc_dir;
 #endif
-        u8 InitRxDescType;
-        u16 RxDescLength; //V1 16 Byte V2 32 Bytes
-
-        u8 HwSuppPtpVer;
-        u8 EnablePtp;
-        u8 ptp_master_mode;
-        s64 ptp_adjust;
-#ifdef ENABLE_PTP_SUPPORT
-        u32 tx_hwtstamp_timeouts;
-        u32 tx_hwtstamp_skipped;
-        struct work_struct ptp_tx_work;
-        struct sk_buff *ptp_tx_skb;
-        struct hwtstamp_config hwtstamp_config;
-        unsigned long ptp_tx_start;
-        struct ptp_clock_info ptp_clock_info;
-        struct ptp_clock *ptp_clock;
-#endif
-
-        u8 HwSuppRssVer;
-        u8 EnableRss;
-        u16 HwSuppIndirTblEntries;
-#ifdef ENABLE_RSS_SUPPORT
-        u32 rss_flags;
-        /* Receive Side Scaling settings */
-        u8 rss_key[RTL8125_RSS_KEY_SIZE];
-        u8 rss_indir_tbl[RTL8125_MAX_INDIRECTION_TABLE_ENTRIES];
-        u32 rss_options;
-#endif
-
-        u8 HwSuppMacMcuVer;
-        u16 MacMcuPageSize;
 };
-
-#ifdef ENABLE_LIB_SUPPORT
-static inline unsigned int
-rtl8125_num_lib_tx_rings(struct rtl8125_private *tp)
-{
-        int count, i;
-
-        for (count = 0, i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++)
-                if(tp->lib_tx_ring[i].enabled)
-                        count++;
-
-        return count;
-}
-
-static inline unsigned int
-rtl8125_num_lib_rx_rings(struct rtl8125_private *tp)
-{
-        int count, i;
-
-        for (count = 0, i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++)
-                if(tp->lib_rx_ring[i].enabled)
-                        count++;
-
-        return count;
-}
-
-#else
-static inline unsigned int
-rtl8125_num_lib_tx_rings(struct rtl8125_private *tp)
-{
-        return 0;
-}
-
-static inline unsigned int
-rtl8125_num_lib_rx_rings(struct rtl8125_private *tp)
-{
-        return 0;
-}
-#endif
-
-static inline unsigned int
-rtl8125_tot_tx_rings(struct rtl8125_private *tp)
-{
-        return tp->num_tx_rings + rtl8125_num_lib_tx_rings(tp);
-}
-
-static inline unsigned int
-rtl8125_tot_rx_rings(struct rtl8125_private *tp)
-{
-        return tp->num_rx_rings + rtl8125_num_lib_rx_rings(tp);
-}
 
 enum eetype {
         EEPROM_TYPE_NONE=0,
@@ -2399,14 +1744,43 @@ enum eetype {
 };
 
 enum mcfg {
-        CFG_METHOD_2=2,
+        CFG_METHOD_1=0,
+        CFG_METHOD_2,
         CFG_METHOD_3,
         CFG_METHOD_4,
         CFG_METHOD_5,
         CFG_METHOD_6,
         CFG_METHOD_7,
-        CFG_METHOD_DEFAULT,
-        CFG_METHOD_MAX
+        CFG_METHOD_8,
+        CFG_METHOD_9 ,
+        CFG_METHOD_10,
+        CFG_METHOD_11,
+        CFG_METHOD_12,
+        CFG_METHOD_13,
+        CFG_METHOD_14,
+        CFG_METHOD_15,
+        CFG_METHOD_16,
+        CFG_METHOD_17,
+        CFG_METHOD_18,
+        CFG_METHOD_19,
+        CFG_METHOD_20,
+        CFG_METHOD_21,
+        CFG_METHOD_22,
+        CFG_METHOD_23,
+        CFG_METHOD_24,
+        CFG_METHOD_25,
+        CFG_METHOD_26,
+        CFG_METHOD_27,
+        CFG_METHOD_28,
+        CFG_METHOD_29,
+        CFG_METHOD_30,
+        CFG_METHOD_31,
+        CFG_METHOD_32,
+        CFG_METHOD_33,
+        CFG_METHOD_34,
+        CFG_METHOD_35,
+        CFG_METHOD_MAX,
+        CFG_METHOD_DEFAULT = 0xFF
 };
 
 #define LSO_32K 32000
@@ -2432,113 +1806,67 @@ enum mcfg {
 #define WAKEUP_MAGIC_PACKET_NOT_SUPPORT (0)
 #define WAKEUP_MAGIC_PACKET_V1 (1)
 #define WAKEUP_MAGIC_PACKET_V2 (2)
-#define WAKEUP_MAGIC_PACKET_V3 (3)
 
 //Ram Code Version
-#define NIC_RAMCODE_VERSION_CFG_METHOD_2 (0x0b11)
-#define NIC_RAMCODE_VERSION_CFG_METHOD_3 (0x0b33)
-#define NIC_RAMCODE_VERSION_CFG_METHOD_4 (0x0b17)
-#define NIC_RAMCODE_VERSION_CFG_METHOD_5 (0x0b74)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_14 (0x0057)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_16 (0x0055)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_18 (0x0052)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_20 (0x0044)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_21 (0x0042)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_24 (0x0001)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_23 (0x0015)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_26 (0x0012)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_28 (0x0019)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_29 (0x0055)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_31 (0x0003)
+#define NIC_RAMCODE_VERSION_CFG_METHOD_35 (0x0019)
 
 //hwoptimize
 #define HW_PATCH_SOC_LAN (BIT_0)
 #define HW_PATCH_SAMSUNG_LAN_DONGLE (BIT_2)
 
-static const u16 other_q_intr_mask = (RxOK1 | RxDU1);
+#define HW_PHY_STATUS_INI       1
+#define HW_PHY_STATUS_EXT_INI   2
+#define HW_PHY_STATUS_LAN_ON    3
 
-void rtl8125_mdio_write(struct rtl8125_private *tp, u16 RegAddr, u16 value);
-void rtl8125_mdio_prot_write(struct rtl8125_private *tp, u32 RegAddr, u32 value);
-void rtl8125_mdio_prot_direct_write_phy_ocp(struct rtl8125_private *tp, u32 RegAddr, u32 value);
-u32 rtl8125_mdio_read(struct rtl8125_private *tp, u16 RegAddr);
-u32 rtl8125_mdio_prot_read(struct rtl8125_private *tp, u32 RegAddr);
-u32 rtl8125_mdio_prot_direct_read_phy_ocp(struct rtl8125_private *tp, u32 RegAddr);
-void rtl8125_ephy_write(struct rtl8125_private *tp, int RegAddr, int value);
-void rtl8125_mac_ocp_write(struct rtl8125_private *tp, u16 reg_addr, u16 value);
-u32 rtl8125_mac_ocp_read(struct rtl8125_private *tp, u16 reg_addr);
-void rtl8125_clear_eth_phy_bit(struct rtl8125_private *tp, u8 addr, u16 mask);
-void rtl8125_set_eth_phy_bit(struct rtl8125_private *tp,  u8  addr, u16  mask);
-void rtl8125_ocp_write(struct rtl8125_private *tp, u16 addr, u8 len, u32 data);
-void rtl8125_oob_notify(struct rtl8125_private *tp, u8 cmd);
-void rtl8125_init_ring_indexes(struct rtl8125_private *tp);
-int rtl8125_eri_write(struct rtl8125_private *tp, int addr, int len, u32 value, int type);
-void rtl8125_oob_mutex_lock(struct rtl8125_private *tp);
-u32 rtl8125_ocp_read(struct rtl8125_private *tp, u16 addr, u8 len);
-u32 rtl8125_ocp_read_with_oob_base_address(struct rtl8125_private *tp, u16 addr, u8 len, u32 base_address);
-u32 rtl8125_ocp_write_with_oob_base_address(struct rtl8125_private *tp, u16 addr, u8 len, u32 value, u32 base_address);
-u32 rtl8125_eri_read(struct rtl8125_private *tp, int addr, int len, int type);
-u32 rtl8125_eri_read_with_oob_base_address(struct rtl8125_private *tp, int addr, int len, int type, u32 base_address);
-int rtl8125_eri_write(struct rtl8125_private *tp, int addr, int len, u32 value, int type);
-int rtl8125_eri_write_with_oob_base_address(struct rtl8125_private *tp, int addr, int len, u32 value, int type, u32 base_address);
-u16 rtl8125_ephy_read(struct rtl8125_private *tp, int RegAddr);
-void rtl8125_wait_txrx_fifo_empty(struct net_device *dev);
-void rtl8125_enable_now_is_oob(struct rtl8125_private *tp);
-void rtl8125_disable_now_is_oob(struct rtl8125_private *tp);
-void rtl8125_oob_mutex_unlock(struct rtl8125_private *tp);
-void rtl8125_dash2_disable_tx(struct rtl8125_private *tp);
-void rtl8125_dash2_enable_tx(struct rtl8125_private *tp);
-void rtl8125_dash2_disable_rx(struct rtl8125_private *tp);
-void rtl8125_dash2_enable_rx(struct rtl8125_private *tp);
-void rtl8125_hw_disable_mac_mcu_bps(struct net_device *dev);
-void rtl8125_mark_to_asic(struct rtl8125_private *tp, struct RxDesc *desc, u32 rx_buf_sz);
-
-static inline void
-rtl8125_make_unusable_by_asic(struct rtl8125_private *tp,
-                              struct RxDesc *desc)
-{
-        if (tp->InitRxDescType == RX_DESC_RING_TYPE_3) {
-                ((struct RxDescV3 *)desc)->addr = RTL8125_MAGIC_NUMBER;
-                ((struct RxDescV3 *)desc)->RxDescNormalDDWord4.opts1 &= ~cpu_to_le32(DescOwn | RsvdMaskV3);
-        } else {
-                desc->addr = RTL8125_MAGIC_NUMBER;
-                desc->opts1 &= ~cpu_to_le32(DescOwn | RsvdMask);
-        }
-}
-
-static inline struct RxDesc*
-rtl8125_get_rxdesc(struct rtl8125_private *tp, struct RxDesc *RxDescBase, u32 const cur_rx)
-{
-        return (struct RxDesc*)((u8*)RxDescBase + (cur_rx * tp->RxDescLength));
-}
-
-static inline void
-rtl8125_disable_hw_interrupt_v2(struct rtl8125_private *tp,
-                                u32 message_id)
-{
-        RTL_W32(tp, IMR_V2_CLEAR_REG_8125, BIT(message_id));
-}
-
-static inline void
-rtl8125_enable_hw_interrupt_v2(struct rtl8125_private *tp, u32 message_id)
-{
-        RTL_W32(tp, IMR_V2_SET_REG_8125, BIT(message_id));
-}
-
-int rtl8125_open(struct net_device *dev);
-int rtl8125_close(struct net_device *dev);
-void rtl8125_hw_config(struct net_device *dev);
-void rtl8125_hw_set_timer_int_8125(struct rtl8125_private *tp, u32 message_id, u8 timer_intmiti_val);
-void rtl8125_set_rx_q_num(struct rtl8125_private *tp, unsigned int num_rx_queues);
-void rtl8125_set_tx_q_num(struct rtl8125_private *tp, unsigned int num_tx_queues);
-void rtl8125_hw_start(struct net_device *dev);
-void rtl8125_hw_reset(struct net_device *dev);
-void rtl8125_tx_clear(struct rtl8125_private *tp);
-void rtl8125_rx_clear(struct rtl8125_private *tp);
-int rtl8125_init_ring(struct net_device *dev);
-void rtl8125_hw_set_rx_packet_filter(struct net_device *dev);
-void rtl8125_enable_hw_linkchg_interrupt(struct rtl8125_private *tp);
-int rtl8125_dump_tally_counter(struct rtl8125_private *tp, dma_addr_t paddr);
-void rtl8125_enable_napi(struct rtl8125_private *tp);
-void _rtl8125_wait_for_quiescence(struct net_device *dev);
-
-#ifndef ENABLE_LIB_SUPPORT
-static inline void rtl8125_lib_reset_prepare(struct rtl8125_private *tp) { }
-static inline void rtl8125_lib_reset_complete(struct rtl8125_private *tp) { }
-#endif
+void rtl8168_mdio_write(struct rtl8168_private *tp, u16 RegAddr, u16 value);
+void rtl8168_mdio_prot_write(struct rtl8168_private *tp, u32 RegAddr, u32 value);
+void rtl8168_mdio_prot_direct_write_phy_ocp(struct rtl8168_private *tp, u32 RegAddr, u32 value);
+u32 rtl8168_mdio_read(struct rtl8168_private *tp, u16 RegAddr);
+u32 rtl8168_mdio_prot_read(struct rtl8168_private *tp, u32 RegAddr);
+u32 rtl8168_mdio_prot_direct_read_phy_ocp(struct rtl8168_private *tp, u32 RegAddr);
+void rtl8168_ephy_write(struct rtl8168_private *tp, int RegAddr, int value);
+void rtl8168_mac_ocp_write(struct rtl8168_private *tp, u16 reg_addr, u16 value);
+u16 rtl8168_mac_ocp_read(struct rtl8168_private *tp, u16 reg_addr);
+void rtl8168_clear_eth_phy_bit(struct rtl8168_private *tp, u8 addr, u16 mask);
+void rtl8168_set_eth_phy_bit(struct rtl8168_private *tp,  u8  addr, u16  mask);
+void rtl8168_ocp_write(struct rtl8168_private *tp, u16 addr, u8 len, u32 data);
+void rtl8168_oob_notify(struct rtl8168_private *tp, u8 cmd);
+void rtl8168_init_ring_indexes(struct rtl8168_private *tp);
+int rtl8168_eri_write(struct rtl8168_private *tp, int addr, int len, u32 value, int type);
+void rtl8168_oob_mutex_lock(struct rtl8168_private *tp);
+u32 rtl8168_ocp_read(struct rtl8168_private *tp, u16 addr, u8 len);
+u32 rtl8168_ocp_read_with_oob_base_address(struct rtl8168_private *tp, u16 addr, u8 len, u32 base_address);
+u32 rtl8168_ocp_write_with_oob_base_address(struct rtl8168_private *tp, u16 addr, u8 len, u32 value, u32 base_address);
+u32 rtl8168_eri_read(struct rtl8168_private *tp, int addr, int len, int type);
+u32 rtl8168_eri_read_with_oob_base_address(struct rtl8168_private *tp, int addr, int len, int type, u32 base_address);
+int rtl8168_eri_write_with_oob_base_address(struct rtl8168_private *tp, int addr, int len, u32 value, int type, u32 base_address);
+u16 rtl8168_ephy_read(struct rtl8168_private *tp, int RegAddr);
+void rtl8168_wait_txrx_fifo_empty(struct net_device *dev);
+void rtl8168_wait_ll_share_fifo_ready(struct net_device *dev);
+void rtl8168_enable_now_is_oob(struct rtl8168_private *tp);
+void rtl8168_disable_now_is_oob(struct rtl8168_private *tp);
+void rtl8168_oob_mutex_unlock(struct rtl8168_private *tp);
+void rtl8168_dash2_disable_tx(struct rtl8168_private *tp);
+void rtl8168_dash2_enable_tx(struct rtl8168_private *tp);
+void rtl8168_dash2_disable_rx(struct rtl8168_private *tp);
+void rtl8168_dash2_enable_rx(struct rtl8168_private *tp);
+void rtl8168_hw_disable_mac_mcu_bps(struct net_device *dev);
 
 #define HW_SUPPORT_CHECK_PHY_DISABLE_MODE(_M)        ((_M)->HwSuppCheckPhyDisableModeVer > 0 )
+#define HW_SUPP_SERDES_PHY(_M)        ((_M)->HwSuppSerDesPhyVer > 0)
 #define HW_HAS_WRITE_PHY_MCU_RAM_CODE(_M)        (((_M)->HwHasWrRamCodeToMicroP == TRUE) ? 1 : 0)
-#define HW_SUPPORT_D0_SPEED_UP(_M)        ((_M)->HwSuppD0SpeedUpVer > 0)
-#define HW_SUPPORT_MAC_MCU(_M)        ((_M)->HwSuppMacMcuVer > 0)
+#define HW_SUPPORT_UPS_MODE(_M)        ((_M)->HwSuppUpsVer > 0)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,34)
 #define netdev_mc_count(dev) ((dev)->mc_count)
@@ -2546,5 +1874,3 @@ static inline void rtl8125_lib_reset_complete(struct rtl8125_private *tp) { }
 #define netdev_for_each_mc_addr(mclist, dev) \
     for (mclist = dev->mc_list; mclist; mclist = mclist->next)
 #endif
-
-#endif /* __R8125_H */
