@@ -2890,11 +2890,10 @@ int stmmac_dvr_remove(struct device *dev)
 
 	if (priv->emac_state > EMAC_INIT_ST) {
 		stmmac_stop_dma(priv);
-
 		netif_carrier_off(ndev);
-		unregister_netdev(ndev);
 	}
 
+	unregister_netdev(ndev);
 	if (priv->plat->stmmac_rst)
 		reset_control_assert(priv->plat->stmmac_rst);
 	destroy_workqueue(priv->wq);
