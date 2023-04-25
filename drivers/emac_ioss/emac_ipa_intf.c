@@ -546,6 +546,7 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		stmmac_init_ipa_rx_ch(priv, channel);
 		channel_input->tail_ptr_addr = XGMAC_DMA_CH_RxDESC_TAIL_LPTR(channel->channel_num);
+		stmmac_map_mtl_to_dma(priv, priv->hw, IPA_QUEUE_BE, IPA_QUEUE_BE);
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel direction\n", __func__);
@@ -616,14 +617,14 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	}
 
 	if ((channel->direction == CH_DIR_RX) &&
-		(channel->channel_num == IPA_QUEUE_BE)) {
+		(channel->channel_num != IPA_QUEUE_BE)) {
 		ioss_log_msg(NULL,
 			   "%s: INFO: IPA channel not released in ioss\n", __func__);
 			return -EPERM;
 	}
 
 	if ((channel->direction == CH_DIR_TX) &&
-		(channel->channel_num == IPA_QUEUE_BE)) {
+		(channel->channel_num != IPA_QUEUE_BE)) {
 		ioss_log_msg(NULL,
 			   "%s: INFO: IPA channel not released in ioss\n", __func__);
 			return -EPERM;
@@ -1257,6 +1258,7 @@ EXPORT_SYMBOL_GPL(start_channel);
 int stop_channel(struct net_device *ndev, struct channel_info *channel)
 {
 	struct stmmac_priv *priv;
+	u32 sw_chan = 0;
 
 	ioss_log_msg(NULL, "%s: Start", __func__);
 
@@ -1289,6 +1291,8 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 			return -EPERM;
 	}
 
+	sw_chan = priv->plat->rx_queues_cfg[IPA_QUEUE_BE].chan;
+
 	if (channel->direction == CH_DIR_TX) {
 		netdev_dbg(priv->dev, "DMA Tx process stopped in channel = %d\n",
 			   channel->channel_num);
@@ -1297,6 +1301,7 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 		netdev_dbg(priv->dev, "DMA Rx process stopped in channel = %d\n",
 			   channel->channel_num);
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
+		stmmac_map_mtl_to_dma(priv, priv->hw, IPA_QUEUE_BE, sw_chan);
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel\n", __func__);
