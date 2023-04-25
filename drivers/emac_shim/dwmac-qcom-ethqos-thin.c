@@ -23,6 +23,9 @@
 #include "stmmac_thin.h"
 #include "stmmac_platform_thin.h"
 #include "dwmac-qcom-ethqos-thin.h"
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+#include "dwmac-qcom-msgq-svm.h"
+#endif
 
 #define EMAC_HW_v3_0_0 0x30000000
 #define MAX_FILTER_CHK 10
@@ -471,6 +474,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	ETHQOSINFO("Start\n");
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	qcom_ethmsgq_init(&pdev->dev);
+#endif
+
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (ret) {
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
@@ -625,6 +632,11 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 		return -ENODEV;
 
 	ETHQOSINFO("Enter\n");
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	qcom_ethmsgq_deinit(&pdev->dev);
+#endif
+
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_UNMOUNT);
 	cancel_work_sync(&ethqos->emac_fe_work);
 	destroy_workqueue(ethqos->wq);
