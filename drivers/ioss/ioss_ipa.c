@@ -4,8 +4,15 @@
  */
 
 #include <linux/etherdevice.h>
+#include <linux/cdev.h>
 
 #include "ioss_i.h"
+
+static struct class *emac_ipa_class;
+static dev_t emac_ipa_dev_num;
+static struct cdev *emac_ipa_cdev;
+static struct device *emac_ipa_dev;
+
 
 static void ioss_ipa_notify_cb(void *priv,
 					enum ipa_dp_evt_type evt,
@@ -218,6 +225,7 @@ static int ioss_ipa_msg_disconnect(struct net_device *net_dev)
 int ioss_ipa_register(struct ioss_interface *iface)
 {
 	int i;
+	int ret;
 #if IPA_ETH_API_VER < 2
 	int ch_count;
 #endif
@@ -327,7 +335,58 @@ int ioss_ipa_register(struct ioss_interface *iface)
 	}
 #endif
 
+	if (iface->auto_resume_disabled) {
+		ioss_dev_cfg(idev, "creating dev char device for auto platform\n");
+
+		ret = alloc_chrdev_region(&emac_ipa_dev_num, 0, 1, "emac_ipa");
+		if (ret) {
+			ioss_dev_err(idev, "alloc_chrdev_region error for node %s\n",
+				  "emac_ipa");
+			goto alloc_emac_ipa_chrdev_region_fail;
+		}
+
+		emac_ipa_cdev = cdev_alloc();
+		if (!emac_ipa_cdev) {
+			ret = -ENOMEM;
+			ioss_dev_err(idev, "failed to alloc emac_ipa cdev\n");
+			goto fail_alloc_emac_ipa_cdev;
+		}
+
+		cdev_init(emac_ipa_cdev,NULL);
+
+		ret = cdev_add(emac_ipa_cdev,emac_ipa_dev_num,1);
+		if (ret < 0) {
+			ioss_dev_err(idev, "emac_ipa cdev_add err=%d\n", -ret);
+			goto emac_ipa_cdev_add_fail;
+		}
+
+		emac_ipa_class = class_create(THIS_MODULE,"emac_ipa");
+		if (!emac_ipa_class) {
+			ret = -ENODEV;
+			ioss_dev_err(idev, "failed to create emac_ipa class\n");
+			goto fail_create_emac_ipa_class;
+		}
+
+		emac_ipa_dev = device_create(emac_ipa_class, NULL,
+				emac_ipa_dev_num, NULL, "emac_ipa");
+		if (!emac_ipa_dev) {
+			ret = -EINVAL;
+			ioss_dev_err(idev, "failed to create emac_ipa device\n");
+			goto fail_create_emac_ipa_device;
+		}
+	}
+
 	return 0;
+
+fail_create_emac_ipa_device:
+	class_destroy(emac_ipa_class);
+fail_create_emac_ipa_class:
+	cdev_del(emac_ipa_cdev);
+emac_ipa_cdev_add_fail:
+fail_alloc_emac_ipa_cdev:
+	unregister_chrdev_region(emac_ipa_dev_num, 1);
+alloc_emac_ipa_chrdev_region_fail:
+	return ret;
 }
 
 int ioss_ipa_unregister(struct ioss_interface *iface)
@@ -343,6 +402,14 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 #endif
 	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	if(emac_ipa_cdev && iface->auto_resume_disabled)
+	{
+		device_destroy(emac_ipa_class, emac_ipa_dev_num);
+		class_destroy(emac_ipa_class);
+		cdev_del(emac_ipa_cdev);
+		unregister_chrdev_region(emac_ipa_dev_num, 1);
+	}
 
 	/* connect pipes */
 	rc = ipa_eth_client_disconn_pipes(ec);
