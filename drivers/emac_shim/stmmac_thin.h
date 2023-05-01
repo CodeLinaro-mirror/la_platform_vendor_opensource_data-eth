@@ -150,6 +150,7 @@ struct stmmac_priv {
 	unsigned long state;
 	struct workqueue_struct *wq;
 	struct work_struct service_task;
+	u32 adv_ts;
 };
 
 enum stmmac_state {

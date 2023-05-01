@@ -577,6 +577,9 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 						    (void *)ethqos))
 			break;
 		cond_resched();
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+		msleep(200);
+#endif
 		count++;
 	}
 	if (count == 10) {

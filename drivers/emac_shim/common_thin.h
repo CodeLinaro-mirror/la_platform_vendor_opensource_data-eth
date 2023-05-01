@@ -22,6 +22,20 @@
 #define DMA_RX_SIZE 512
 #define STMMAC_GET_ENTRY(x, size)	(((x) + 1) & ((size) - 1))
 
+/* Synopsys Core versions */
+#define DWMAC_CORE_3_40		0x34
+#define DWMAC_CORE_3_50		0x35
+#define DWMAC_CORE_4_00		0x40
+#define DWMAC_CORE_4_10		0x41
+#define DWMAC_CORE_5_00		0x50
+#define DWMAC_CORE_5_10		0x51
+#define DWMAC_CORE_5_20		0x52
+#define DWXGMAC_CORE_2_10	0x21
+#define DWXLGMAC_CORE_2_00	0x20
+
+/* Device ID */
+#define DWXGMAC_ID		0x76
+
 #undef FRAME_FILTER_DEBUG
 /* #define FRAME_FILTER_DEBUG */
 
@@ -202,6 +216,12 @@ enum dma_irq_status {
 	handle_tx = 0x8,
 };
 
+enum dma_irq_dir {
+	DMA_DIR_RX = 0x1,
+	DMA_DIR_TX = 0x2,
+	DMA_DIR_RXTX = 0x3,
+};
+
 #define CORE_IRQ_MTL_RX_OVERFLOW	BIT(8)
 
 /* RX Buffer size must be multiple of 4/8/16 bytes */
@@ -236,5 +256,6 @@ struct mac_device_info {
 };
 
 int dwmac4_setup(struct stmmac_priv *priv);
+int dwxgmac2_setup(struct stmmac_priv *priv);
 
 #endif /* __COMMON_H__ */

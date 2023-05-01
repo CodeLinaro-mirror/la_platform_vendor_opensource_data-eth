@@ -203,7 +203,7 @@ static void stmmac_get_tx_hwtstamp(struct stmmac_priv *priv,
 
 	/* check tx tstamp status */
 	if (stmmac_get_tx_timestamp_status(priv, p)) {
-		stmmac_get_timestamp(priv, p, &ns);
+		stmmac_get_timestamp(priv, p, priv->adv_ts, &ns);
 		found = true;
 	}
 
@@ -237,8 +237,8 @@ static void stmmac_get_rx_hwtstamp(struct stmmac_priv *priv, struct dma_desc *p,
 		return;
 
 	/* Check if timestamp is available */
-	if (stmmac_get_rx_timestamp_status(priv, p, np)) {
-		stmmac_get_timestamp(priv, desc, &ns);
+	if (stmmac_get_rx_timestamp_status(priv, p, np, priv->adv_ts)) {
+		stmmac_get_timestamp(priv, desc, priv->adv_ts, &ns);
 		netdev_dbg(priv->dev, "get valid RX hw timestamp %llu\n", ns);
 		shhwtstamp = skb_hwtstamps(skb);
 		memset(shhwtstamp, 0, sizeof(struct skb_shared_hwtstamps));
@@ -986,24 +986,26 @@ static void stmmac_set_dma_operation_mode(struct stmmac_priv *priv, u32 txmode,
 	stmmac_dma_tx_mode(priv, priv->ioaddr, txmode, chan, txfifosz, txqmode);
 }
 
-static int stmmac_napi_check(struct stmmac_priv *priv, u32 chan)
+static int stmmac_napi_check(struct stmmac_priv *priv, u32 chan, u32 dir)
 {
 	int status = stmmac_dma_interrupt_status(priv, priv->ioaddr,
-						 &priv->xstats, chan);
+						 &priv->xstats, chan, dir);
 	struct stmmac_channel *ch = &priv->channel;
 
 	trace_stmmac_irq_status(chan, status);
 	if (status & handle_rx) {
 		if (napi_schedule_prep(&ch->rx_napi)) {
 			trace_stmmac_disable_irq(chan);
-			stmmac_disable_dma_irq(priv, priv->ioaddr, chan);
+			stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 1, 0);
 			__napi_schedule_irqoff(&ch->rx_napi);
 			status |= handle_tx;
 		}
 	}
 
-	if (status & handle_tx)
+	if (status & handle_tx) {
+		stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 0, 1);
 		napi_schedule_irqoff(&ch->tx_napi);
+	}
 
 	return status;
 }
@@ -1020,7 +1022,7 @@ static void stmmac_dma_interrupt(struct stmmac_priv *priv)
 	u32 chan = priv->queue;
 	int status;
 
-	status = stmmac_napi_check(priv, chan);
+	status = stmmac_napi_check(priv, chan, DMA_DIR_RXTX);
 
 	if (unlikely(status & tx_hard_error_bump_tc)) {
 		/* Try to bump up the dma threshold on this failure */
@@ -2083,7 +2085,7 @@ static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 
 	if (work_done < budget && napi_complete_done(napi, work_done)) {
 		trace_stmmac_enable_irq(chan);
-		stmmac_enable_dma_irq(priv, priv->ioaddr, chan);
+		stmmac_enable_dma_irq(priv, priv->ioaddr, chan, 1, 0);
 	}
 	trace_stmmac_poll_exit(chan, work_done);
 	return work_done;
@@ -2544,7 +2546,7 @@ static int stmmac_rings_status_show(struct seq_file *seq, void *v)
 		return 0;
 	}
 
-	stmmac_get_dma_stats(priv, priv->ioaddr, x, ch);
+	//stmmac_get_dma_stats(priv, priv->ioaddr, x, ch);
 
 	seq_printf(seq, "\n***** DMA channel %u dump *****\n", ch);
 	seq_printf(seq, "dma_ch_status(reg offset 0x%X) = 0x%x\n",
@@ -2631,7 +2633,7 @@ static int stmmac_reg_value_dump(struct seq_file *seq, void *v)
 	u32 ch = priv->queue;
 
 	/* dump the reg info in dmesg */
-	stmmac_get_reg(priv, priv->ioaddr, ch);
+//	stmmac_get_reg(priv, priv->ioaddr, ch);
 	return 0;
 }
 
@@ -2692,16 +2694,16 @@ static int stmmac_init_fs(struct net_device *dev)
 		return -ENOMEM;
 	}
 	/* Entry to report DMA RX/TX rings */
-	debugfs_create_file("dump_dma", 0444, priv->dbgfs_dir, dev,
-			    &stmmac_rings_status_fops);
+//	debugfs_create_file("dump_dma", 0444, priv->dbgfs_dir, dev,
+//			    &stmmac_rings_status_fops);
 
 	/* Entry to report RX/TX data path stats */
 	debugfs_create_file("data_stats", 0444, priv->dbgfs_dir, dev,
 			    &stmmac_data_status_fops);
 
 	/* Entry to report RX/TX data path stats */
-	debugfs_create_file("dump_reg", 0444, priv->dbgfs_dir, dev,
-			    &stmmac_reg_info_fops);
+//	debugfs_create_file("dump_reg", 0444, priv->dbgfs_dir, dev,
+//			    &stmmac_reg_info_fops);
 
 	rtnl_unlock();
 
@@ -2715,6 +2717,21 @@ static void stmmac_exit_fs(struct net_device *dev)
 	debugfs_remove_recursive(priv->dbgfs_dir);
 }
 #endif /* CONFIG_DEBUG_FS */
+
+/**
+ *  * stmmac_check_ether_addr - check if the MAC addr is valid
+ *  * @priv: driver private structure
+ *  * Description:
+ *  * it is to verify if the MAC address is valid, in case of failures it
+ *  * generates a random MAC address
+ *  */
+static void stmmac_check_ether_addr(struct stmmac_priv *priv)
+{
+	if (!is_valid_ether_addr(priv->dev->dev_addr)) {
+		eth_hw_addr_random(priv->dev);
+		dev_info(priv->device, "device MAC address %pM\n", priv->dev->dev_addr);
+	}
+}
 
 /**
  * stmmac_dvr_probe
@@ -2787,6 +2804,8 @@ int stmmac_dvr_probe(struct device *device,
 	ret = stmmac_hw_init(priv);
 	if (ret)
 		goto error_hw_init;
+
+	stmmac_check_ether_addr(priv);
 
 	/* Configure real RX and TX queues */
 	netif_set_real_num_rx_queues(ndev, 1);
