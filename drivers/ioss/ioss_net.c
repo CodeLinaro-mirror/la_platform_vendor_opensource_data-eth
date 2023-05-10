@@ -270,7 +270,7 @@ static int ioss_net_select_llcc_config(struct ioss_channel *ch)
 	mem_size = ioss_llcc_alctr.get(mem_need);
 
 	ioss_dev_cfg(idev,
-		"Requested %u bytes of LLCC, received %u bytes",
+		"Requested %lu bytes of LLCC, received %lu bytes",
 		mem_need, mem_size);
 
 	if (!mem_size)
@@ -295,12 +295,16 @@ static void ioss_net_select_channel_config(struct ioss_channel *ch)
 	struct ioss_device *idev = ioss_ch_dev(ch);
 	u32 link_speed = ch->iface->link_speed;
 	u32 max_ddr_bw = idev->root->max_ddr_bandwidth;
+	bool llcc_allowed;
 #endif
 
 	ch->config = ch->default_config;
 
 #ifdef LLCC_ENABLE
-	if (ch->direction == IOSS_CH_DIR_TX && link_speed > max_ddr_bw)
+
+	llcc_allowed = ioss_of_parse_llcc(idev);
+
+	if (ch->direction == IOSS_CH_DIR_TX && link_speed > max_ddr_bw && llcc_allowed)
 		ioss_net_select_llcc_config(ch);
 #endif
 }
