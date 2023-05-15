@@ -286,7 +286,7 @@ enum {
 	FLT_NUM_TYPES,
 };
 
-static int qps615_set_filter_info(struct rx_filter_info *filter_info)
+static int qps615_set_filter_info(struct rx_filter_info *filter_info, struct ioss_device *idev)
 {
 	if (ARRAY_SIZE(filter_info->entries) < FLT_NUM_TYPES)
 		return -EFAULT;
@@ -343,7 +343,10 @@ static int qps615_set_filter_info(struct rx_filter_info *filter_info)
 	filter_info->entries[FLT_TYPE_VLAN].res2 = 0;
 	filter_info->entries[FLT_TYPE_VLAN].ok_index = 0;
 	filter_info->entries[FLT_TYPE_VLAN].res3 = 0;
-	filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 2;
+	if (idev->vlan_tag_filter)
+		filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 1;
+	else
+		filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 2;
 	filter_info->entries[FLT_TYPE_VLAN].res4 = 0;
 
 	/* 0x0806  Address Resolution Protocol (ARP)
@@ -387,7 +390,7 @@ static int __qps615_ioss_enable_filters(struct ioss_channel *ch)
 	struct net_device *net_dev = ioss_ch_dev(ch)->net_dev;
 	enum ioss_filter_types filters = ch->filter_types;
 	struct rx_filter_info filter_info;
-
+	struct ioss_device *idev = ioss_ch_dev(ch);
 	memset(&filter_info, 0, sizeof(filter_info));
 
 	if (!filters)
@@ -401,7 +404,7 @@ static int __qps615_ioss_enable_filters(struct ioss_channel *ch)
 
 		clear_rx_filter(net_dev);
 
-		if (qps615_set_filter_info(&filter_info)) {
+		if (qps615_set_filter_info(&filter_info, idev)) {
 			ioss_dev_err(ioss_ch_dev(ch),
 					"Failed to set FRP filters");
 			return -EFAULT;

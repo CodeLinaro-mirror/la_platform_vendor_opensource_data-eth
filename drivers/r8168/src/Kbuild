@@ -1,0 +1,19 @@
+
+
+# Allow warnings to fail builds
+#ccflags-y += -Wall -Werror
+
+# Enable additional warnings that are compatible with kernel headers
+#ccflags-y += -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-cast-function-type
+
+# Features enabled
+ccflags-y += -DCONFIG_SOC_LAN -DENABLE_S5WOL -DCONFIG_R8168_NAPI -DCONFIG_R8168_VLAN
+ccflags-y += -DENABLE_USE_FIRMWARE_FILE
+
+obj-$(CONFIG_R8168) += r8168.o
+
+r8168-y := r8168_n.o \
+		rtl_eeprom.o \
+		rtltool.o \
+		r8168_asf.o \
+		r8168_firmware.o

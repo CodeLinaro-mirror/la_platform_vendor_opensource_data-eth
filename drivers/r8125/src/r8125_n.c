@@ -4555,7 +4555,7 @@ rtl8125_set_speed_xmii(struct net_device *dev,
                         ctrl_2500 |= RTK_ADVERTISE_2500FULL;
 
                 //flow control
-                if (dev->mtu <= ETH_DATA_LEN && tp->fcpause == rtl8125_fc_full)
+                if (tp->fcpause == rtl8125_fc_full)
                         auto_nego |= ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM;
 
                 tp->phy_auto_nego_reg = auto_nego;
@@ -6188,7 +6188,7 @@ rtl8125_exit_oob(struct net_device *dev)
                 rtl8125_wait_ll_share_fifo_ready(dev);
 
                 rtl8125_mac_ocp_write(tp, 0xC0AA, 0x07D0);
-                rtl8125_mac_ocp_write(tp, 0xC0A6, 0x01B5);
+                rtl8125_mac_ocp_write(tp, 0xC0A6, 0x04E2);
                 rtl8125_mac_ocp_write(tp, 0xC01E, 0x5555);
 
                 rtl8125_wait_ll_share_fifo_ready(dev);
@@ -10114,7 +10114,10 @@ rtl8125_set_rxbufsize(struct rtl8125_private *tp,
 {
         unsigned int mtu = dev->mtu;
 
-        tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 1 : RX_BUF_SIZE;
+	if (enable_double_vlan)
+		tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 4 : RX_BUF_SIZE;
+	else
+		tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 : RX_BUF_SIZE;
 }
 
 static void rtl8125_free_irq(struct rtl8125_private *tp)
@@ -10844,7 +10847,7 @@ rtl8125_hw_config(struct net_device *dev)
         }
 
         RTL_W16(tp, RxMaxSize, tp->rx_buf_sz);
-
+		
         rtl8125_disable_rxdvgate(dev);
 
         if (!tp->pci_cfg_is_read) {
