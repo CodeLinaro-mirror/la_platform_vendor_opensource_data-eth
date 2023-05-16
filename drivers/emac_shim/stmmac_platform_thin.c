@@ -265,6 +265,9 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	/* Get IRQ information early to have an ability to ask for deferred
 	 * probe if needed before we went too far with resource allocation.
 	 */
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	stmmac_res->irq[4] = platform_get_irq_byname(pdev, "tx_rx_ch4_intr");
+#else
 	stmmac_res->irq[0] = platform_get_irq_byname(pdev, "tx_rx_ch0_intr");
 	stmmac_res->irq[1] = platform_get_irq_byname(pdev, "tx_rx_ch1_intr");
 	stmmac_res->irq[2] = platform_get_irq_byname(pdev, "tx_rx_ch2_intr");
@@ -273,6 +276,8 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	stmmac_res->irq[5] = platform_get_irq_byname(pdev, "tx_rx_ch5_intr");
 	stmmac_res->irq[6] = platform_get_irq_byname(pdev, "tx_rx_ch6_intr");
 	stmmac_res->irq[7] = platform_get_irq_byname(pdev, "tx_rx_ch7_intr");
+#endif
+
 	for (i = 0; i < MAX_NUM_CH; i++) {
 		if (stmmac_res->irq[i] < 0) {
 			dev_warn(&pdev->dev,
