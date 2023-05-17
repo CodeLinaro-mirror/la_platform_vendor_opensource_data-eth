@@ -43,25 +43,25 @@ static void free_ipa_tx_resources(struct net_device *ndev,
 			channel->mem_ops->free_descs(ndev,
 						     channel->desc_addr.desc_virt_addrs_base,
 						     channel->desc_cnt * channel->desc_size,
-						     &tx_q->dma_tx_phy_ipa,
+						     &tx_q->dma_tx_phy,
 						     channel->mem_ops, channel);
 		} else {
 			dma_free_coherent(priv->device,
 					  channel->desc_size * channel->desc_cnt,
 					  channel->desc_addr.desc_virt_addrs_base,
-					  tx_q->dma_tx_phy_ipa);
+					  tx_q->dma_tx_phy);
 		}
 		if (channel->mem_ops) {
 			channel->mem_ops->free_buf(ndev,
 						   channel->buff_pool_addr.buff_pool_va_addrs_base[0],
 						   channel->desc_cnt * channel->buf_size,
-						   &tx_q->buff_tx_phy_ipa,
+						   &tx_q->buff_tx_phy,
 						   channel->mem_ops, channel);
 		} else {
 			dma_free_coherent(priv->device,
 					  channel->buf_size * channel->desc_cnt,
 					  channel->buff_pool_addr.buff_pool_va_addrs_base[0],
-					  tx_q->buff_tx_phy_ipa);
+					  tx_q->buff_tx_phy);
 		}
 	} else {
 		for (i = 0; i < channel->desc_cnt; i++) {
@@ -77,7 +77,7 @@ static void free_ipa_tx_resources(struct net_device *ndev,
 		}
 		dma_free_coherent(priv->device, channel->desc_size * channel->desc_cnt,
 				  channel->desc_addr.desc_virt_addrs_base,
-				  tx_q->dma_tx_phy_ipa);
+				  tx_q->dma_tx_phy);
 		kfree(tx_q->tx_offload_skbuff);
 		kfree(tx_q->tx_offload_skbuff_dma);
 	}
@@ -95,25 +95,25 @@ static void free_ipa_rx_resources(struct net_device *ndev,
 			channel->mem_ops->free_descs(ndev,
 						     channel->desc_addr.desc_virt_addrs_base,
 						     channel->desc_cnt * channel->desc_size,
-						     &rx_q->dma_rx_phy_ipa,
+						     &rx_q->dma_rx_phy,
 						     channel->mem_ops, channel);
 		} else {
 			dma_free_coherent(priv->device,
 					  channel->desc_size * channel->desc_cnt,
 					  channel->desc_addr.desc_virt_addrs_base,
-					  rx_q->dma_rx_phy_ipa);
+					  rx_q->dma_rx_phy);
 		}
 		if (channel->mem_ops) {
 			channel->mem_ops->free_buf(ndev,
 						   channel->buff_pool_addr.buff_pool_va_addrs_base[0],
 						   channel->desc_cnt * channel->buf_size,
-						   &rx_q->buff_rx_phy_ipa,
+						   &rx_q->buff_rx_phy,
 						   channel->mem_ops, channel);
 		} else {
 			dma_free_coherent(priv->device,
 					  channel->buf_size * channel->desc_cnt,
 					  channel->buff_pool_addr.buff_pool_va_addrs_base[0],
-					  rx_q->buff_rx_phy_ipa);
+					  rx_q->buff_rx_phy);
 		}
 	} else {
 		for (i = 0; i < channel->desc_cnt; i++) {
@@ -129,7 +129,7 @@ static void free_ipa_rx_resources(struct net_device *ndev,
 		}
 		dma_free_coherent(priv->device, channel->desc_size * channel->desc_cnt,
 				  channel->desc_addr.desc_virt_addrs_base,
-				  rx_q->dma_rx_phy_ipa);
+				  rx_q->dma_rx_phy);
 		kfree(rx_q->rx_offload_skbuff);
 		kfree(rx_q->rx_offload_skbuff_dma);
 	}
@@ -148,37 +148,37 @@ static int alloc_ipa_tx_resources(struct net_device *ndev,
 	channel->desc_addr.desc_virt_addrs_base = (channel->mem_ops) ?
 							channel->mem_ops->alloc_descs(ndev,
 										      channel->desc_size * channel->desc_cnt,
-										      &tx_q->dma_tx_phy_ipa,
+										      &tx_q->dma_tx_phy,
 										      (gfp_t)flags,
 										      channel->mem_ops, channel) :
 							dma_alloc_coherent(priv->device,
 									   channel->desc_size * channel->desc_cnt,
-									   &tx_q->dma_tx_phy_ipa, flags);
+									   &tx_q->dma_tx_phy, flags);
 
 	if (!channel->desc_addr.desc_virt_addrs_base) {
 		netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
 		goto err_mem;
 	}
 
-	tx_q->dma_tx_ipa = channel->desc_addr.desc_virt_addrs_base;
-	channel->desc_addr.desc_dma_addrs_base = tx_q->dma_tx_phy_ipa;
+	tx_q->dma_tx = channel->desc_addr.desc_virt_addrs_base;
+	channel->desc_addr.desc_dma_addrs_base = tx_q->dma_tx_phy;
 
 	if (channel->ch_flags == STMMAC_CONTIG_BUFS) {
 		channel->buff_pool_addr.buff_pool_va_addrs_base[0] = (channel->mem_ops) ?
 							channel->mem_ops->alloc_buf(ndev,
 										    channel->buf_size * channel->desc_cnt,
-										    &tx_q->buff_tx_phy_ipa,
+										    &tx_q->buff_tx_phy,
 										    (gfp_t)flags,
 										    channel->mem_ops, channel) :
 							dma_alloc_coherent(priv->device,
 									   channel->buf_size * channel->desc_cnt,
-									   &tx_q->buff_tx_phy_ipa, flags);
+									   &tx_q->buff_tx_phy, flags);
 
 		if (!channel->buff_pool_addr.buff_pool_va_addrs_base[0]) {
 			netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
 			goto err_mem;
 		}
-		channel->buff_pool_addr.buff_pool_dma_addrs_base[0] = tx_q->buff_tx_phy_ipa;
+		channel->buff_pool_addr.buff_pool_dma_addrs_base[0] = tx_q->buff_tx_phy;
 		tx_q->buffer_tx_va_addr = channel->buff_pool_addr.buff_pool_va_addrs_base[0];
 		return 0;
 	}
@@ -238,37 +238,37 @@ static int alloc_ipa_rx_resources(struct net_device *ndev, struct channel_info *
 	channel->desc_addr.desc_virt_addrs_base = (channel->mem_ops) ?
 							channel->mem_ops->alloc_descs(ndev,
 										      channel->desc_size * channel->desc_cnt,
-										      &rx_q->dma_rx_phy_ipa,
+										      &rx_q->dma_rx_phy,
 										      (gfp_t)flags,
 										      channel->mem_ops, channel) :
 							dma_alloc_coherent(priv->device,
 									   channel->desc_size * channel->desc_cnt,
-									   &rx_q->dma_rx_phy_ipa, flags);
+									   &rx_q->dma_rx_phy, flags);
 
 	if (!channel->desc_addr.desc_virt_addrs_base) {
 		netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
 		goto err_mem;
 	}
 
-	rx_q->dma_rx_ipa = channel->desc_addr.desc_virt_addrs_base;
-	channel->desc_addr.desc_dma_addrs_base = rx_q->dma_rx_phy_ipa;
+	rx_q->dma_rx = channel->desc_addr.desc_virt_addrs_base;
+	channel->desc_addr.desc_dma_addrs_base = rx_q->dma_rx_phy;
 
 	if (channel->ch_flags == STMMAC_CONTIG_BUFS) {
 		channel->buff_pool_addr.buff_pool_va_addrs_base[0] = (channel->mem_ops) ?
 							channel->mem_ops->alloc_buf(ndev,
 										    channel->buf_size * channel->desc_cnt,
-										    &rx_q->buff_rx_phy_ipa,
+										    &rx_q->buff_rx_phy,
 										    (gfp_t)flags,
 										    channel->mem_ops, channel) :
 							dma_alloc_coherent(priv->device,
 									   channel->buf_size * channel->desc_cnt,
-									   &rx_q->buff_rx_phy_ipa, flags);
+									   &rx_q->buff_rx_phy, flags);
 
 		if (!channel->buff_pool_addr.buff_pool_va_addrs_base[0]) {
 			netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
 			goto err_mem;
 		}
-		channel->buff_pool_addr.buff_pool_dma_addrs_base[0] = rx_q->buff_rx_phy_ipa;
+		channel->buff_pool_addr.buff_pool_dma_addrs_base[0] = rx_q->buff_rx_phy;
 		rx_q->buffer_rx_va_addr = channel->buff_pool_addr.buff_pool_va_addrs_base[0];
 		return 0;
 	}
@@ -325,25 +325,25 @@ static void stmmac_init_ipa_tx_ch(struct stmmac_priv *priv, struct channel_info 
 	for (i = 0; i < channel->desc_cnt; i++) {
 		struct dma_desc *p;
 
-		p = tx_q->dma_tx_ipa + i;
+		p = tx_q->dma_tx + i;
 
 		stmmac_clear_desc(priv, p);
 		if (channel->ch_flags == STMMAC_CONTIG_BUFS) {
 			stmmac_set_desc_addr(priv, p,
-					     (tx_q->buff_tx_phy_ipa + (i * channel->buf_size)));
+					     (tx_q->buff_tx_phy + (i * channel->buf_size)));
 		} else {
 			stmmac_set_desc_addr(priv, p,
 					     channel->buff_pool_addr.buff_pool_dma_addrs_base[i]);
 		}
 	}
 
-	ioss_log_msg(NULL, "%s : dma_tx_phy = 0x%p", __func__, tx_q->dma_tx_phy_ipa);
+	ioss_log_msg(NULL, "%s : dma_tx_phy = 0x%p", __func__, tx_q->dma_tx_phy);
 
 	stmmac_init_chan(priv, priv->ioaddr, priv->plat->dma_cfg, chan);
 	stmmac_init_tx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
-			    tx_q->dma_tx_phy_ipa, chan);
+			    tx_q->dma_tx_phy, chan);
 
-	tx_q->tx_tail_addr = tx_q->dma_tx_phy_ipa;
+	tx_q->tx_tail_addr = tx_q->dma_tx_phy;
 	stmmac_set_tx_tail_ptr(priv, priv->ioaddr,
 			       tx_q->tx_tail_addr, chan);
 
@@ -367,27 +367,27 @@ static void stmmac_init_ipa_rx_ch(struct stmmac_priv *priv, struct channel_info 
 	for (i = 0; i < channel->desc_cnt; i++) {
 		struct dma_desc *p;
 
-		p = rx_q->dma_rx_ipa + i;
+		p = rx_q->dma_rx + i;
 
-		stmmac_init_rx_desc(priv, &rx_q->dma_rx_ipa[i],
+		stmmac_init_rx_desc(priv, &rx_q->dma_rx[i],
 				    priv->use_riwt, priv->mode,
 				    (i == channel->desc_cnt - 1),
 				    channel->buf_size);
 
 		if (channel->ch_flags == STMMAC_CONTIG_BUFS) {
-			stmmac_set_desc_addr(priv, p, (rx_q->buff_rx_phy_ipa + (i * channel->buf_size)));
+			stmmac_set_desc_addr(priv, p, (rx_q->buff_rx_phy + (i * channel->buf_size)));
 		} else {
 			stmmac_set_desc_addr(priv, p,
 					     channel->buff_pool_addr.buff_pool_dma_addrs_base[i]);
 		}
 	}
-	ioss_log_msg(NULL, "%s : dma_rx_phy = 0x%p", __func__, rx_q->dma_rx_phy_ipa);
+	ioss_log_msg(NULL, "%s : dma_rx_phy = 0x%p", __func__, rx_q->dma_rx_phy);
 
 	stmmac_init_chan(priv, priv->ioaddr, priv->plat->dma_cfg, chan);
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
-			    rx_q->dma_rx_phy_ipa, chan);
+			    rx_q->dma_rx_phy, chan);
 
-	rx_q->rx_tail_addr = rx_q->dma_rx_phy_ipa +
+	rx_q->rx_tail_addr = rx_q->dma_rx_phy +
 				 (channel->desc_cnt * sizeof(struct dma_desc));
 	stmmac_set_rx_tail_ptr(priv, priv->ioaddr, rx_q->rx_tail_addr, chan);
 
@@ -411,7 +411,7 @@ static void dealloc_ipa_tx_resources(struct net_device *ndev, struct channel_inf
 
 	free_ipa_tx_resources(ndev, channel);
 
-	tx_q->dma_tx_ipa = NULL;
+	tx_q->dma_tx = NULL;
 }
 
 static void dealloc_ipa_rx_resources(struct net_device *ndev, struct channel_info *channel)
@@ -425,7 +425,7 @@ static void dealloc_ipa_rx_resources(struct net_device *ndev, struct channel_inf
 
 	free_ipa_rx_resources(ndev, channel);
 
-	rx_q->dma_rx_ipa = NULL;
+	rx_q->dma_rx = NULL;
 }
 
 /*!
@@ -546,6 +546,7 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		stmmac_init_ipa_rx_ch(priv, channel);
 		channel_input->tail_ptr_addr = XGMAC_DMA_CH_RxDESC_TAIL_LPTR(channel->channel_num);
+		stmmac_map_mtl_to_dma(priv, priv->hw, IPA_QUEUE_BE, IPA_QUEUE_BE);
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel direction\n", __func__);
@@ -647,14 +648,6 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 		goto err_invalid_ch_dir;
 	}
 
-	/*wait until TX callbacks is received to decide to deinit the sw channels or not*/
-	if (channel->direction == CH_DIR_TX && priv->reinit_sw_path) {
-		/*This check is required to distinguish between unbind/bind/suspend_ipa_offload
-		 * or its an actual link down/carrier loss
-		 */
-		if (netif_running(priv->dev) && netif_carrier_ok(priv->dev))
-			priv->reinit_sw_path(priv);
-	}
 	return 0;
 
 err_invalid_ch_dir:
@@ -1265,6 +1258,7 @@ EXPORT_SYMBOL_GPL(start_channel);
 int stop_channel(struct net_device *ndev, struct channel_info *channel)
 {
 	struct stmmac_priv *priv;
+	u32 sw_chan = 0;
 
 	ioss_log_msg(NULL, "%s: Start", __func__);
 
@@ -1297,6 +1291,8 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 			return -EPERM;
 	}
 
+	sw_chan = priv->plat->rx_queues_cfg[IPA_QUEUE_BE].chan;
+
 	if (channel->direction == CH_DIR_TX) {
 		netdev_dbg(priv->dev, "DMA Tx process stopped in channel = %d\n",
 			   channel->channel_num);
@@ -1305,6 +1301,7 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 		netdev_dbg(priv->dev, "DMA Rx process stopped in channel = %d\n",
 			   channel->channel_num);
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
+		stmmac_map_mtl_to_dma(priv, priv->hw, IPA_QUEUE_BE, sw_chan);
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel\n", __func__);
