@@ -290,11 +290,12 @@ static int qcom_ethqos_mac_addr(struct net_device *ndev)
 	struct unicast_mac_addr mac;
 
 	ETHQOSINFO("Enter\n");
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	if (is_valid_ether_addr(ndev->dev_addr)) {
 		memcpy(mac.enm_addr, ndev->dev_addr, ETH_ALEN);
 		return emac_ctrl_fe_mac_addr_chg(&mac);
 	}
-
+#endif
 	return 0;
 }
 
@@ -411,10 +412,14 @@ static int qcom_ethqos_add_filter(struct net_device *ndev)
 		ret = emac_ctrl_fe_filter_add_request(filter_type, &filter);
 		break;
 	case MULTICAST_TYPE:
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 		ret = qcom_ethqos_set_mc_filters(ndev);
+#endif
 		break;
 	case UNICAST_TYPE:
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 		ret = qcom_ethqos_set_uc_filters(ndev);
+#endif
 		break;
 	default:
 		ETHQOSINFO("Wrong filter type %d\n", priv->filter_type);

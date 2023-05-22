@@ -39,6 +39,10 @@ static int stmmac_mtl_setup(struct platform_device *pdev,
 	u8 queue = 0;
 	int ret = 0;
 
+#ifdef CONFIG_ETHQOS_QCOM_SVM
+	queue = 4;
+#endif
+
 	/* For backwards-compatibility with device trees that don't have any
 	 * snps,mtl-rx-config or snps,mtl-tx-config properties, we fall back
 	 * to one RX and TX queues each.

@@ -60,6 +60,10 @@ static int buf_sz = DEFAULT_BUFSIZE;
 
 #define	STMMAC_RX_COPYBREAK	256
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+#define MAX_TX_QUEUES 5
+#endif
+
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
@@ -810,10 +814,14 @@ static void stmmac_dma_operation_mode(struct stmmac_priv *priv)
 		txmode = tc;
 		rxmode = SF_DMA_MODE;
 	}
-	pr_info("%s: txmode [%u], rxmode [%u], txfifosz [%u], rxfifosz [%u]\n",
-		__func__, txmode, rxmode, txfifosz, rxfifosz);
+
 	/* configure channel */
 	qmode = priv->plat->rx_queues_cfg[chan].mode_to_use;
+
+	pr_info("%s: txmode [%u] rxmode [%u] txfifosz [%u], rxfifosz [%u] dma_sz [%u] mode = %u\n",
+		__func__, txmode, rxmode, txfifosz, rxfifosz, priv->dma_buf_sz, qmode);
+
+
 	stmmac_dma_rx_mode(priv, priv->ioaddr, rxmode, chan, rxfifosz, qmode);
 	stmmac_set_dma_bfsize(priv, priv->ioaddr, priv->dma_buf_sz, chan);
 
@@ -1072,6 +1080,9 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
 			    rx_q->dma_rx_phy, chan);
 
+	pr_info("%s chan = %d dma_rx_phy = 0x%x dma_tx_phy = 0x%x",
+	        __func__, chan, rx_q->dma_rx_phy, tx_q->dma_tx_phy);
+
 	rx_q->rx_tail_addr = rx_q->dma_rx_phy +
 			    (DMA_RX_SIZE * sizeof(struct dma_desc));
 	stmmac_set_rx_tail_ptr(priv, priv->ioaddr,
@@ -1234,8 +1245,8 @@ static int stmmac_open(struct net_device *dev)
 	place_marker("M - Ethernet device open");
 #endif
 	/* Extra statistics */
-	dev_info(priv->device, "%s: emac_state = %u\n",
-		 __func__, priv->emac_state);
+	dev_info(priv->device, "%s: emac_state = %u mtu = %d\n",
+		 __func__, priv->emac_state, dev->mtu);
 	memset(&priv->xstats, 0, sizeof(struct stmmac_extra_stats));
 	priv->xstats.threshold = tc;
 
@@ -2272,7 +2283,11 @@ static int stmmac_vlan_rx_add_vid(struct net_device *ndev,
 
 	if (vid == 0 || vid > 4095) {
 		dev_info(priv->device, "Invalid vlan id %u\n", vid);
-		return 0;
+		/* let it send VLAN message to PVM,
+		 * PVM by default will install required PCP rule
+		 */
+		//return 0;
+		vid = 0xE002;
 	}
 
 	priv->vid = vid;
@@ -2754,7 +2769,7 @@ int stmmac_dvr_probe(struct device *device,
 
 	/* Set tx used queue to 4 so NW stack can trigger tx queue selection */
 	ndev = devm_alloc_etherdev_mqs(device, sizeof(struct stmmac_priv),
-				       4, 1);
+				       MAX_TX_QUEUES, 1);
 	if (!ndev)
 		return -ENOMEM;
 
@@ -2805,13 +2820,18 @@ int stmmac_dvr_probe(struct device *device,
 	if (ret)
 		goto error_hw_init;
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
 	stmmac_check_ether_addr(priv);
+#endif
 
 	/* Configure real RX and TX queues */
 	netif_set_real_num_rx_queues(ndev, 1);
 	/* To trigger tx queue number selection other then 0 */
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	netif_set_real_num_tx_queues(ndev, MAX_TX_QUEUES);
+#else
 	netif_set_real_num_tx_queues(ndev, 4);
-
+#endif
 	ndev->netdev_ops = &stmmac_netdev_ops;
 	dev_info(priv->device, "dev opt=0x%X\n", ndev->netdev_ops);
 
@@ -2916,6 +2936,7 @@ int stmmac_dvr_remove(struct device *dev)
 #ifdef CONFIG_DEBUG_FS
 	stmmac_exit_fs(ndev);
 #endif
+	netif_carrier_off(ndev);
 	unregister_netdev(ndev);
 	if (priv->plat->stmmac_rst)
 		reset_control_assert(priv->plat->stmmac_rst);
@@ -2924,7 +2945,6 @@ int stmmac_dvr_remove(struct device *dev)
 
 	netif_napi_del(&ch->rx_napi);
 	netif_napi_del(&ch->tx_napi);
-	free_netdev(ndev);
 	return 0;
 }
 //EXPORT_SYMBOL_GPL(stmmac_dvr_remove);

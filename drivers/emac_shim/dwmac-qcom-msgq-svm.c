@@ -258,9 +258,10 @@ int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_type
 
 	if (!msgq_priv)
 		return -EINVAL;
-	mutex_lock(&msgq_priv->emac_msgq_lock);
 
 	dev_info(msgq_priv->dev, "EMAC Filter Add Req %d", filter_type);
+	mutex_lock(&msgq_priv->emac_msgq_lock);
+
 	switch (filter_type) {
 	case UNICAST_FILTER:
 		if (!is_valid_ether_addr(filter->unicast_mac.enm_addr)) {
@@ -282,7 +283,7 @@ int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_type
 
 		dev_info(msgq_priv->dev, "Requesting Filter for multicast MacAddr: %pM\n", filter->multi_mac.enm_addr);
 		msgq_priv->tx_msg.type = MULTICAST_ADD;
-		memcpy(msgq_priv->tx_msg.data[0], filter->multi_mac.enm_addr, ETH_ALEN);
+		memcpy(&msgq_priv->tx_msg.data[0], filter->multi_mac.enm_addr, ETH_ALEN);
 		emac_msgq_xmit(&msgq_priv->tx_msg);
 		break;
 
@@ -294,7 +295,7 @@ int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_type
 
 		dev_info(msgq_priv->dev, "Requesting Vlan filter Add: %d\n", filter->vlan_id);
 		msgq_priv->tx_msg.type = VLAN_ADD;
-		memcpy(msgq_priv->tx_msg.data[0], filter->multi_mac.enm_addr, 2);
+		memcpy(&msgq_priv->tx_msg.data[0], filter->multi_mac.enm_addr, 2);
 		emac_msgq_xmit(&msgq_priv->tx_msg);
 		break;
 

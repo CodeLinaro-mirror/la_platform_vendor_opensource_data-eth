@@ -42,7 +42,7 @@ static void dwxgmac2_dma_init_chan(void __iomem *ioaddr,
 		value |= XGMAC_PBLx8;
 
 	writel(value, ioaddr + XGMAC_DMA_CH_CONTROL(chan));
-	writel(XGMAC_DMA_INT_DEFAULT_EN, ioaddr + XGMAC_DMA_CH_INT_EN(chan));
+	writel(XGMAC_DMA_STATUS_MSK_COMMON, ioaddr + XGMAC_DMA_CH_INT_EN(chan));
 }
 
 static void dwxgmac2_dma_init_rx_chan(void __iomem *ioaddr,
@@ -254,6 +254,7 @@ static void dwxgmac2_dma_tx_mode(void __iomem *ioaddr, int mode,
 static void dwxgmac2_enable_dma_irq(void __iomem *ioaddr, u32 chan,
 				    bool rx, bool tx)
 {
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	u32 value = readl(ioaddr + XGMAC_DMA_CH_INT_EN(chan));
 
 	if (rx)
@@ -262,11 +263,13 @@ static void dwxgmac2_enable_dma_irq(void __iomem *ioaddr, u32 chan,
 		value |= XGMAC_DMA_INT_DEFAULT_TX;
 
 	writel(value, ioaddr + XGMAC_DMA_CH_INT_EN(chan));
+#endif
 }
 
 static void dwxgmac2_disable_dma_irq(void __iomem *ioaddr, u32 chan,
 				     bool rx, bool tx)
 {
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	u32 value = readl(ioaddr + XGMAC_DMA_CH_INT_EN(chan));
 
 	if (rx)
@@ -275,6 +278,7 @@ static void dwxgmac2_disable_dma_irq(void __iomem *ioaddr, u32 chan,
 		value &= ~XGMAC_DMA_INT_DEFAULT_TX;
 
 	writel(value, ioaddr + XGMAC_DMA_CH_INT_EN(chan));
+#endif
 }
 
 static void dwxgmac2_dma_start_tx(void __iomem *ioaddr, u32 chan)
@@ -284,10 +288,6 @@ static void dwxgmac2_dma_start_tx(void __iomem *ioaddr, u32 chan)
 	value = readl(ioaddr + XGMAC_DMA_CH_TX_CONTROL(chan));
 	value |= XGMAC_TXST;
 	writel(value, ioaddr + XGMAC_DMA_CH_TX_CONTROL(chan));
-
-	value = readl(ioaddr + XGMAC_TX_CONFIG);
-	value |= XGMAC_CONFIG_TE;
-	writel(value, ioaddr + XGMAC_TX_CONFIG);
 }
 
 static void dwxgmac2_dma_stop_tx(void __iomem *ioaddr, u32 chan)
@@ -298,9 +298,6 @@ static void dwxgmac2_dma_stop_tx(void __iomem *ioaddr, u32 chan)
 	value &= ~XGMAC_TXST;
 	writel(value, ioaddr + XGMAC_DMA_CH_TX_CONTROL(chan));
 
-	value = readl(ioaddr + XGMAC_TX_CONFIG);
-	value &= ~XGMAC_CONFIG_TE;
-	writel(value, ioaddr + XGMAC_TX_CONFIG);
 }
 
 static void dwxgmac2_dma_start_rx(void __iomem *ioaddr, u32 chan)
@@ -311,10 +308,6 @@ static void dwxgmac2_dma_start_rx(void __iomem *ioaddr, u32 chan)
 	value &= ~XGMAC_RPF;
 	value |= XGMAC_RXST;
 	writel(value, ioaddr + XGMAC_DMA_CH_RX_CONTROL(chan));
-
-	value = readl(ioaddr + XGMAC_RX_CONFIG);
-	value |= XGMAC_CONFIG_RE;
-	writel(value, ioaddr + XGMAC_RX_CONFIG);
 }
 
 static void dwxgmac2_dma_stop_rx(void __iomem *ioaddr, u32 chan)
@@ -357,8 +350,10 @@ static int dwxgmac2_dma_interrupt(void __iomem *ioaddr,
 	}
 
 	/* TX/RX NORMAL interrupts */
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	if (likely(intr_status & XGMAC_NIS)) {
 		x->normal_irq_n++;
+#endif
 
 		if (likely(intr_status & XGMAC_RI)) {
 			x->rx_normal_irq_n++;
@@ -368,10 +363,12 @@ static int dwxgmac2_dma_interrupt(void __iomem *ioaddr,
 			x->tx_normal_irq_n++;
 			ret |= handle_tx;
 		}
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	}
+#endif
 
 	/* Clear interrupts */
-	writel(intr_en & intr_status, ioaddr + XGMAC_DMA_CH_STATUS(chan));
+	writel(intr_status, ioaddr + XGMAC_DMA_CH_STATUS(chan));
 
 	return ret;
 }
@@ -465,16 +462,18 @@ static int dwxgmac2_host_mtl_irq_status(struct mac_device_info *hw, u32 chan)
 	int ret = 0;
 	u32 status;
 
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	status = readl(ioaddr + XGMAC_MTL_INT_STATUS);
 	if (status & BIT(chan)) {
+#endif
 		u32 chan_status = readl(ioaddr + XGMAC_MTL_QINT_STATUS(chan));
-
 		if (chan_status & XGMAC_RXOVFIS)
 			ret |= CORE_IRQ_MTL_RX_OVERFLOW;
 
 		writel(~0x0, ioaddr + XGMAC_MTL_QINT_STATUS(chan));
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	}
-
+#endif
 	return ret;
 }
 
