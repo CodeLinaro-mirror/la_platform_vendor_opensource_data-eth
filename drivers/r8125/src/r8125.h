@@ -469,7 +469,11 @@ This is free software, and you are welcome to redistribute it under certain cond
 #define NUM_TX_DESC MAX_NUM_TX_DESC    /* Number of Tx descriptor registers */
 #define NUM_RX_DESC MAX_NUM_RX_DESC    /* Number of Rx descriptor registers */
 
-#define RX_BUF_SIZE 0x05F3  /* 0x05F3 = 1522bye + 1 */
+#ifdef ENABLE_DOUBLE_VLAN
+#define RX_BUF_SIZE 0x05F6  /* 0x05F6 = 1526 bytes */
+#else
+#define RX_BUF_SIZE 0x05F2  /* 0x05F2 = 1522 bytes */
+#endif
 
 #define R8125_MAX_TX_QUEUES (2)
 #define R8125_MAX_RX_QUEUES (4)
@@ -1229,6 +1233,7 @@ enum RTL8125_registers {
         IMR_V2_SET_REG_8125   = 0x0D0C,
         TDU_STA_8125       = 0x0D08,
         RDU_STA_8125       = 0x0D0A,
+        DOUBLE_VLAN_CONFIG = 0x1000,
         TX_NEW_CTRL        = 0x203E,
         TNPDS_Q1_LOW_8125  = 0x2100,
         PLA_TXQ0_IDLE_CREDIT = 0x2500,
