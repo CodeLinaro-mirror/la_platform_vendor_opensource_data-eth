@@ -660,11 +660,9 @@ static int __init emac_ctrl_fe_init(void)
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - DRIVER EMAC_CTRL_FE Init");
 #endif
-	pr_err("%s: Module Entry \n", __func__);
+	EMAC_CTL_FE_INFO("%s: Module Entry \n", __func__);
 	return register_virtio_driver(&emac_ctrl_fe_virtio_drv);
-
 }
-
 
 static void __exit emac_ctrl_fe_exit(void)
 {
