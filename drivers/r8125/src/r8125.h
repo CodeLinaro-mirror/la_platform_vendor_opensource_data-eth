@@ -367,7 +367,7 @@ do { \
 #define RSS_SUFFIX ""
 #endif
 
-#define RTL8125_VERSION "9.010.01_cdt" NAPI_SUFFIX DASH_SUFFIX REALWOW_SUFFIX PTP_SUFFIX RSS_SUFFIX
+#define RTL8125_VERSION "9.011.05_rx_queue0" NAPI_SUFFIX DASH_SUFFIX REALWOW_SUFFIX PTP_SUFFIX RSS_SUFFIX
 #define MODULENAME "r8125"
 #define PFX MODULENAME ": "
 
@@ -2375,7 +2375,7 @@ rtl8125_num_lib_rx_rings(struct rtl8125_private *tp)
 {
         int count, i;
 
-        for (count = 0, i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++)
+        for (count = 0, i = 0; i < tp->HwSuppNumRxQueues; i++)
                 if(tp->lib_rx_ring[i].enabled)
                         count++;
 
@@ -2405,7 +2405,13 @@ rtl8125_tot_tx_rings(struct rtl8125_private *tp)
 static inline unsigned int
 rtl8125_tot_rx_rings(struct rtl8125_private *tp)
 {
-        return tp->num_rx_rings + rtl8125_num_lib_rx_rings(tp);
+        unsigned int num_lib_rx_rings;
+
+        num_lib_rx_rings = rtl8125_num_lib_rx_rings(tp);
+        if (num_lib_rx_rings > 0)
+                return num_lib_rx_rings;
+        else
+                return tp->num_rx_rings;
 }
 
 enum eetype {
