@@ -374,7 +374,6 @@ static ssize_t read_ch_stat(struct file *file, char __user *user_buf, size_t siz
 	return ret_cnt;
 }
 
-
 static const struct file_operations fops_idev_statistics = {
 	.read = read_idev_statistics,
 	.open = simple_open,
