@@ -2283,11 +2283,7 @@ static int stmmac_vlan_rx_add_vid(struct net_device *ndev,
 
 	if (vid == 0 || vid > 4095) {
 		dev_info(priv->device, "Invalid vlan id %u\n", vid);
-		/* let it send VLAN message to PVM,
-		 * PVM by default will install required PCP rule
-		 */
-		//return 0;
-		vid = 0xE002;
+		return 0;
 	}
 
 	priv->vid = vid;

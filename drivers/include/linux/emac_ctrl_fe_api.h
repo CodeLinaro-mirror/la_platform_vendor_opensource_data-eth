@@ -26,6 +26,7 @@ union emac_ctrl_fe_filter{
 	uint16_t                  vlan_id;        //2 bytes
 	struct unicast_mac_addr   unicast_mac;    //6 bytes
 	struct multicast_mac_addr multi_mac;      //6 bytes
+	uint8_t                  vlan_prio;      //1 byte
 };
 
 
@@ -34,6 +35,7 @@ enum emac_ctrl_fe_filter_types {
 	UNICAST_FILTER=0,
 	MULTICAST_FILTER=1,
 	VLAN_FILTER=2,
+	PRIORITY_FILTER=3,
 };
 
 

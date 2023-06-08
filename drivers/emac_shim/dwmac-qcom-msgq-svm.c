@@ -34,6 +34,8 @@ enum msg_type {
 	UNICAST_DEL,
 	MULTICAST_DEL,
 	VLAN_DEL,
+	PRIO_ADD,
+	PRIO_DEL,
 };
 
 enum emac_msgq_state{
@@ -299,6 +301,13 @@ int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_type
 		emac_msgq_xmit(&msgq_priv->tx_msg);
 		break;
 
+	case PRIORITY_FILTER:
+		dev_info(msgq_priv->dev, "Requesting Vlan priority Add: %d\n", filter->vlan_prio);
+		msgq_priv->tx_msg.type = PRIO_ADD;
+		memcpy(&msgq_priv->tx_msg.data[0], filter->multi_mac.enm_addr, 1);
+		emac_msgq_xmit(&msgq_priv->tx_msg);
+		break;
+
 	default:
 		break;
 	}
@@ -344,13 +353,20 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 
 	case VLAN_FILTER:
 		if (!IS_VLAN_ID_VALID(filter.vlan_id) ) {
-			dev_err(msgq_priv->dev, "invalid vlan_id %d:\n", filter.vlan_id);
+			dev_err(msgq_priv->dev, "invalid vlan_id: %d\n", filter.vlan_id);
 			//return -EINVAL;
 		}
 
-		dev_info(msgq_priv->dev, "Deleting Vlan filter Add: %d\n", filter.vlan_id);
+		dev_info(msgq_priv->dev, "Deleting Vlan filter: %d\n", filter.vlan_id);
 		msgq_priv->tx_msg.type = VLAN_DEL;
 		memcpy(msgq_priv->tx_msg.data[0], filter.multi_mac.enm_addr, 2);
+		emac_msgq_xmit(&msgq_priv->tx_msg);
+		break;
+
+	case PRIORITY_FILTER:
+		dev_info(msgq_priv->dev, "Deleting Vlan priority: %d\n", filter.vlan_prio);
+		msgq_priv->tx_msg.type = PRIO_DEL;
+		memcpy(msgq_priv->tx_msg.data[0], filter.multi_mac.enm_addr, 1);
 		emac_msgq_xmit(&msgq_priv->tx_msg);
 		break;
 

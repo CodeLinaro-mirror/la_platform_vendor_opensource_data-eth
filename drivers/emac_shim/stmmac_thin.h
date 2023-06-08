@@ -88,6 +88,7 @@ enum filter_type {
 	UNICAST_TYPE,
 	MULTICAST_TYPE,
 	VLAN_TYPE,
+	VLAN_PRIOIRITY,
 };
 
 struct stmmac_priv {
@@ -151,6 +152,7 @@ struct stmmac_priv {
 	struct workqueue_struct *wq;
 	struct work_struct service_task;
 	u32 adv_ts;
+	u8 prio;
 };
 
 enum stmmac_state {
