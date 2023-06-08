@@ -25,13 +25,12 @@ static ATOMIC_NOTIFIER_HEAD(emac_ctrl_fe_notifier_chain);
 static int __maybe_unused emac_ctrl_fe_notify(enum emac_ctrl_fe_gvm_event event, int nr_to_call , int *nr_calls)
 {
 	int ret;
-	rcu_irq_enter_irqson();
+	//rcu_irq_enter_irqson();
 	/* this chain has a RCU read critical section which can be disfunctional
 	 * in cpu idle. Copy RCU_NONIDLE code to let RCU know this.
 	 */
-	ret = __atomic_notifier_call_chain(&emac_ctrl_fe_notifier_chain, event, NULL,
-		nr_to_call, nr_calls);
-	rcu_irq_exit_irqson();
+	ret = atomic_notifier_call_chain(&emac_ctrl_fe_notifier_chain, event, NULL);
+	//rcu_irq_exit_irqson();
 	return notifier_to_errno(ret);
 }
 
@@ -145,17 +144,20 @@ struct emac_ctrl_fe_cb_info {
 int emac_ctrl_fe_register_ready_cb(void (*emac_ctrl_fe_ready_cb)(void *user_data),
 	void *user_data)
 {
-	if (emac_ctrl_fe_ctx->emac_ctrl_fe_ready == true) {
+	int ret = 0;
+
+	if (emac_ctrl_fe_ctx && emac_ctrl_fe_ctx->emac_ctrl_fe_ready) {
 		/*call the callback*/
-		EMAC_CTL_FE_INFO("Trigger FE Ready CB \n");
+		EMAC_CTL_FE_INFO("Trigger FE Ready CB\n");
 		if (emac_ctrl_fe_ready_cb)
 			emac_ctrl_fe_ready_cb(user_data);
 
 	}
 	else {
-		EMAC_CTL_FE_INFO("FE Not Ready Yet \n");
+		EMAC_CTL_FE_INFO("FE Not Support or Ready Yet\n");
+		ret = -EINVAL;
 	}
-	return 0;
+	return ret;
 }
 EXPORT_SYMBOL(emac_ctrl_fe_register_ready_cb);
 
@@ -183,6 +185,7 @@ void __maybe_unused emac_ctrl_fe_gvm_dma_stopped(void){
 	emac_ctl_fe_xmit(emac_ctrl_fe_ctx);
 	//return;
 }
+EXPORT_SYMBOL(emac_ctrl_fe_gvm_dma_stopped);
 
 /* request filter addition at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_types filter_type,
@@ -246,6 +249,7 @@ int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_type
 	mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
 	return 0;
 }
+EXPORT_SYMBOL(emac_ctrl_fe_filter_add_request);
 
 /* request filter deletion at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_types filter_type,
@@ -310,6 +314,7 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 	mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
 	return 0;
 }
+EXPORT_SYMBOL(emac_ctrl_fe_filter_del_request);
 
 /* request mac_addr_chg_req*/
 int __maybe_unused emac_ctrl_fe_mac_addr_chg(struct unicast_mac_addr *new_mac_addr) {
@@ -334,6 +339,7 @@ int __maybe_unused emac_ctrl_fe_mac_addr_chg(struct unicast_mac_addr *new_mac_ad
 	EMAC_CTL_FE_INFO("Sent MAC Addr Update Event Cmd \n");
 	return 0;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_mac_addr_chg);
 
 void emac_ctl_fe_replenish_rxbuf(
 	struct emac_ctrl_fe_virtio_dev *pdev,

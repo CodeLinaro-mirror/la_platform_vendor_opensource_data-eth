@@ -49,12 +49,12 @@ static void emac_fe_ev_wq(struct work_struct *work)
 
 	ETHQOSINFO("Enter - cur state [%u]\n", priv->emac_state);
 	do {
-		mutex_lock(&ethqos->lock);
+		spin_lock(&ethqos->lock);
 		emac_ev = list_first_entry_or_null(&ethqos->emac_fe_ev_q,
 						   struct emac_fe_ev, list);
 		if (emac_ev)
 			list_del(&emac_ev->list);
-		mutex_unlock(&ethqos->lock);
+		spin_unlock(&ethqos->lock);
 
 		if (!emac_ev)
 			break;
@@ -67,15 +67,18 @@ static void emac_fe_ev_wq(struct work_struct *work)
 				break;
 
 			priv->emac_state = EMAC_HW_UP_ST;
-			if (ethqos->suspended &&
-			    !stmmac_resume(priv->device)) {
-				ETHQOSINFO("resume on HW up\n");
+			if (ethqos->suspended) {
+				if (priv->dev_inited &&
+				    !stmmac_resume(priv->device))
+					ETHQOSINFO("resume on HW up\n");
 				ethqos->suspended = false;
 			} else if (priv->dev_opened &&
 				   !priv->dev_inited) {
 				ETHQOSINFO("init driver on HW up\n");
 				stmmac_dvr_init(priv->dev);
 				priv->add_filter(priv->dev);
+			} else {
+				ETHQOSINFO("Device not opened when HW up\n");
 			}
 			break;
 		case EMAC_HW_DOWN:
@@ -136,9 +139,9 @@ static int qcom_ethqos_emac_notify_cb(struct notifier_block *nb,
 		return -ENOMEM;
 
 	emac_ev->ev = ev;
-	mutex_lock(&ethqos->lock);
+	spin_lock(&ethqos->lock);
 	list_add_tail(&emac_ev->list, &ethqos->emac_fe_ev_q);
-	mutex_unlock(&ethqos->lock);
+	spin_unlock(&ethqos->lock);
 
 	queue_work(ethqos->wq, &ethqos->emac_fe_work);
 
@@ -152,16 +155,23 @@ static void qcom_ethqos_register_emac_fe_listener(struct qcom_ethqos *ethqos)
 	ETHQOSINFO("Enter\n");
 	ethqos->emac_nb.notifier_call = qcom_ethqos_emac_notify_cb;
 	ret = emac_ctrl_fe_register_notifier(&ethqos->emac_nb);
-	if (ret)
+	if (ret) {
 		ETHQOSERR("emac_ctrl_fe_register_notifier failed\n");
+		return;
+	}
+	ethqos->fe_registered = true;
 }
 
 static void
 qcom_ethqos_unregister_emac_fe_listener(struct qcom_ethqos *ethqos, int reason)
 {
+	if (!ethqos->fe_registered)
+		return;
+
 	ethqos->emac_nb.notifier_call = qcom_ethqos_emac_notify_cb;
 	ethqos->emac_nb.priority = reason;
 	emac_ctrl_fe_unregister_notifier(&ethqos->emac_nb);
+	ethqos->fe_registered = false;
 }
 
 static inline unsigned int dwmac_qcom_get_eth_type(unsigned char *buf)
@@ -492,8 +502,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	ethqos->pdev = pdev;
 
-	plat_dat = stmmac_probe_config_dt(pdev,
-					  &stmmac_res.mac, stmmac_res.ch);
+	plat_dat = stmmac_probe_config_dt(pdev, stmmac_res.mac);
 	if (IS_ERR(plat_dat)) {
 		dev_err(&pdev->dev, "dt configuration failed\n");
 		return PTR_ERR(plat_dat);
@@ -543,7 +552,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		goto err_smmu;
 	}
 
-	mutex_init(&ethqos->lock);
+	spin_lock_init(&ethqos->lock);
 	INIT_WORK(&ethqos->emac_fe_rdy_work, ethqos_emac_fe_ready_wq);
 	INIT_WORK((struct work_struct *)&ethqos->emac_fe_work, emac_fe_ev_wq);
 	INIT_LIST_HEAD(&ethqos->emac_fe_ev_q);
@@ -567,12 +576,13 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		if (!emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,
 						    (void *)ethqos))
 			break;
-		ETHQOSINFO("emac_ctrl_fe_register_ready_cb failed\n");
 		cond_resched();
 		count++;
 	}
-	if (count == 10)
-		goto err_reg;
+	if (count == 10) {
+		ret = -EINVAL;
+		goto err_fe;
+	}
 
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe end");
@@ -580,11 +590,19 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	ETHQOSINFO("End\n");
 	return 0;
 
+err_fe:
+	stmmac_pltfr_remove(pdev);
+	platform_set_drvdata(pdev, NULL);
 err_reg:
 	destroy_workqueue(ethqos->wq);
-	mutex_destroy(&ethqos->lock);
+	emac_emb_smmu_exit();
 err_smmu:
 	of_platform_depopulate(&pdev->dev);
+	ETHQOSERR("Ethernet probe exit with ret = %d\n", ret);
+	if (ipc_emac_log_ctxt)
+		ipc_log_context_destroy(ipc_emac_log_ctxt);
+	ipc_emac_log_ctxt = NULL;
+
 	return ret;
 }
 
@@ -607,7 +625,6 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_UNMOUNT);
 	cancel_work_sync(&ethqos->emac_fe_work);
 	destroy_workqueue(ethqos->wq);
-	mutex_destroy(&ethqos->lock);
 	ret = stmmac_pltfr_remove(pdev);
 
 	emac_emb_smmu_exit();
@@ -615,9 +632,10 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 	of_platform_depopulate(&pdev->dev);
 
-	if (!ipc_emac_log_ctxt)
+	if (ipc_emac_log_ctxt)
 		ipc_log_context_destroy(ipc_emac_log_ctxt);
 	ipc_emac_log_ctxt = NULL;
+	ETHQOSINFO("Exit\n");
 
 	return ret;
 }
@@ -637,8 +655,9 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct qcom_ethqos *ethqos;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
-	int ret;
+	int ret = 0;
 
+	ETHQOSINFO("Enter Suspend\n");
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded")) {
 		ETHQOSDBG("smmu return\n");
 		return 0;
@@ -651,11 +670,22 @@ static int qcom_ethqos_suspend(struct device *dev)
 	ndev = dev_get_drvdata(dev);
 
 	if (!ndev || !netif_running(ndev)) {
-		ETHQOSINFO(" Suspend not possible\n");
+		ETHQOSINFO("Suspend not possible\n");
 		return 0;
 	}
 
 	priv = netdev_priv(ndev);
+
+	if (ethqos->suspended || !priv->dev_inited) {
+		/* Device interface is not up (stmmac_open is not called)
+		   but netif_running still returns true. Need to add more
+		   check to skip suspend.
+		*/
+		ETHQOSINFO("Driver not open/resumed, unregister emac fe\n");
+		ret = 0;
+		goto unregister;
+	}
+
 	ret = stmmac_suspend(dev);
 	if (!ret) {
 		ethqos->suspended = true;
@@ -663,10 +693,11 @@ static int qcom_ethqos_suspend(struct device *dev)
 	}
 
 	emac_ctrl_fe_gvm_dma_stopped();
+unregister:
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_SUSPEND);
 
 	priv->boot_kpi = false;
-	ETHQOSDBG(" ret = %d\n", ret);
+	ETHQOSINFO("Suspend ret = %d\n", ret);
 	return ret;
 }
 
@@ -688,7 +719,7 @@ static int qcom_ethqos_resume(struct device *dev)
 	ndev = dev_get_drvdata(dev);
 
 	if (!ndev || !netif_running(ndev)) {
-		ETHQOSINFO(" Resume not possible\n");
+		ETHQOSINFO("Resume not possible\n");
 		return 0;
 	}
 
@@ -696,7 +727,7 @@ static int qcom_ethqos_resume(struct device *dev)
 					     (void *)ethqos);
 	ETHQOSDBG("emac_ctrl_fe_register_ready_cb return %d\n", ret);
 
-	ETHQOSDBG("<--Resume Exit\n");
+	ETHQOSINFO("Waiting for HW_UP event to resume driver\n");
 	return ret;
 }
 

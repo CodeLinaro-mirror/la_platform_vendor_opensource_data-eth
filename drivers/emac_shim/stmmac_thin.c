@@ -353,7 +353,7 @@ static void stmmac_free_rx_buffer(struct stmmac_priv *priv, int i)
 	struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
 
 	if (buf->page)
-		page_pool_put_page(rx_q->page_pool, buf->page, false);
+		page_pool_put_full_page(rx_q->page_pool, buf->page, false);
 	buf->page = NULL;
 }
 
@@ -1266,27 +1266,34 @@ static int stmmac_release(struct net_device *dev)
 	struct stmmac_priv *priv = netdev_priv(dev);
 
 	dev_info(priv->device, "%s Enter\n", __func__);
+
+	if (priv->dev_inited) {
+		/* We should do clean up only when they are inited */
+		stmmac_stop_queue(priv);
+
+		/* if emac_state is EMAC_INIT_ST then below
+		 * cleanup already covered by stmmac_suspend.*/
+		if (priv->emac_state != EMAC_INIT_ST) {
+			stmmac_disable_queue(priv);
+
+			if (!priv->tx_coal_timer_disable)
+				del_timer_sync(&priv->tx_queue.txtimer);
+
+			/* Stop TX/RX DMA and clear the descriptors */
+			stmmac_stop_dma(priv);
+		}
+
+		/* Free the IRQ line */
+		free_irq(dev->irq, dev);
+
+		/* Release and free the Rx/Tx resources */
+		free_dma_desc_resources(priv);
+
+		netif_carrier_off(dev);
+	}
 	priv->dev_inited = false;
 	priv->dev_opened = false;
-
-	stmmac_stop_queue(priv);
-
-	stmmac_disable_queue(priv);
-
-	if (!priv->tx_coal_timer_disable)
-		del_timer_sync(&priv->tx_queue.txtimer);
-
-	/* Free the IRQ line */
-	free_irq(dev->irq, dev);
-
-	/* Stop TX/RX DMA and clear the descriptors */
-	stmmac_stop_dma(priv);
-
-	/* Release and free the Rx/Tx resources */
-	free_dma_desc_resources(priv);
-
-	netif_carrier_off(dev);
-
+	dev_info(priv->device, "%s Exit\n", __func__);
 	return 0;
 }
 
@@ -2118,7 +2125,7 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
  *   netdev structure and arrange for the device to be reset to a sane state
  *   in order to transmit a new packet.
  */
-static void stmmac_tx_timeout(struct net_device *dev)
+static void stmmac_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
@@ -2761,7 +2768,7 @@ int stmmac_dvr_probe(struct device *device,
 	priv->wq = create_singlethread_workqueue("stmmac_wq");
 	if (!priv->wq) {
 		dev_err(priv->device, "failed to create workqueue\n");
-		return -ENOMEM;
+		goto error_free_ndev;
 	}
 
 	INIT_WORK(&priv->service_task, stmmac_service_task);
@@ -2859,17 +2866,19 @@ int stmmac_dvr_probe(struct device *device,
 			    __func__);
 #endif
 
-	return ret;
+	return 0;
 
 error_netdev_register:
 	netif_napi_del(&ch->rx_napi);
 	netif_napi_del(&ch->tx_napi);
 error_hw_init:
 	destroy_workqueue(priv->wq);
+error_free_ndev:
+	free_netdev(ndev);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_dvr_probe);
+//EXPORT_SYMBOL_GPL(stmmac_dvr_probe);
 
 /**
  * stmmac_dvr_remove
@@ -2881,28 +2890,25 @@ int stmmac_dvr_remove(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct stmmac_channel *ch = &priv->channel;
 
 	netdev_info(priv->dev, "%s: removing driver", __func__);
 
 #ifdef CONFIG_DEBUG_FS
 	stmmac_exit_fs(ndev);
 #endif
-
-	if (priv->emac_state > EMAC_INIT_ST) {
-		stmmac_stop_dma(priv);
-
-		netif_carrier_off(ndev);
-		unregister_netdev(ndev);
-	}
-
+	unregister_netdev(ndev);
 	if (priv->plat->stmmac_rst)
 		reset_control_assert(priv->plat->stmmac_rst);
 	destroy_workqueue(priv->wq);
 	mutex_destroy(&priv->lock);
 
+	netif_napi_del(&ch->rx_napi);
+	netif_napi_del(&ch->tx_napi);
+	free_netdev(ndev);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_dvr_remove);
+//EXPORT_SYMBOL_GPL(stmmac_dvr_remove);
 
 /**
  * stmmac_suspend - suspend callback
@@ -2922,11 +2928,12 @@ int stmmac_suspend(struct device *dev)
 	mutex_lock(&priv->lock);
 
 	netif_device_detach(ndev);
-	stmmac_stop_queue(priv);
 
+	netdev_info(priv->dev, "%s: stop queue and dma", __func__);
 	stmmac_disable_queue(priv);
 
-	del_timer_sync(&priv->tx_queue.txtimer);
+	if (!priv->tx_coal_timer_disable)
+		del_timer_sync(&priv->tx_queue.txtimer);
 
 	/* Stop TX/RX DMA */
 	stmmac_stop_dma(priv);
@@ -2935,7 +2942,7 @@ int stmmac_suspend(struct device *dev)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_suspend);
+//EXPORT_SYMBOL_GPL(stmmac_suspend);
 
 /**
  * stmmac_reset_queues_param - reset queue parameters
@@ -2993,8 +3000,9 @@ int stmmac_resume(struct device *dev)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_resume);
+//EXPORT_SYMBOL_GPL(stmmac_resume);
 
+/*
 static int __init stmmac_init(void)
 {
 	return 0;
@@ -3006,6 +3014,7 @@ static void __exit stmmac_exit(void)
 
 module_init(stmmac_init)
 module_exit(stmmac_exit)
+*/
 
 MODULE_DESCRIPTION("STMMAC 10/100/1000 Ethernet device driver");
 MODULE_AUTHOR("Giuseppe Cavallaro <peppe.cavallaro@st.com>");

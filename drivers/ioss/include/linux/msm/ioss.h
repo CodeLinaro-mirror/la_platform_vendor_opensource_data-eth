@@ -190,6 +190,7 @@ struct ioss_interface {
 	struct wakeup_source *active_ws;
 	struct delayed_work check_active;
 	struct rtnl_link_stats64 netdev_stats;
+	bool auto_resume_disabled;
 };
 
 #define to_ioss_interface(device) \
