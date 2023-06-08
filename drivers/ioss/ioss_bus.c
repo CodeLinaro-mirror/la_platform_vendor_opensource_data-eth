@@ -203,6 +203,11 @@ static int __ioss_bus_resume_idev(struct device *dev)
 
 	ioss_dev_log(idev, "Resuming device");
 
+	if (iface->auto_resume_disabled) {
+		ioss_dev_log(idev, "Auto resume of device disabled let eth PM call IOSS enable");
+		return 0;
+	}
+
 	if (dev->offline) {
 		dev->offline = 0;
 		need_refresh = true;
