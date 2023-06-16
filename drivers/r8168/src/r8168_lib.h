@@ -159,6 +159,7 @@ int rtl8168_enable_ring(struct rtl8168_ring *ring);
 
 void rtl8168_disable_ring(struct rtl8168_ring *ring);
 
+int r8168_update_db(dma_addr_t daddr);
 
 /* Allocate an event (MSI-X, pointer wrb, etc.). Only one type of event will
 be requested from a ring at any point of time.
@@ -211,5 +212,7 @@ int rtl8168_lib_save_regs(struct net_device *ndev, struct rtl8168_regs_save *sta
 void rtl8168_init_lib_ring(struct rtl8168_private *tp);
 
 void rtl8168_lib_tx_interrupt(struct rtl8168_private *tp);
+
+unsigned int rtl8168_lib_get_num_tx_rings(struct net_device *ndev);
 
 #endif /* _LINUX_RTL8168_LIB_H */
