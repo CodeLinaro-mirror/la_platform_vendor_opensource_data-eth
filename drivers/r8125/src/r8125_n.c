@@ -4525,6 +4525,7 @@ rtl8125_set_speed_xmii(struct net_device *dev,
             (speed != SPEED_10)) {
                 speed = SPEED_2500;
                 duplex = DUPLEX_FULL;
+                adv |= tp->advertising;
         }
 
         giga_ctrl = rtl8125_mdio_read(tp, MII_CTRL1000);
@@ -4957,21 +4958,20 @@ static void rtl8125_gset_xmii(struct net_device *dev,
                     SUPPORTED_2500baseX_Full |
                     SUPPORTED_Autoneg |
                     SUPPORTED_TP |
-                    SUPPORTED_Pause	|
+                    SUPPORTED_Pause |
                     SUPPORTED_Asym_Pause;
+
+        advertising = tp->advertising;
 
         if (tp->mcfg == CFG_METHOD_6 || tp->mcfg == CFG_METHOD_7)
                 supported &= ~SUPPORTED_2500baseX_Full;
 
-        advertising = ADVERTISED_TP;
-
         rtl8125_mdio_write(tp, 0x1F, 0x0000);
         bmcr = rtl8125_mdio_read(tp, MII_BMCR);
 
-        if (bmcr & BMCR_ANENABLE) {
-                advertising |= ADVERTISED_Autoneg;
-                autoneg = AUTONEG_ENABLE;
-
+        if (tp->phy_auto_nego_reg || tp->phy_1000_ctrl_reg ||
+            tp->phy_2500_ctrl_reg ) {
+                advertising = 0;
                 if (tp->phy_auto_nego_reg & ADVERTISE_10HALF)
                         advertising |= ADVERTISED_10baseT_Half;
                 if (tp->phy_auto_nego_reg & ADVERTISE_10FULL)
@@ -4984,9 +4984,16 @@ static void rtl8125_gset_xmii(struct net_device *dev,
                         advertising |= ADVERTISED_1000baseT_Full;
                 if (tp->phy_2500_ctrl_reg & RTK_ADVERTISE_2500FULL)
                         advertising |= ADVERTISED_2500baseX_Full;
+        }
+
+        if (bmcr & BMCR_ANENABLE) {
+                autoneg = AUTONEG_ENABLE;
+                advertising |= ADVERTISED_Autoneg;
         } else {
                 autoneg = AUTONEG_DISABLE;
         }
+
+        advertising |= ADVERTISED_TP;
 
         status = RTL_R16(tp, PHYstatus);
         if (netif_running(dev) && (status & LinkStatus))
