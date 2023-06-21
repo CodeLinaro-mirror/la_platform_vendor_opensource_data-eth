@@ -57,9 +57,7 @@ struct emac_msgq_priv {
 	struct device 			*dev;
 	void 				*msgq_hdl;
 	u32 				gunyah_label;
-	struct wakeup_source 		*wakeup_source;
 	bool 				is_pvm;
-	bool 				stay_wakeup;
 	bool 				init_done;
 	bool notify_hw_events;
 	struct msg_format		tx_msg;
@@ -411,11 +409,6 @@ int qcom_ethmsgq_init(struct device *dev)
 	/* Init mutex */
 	mutex_init(&msgq_priv->emac_msgq_lock);
 
-	/* avoid system enter suspend */
-	msgq_priv->wakeup_source =
-		wakeup_source_register(dev, dev_name(dev));
-	__pm_stay_awake(msgq_priv->wakeup_source);
-	msgq_priv->stay_wakeup = true;
 	msgq_priv->recv_thread = kthread_run(recv_thread, msgq_priv, dev_name(dev));
 
 	/* sysfs node for validation */
@@ -439,7 +432,6 @@ int qcom_ethmsgq_deinit(struct device *dev)
 {
 	if (msgq_priv->msgq_hdl)
 		gh_msgq_unregister(msgq_priv->msgq_hdl);
-	__pm_relax(msgq_priv->wakeup_source);
 	return 0;
 }
 
