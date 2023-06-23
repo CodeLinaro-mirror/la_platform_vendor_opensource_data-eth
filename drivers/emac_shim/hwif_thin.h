@@ -66,9 +66,9 @@ struct stmmac_desc_ops {
 	/* get tx timestamp status */
 	int (*get_tx_timestamp_status)(struct dma_desc *p);
 	/* get timestamp value */
-	void (*get_timestamp)(void *desc, u64 *ts);
+	void (*get_timestamp)(void *desc, u32 ats, u64 *ts);
 	/* get rx timestamp status */
-	int (*get_rx_timestamp_status)(void *desc, void *next_desc);
+	int (*get_rx_timestamp_status)(void *desc, void *next_desc, u32 ats);
 	/* set MSS via context descriptor */
 	void (*set_mss)(struct dma_desc *p, unsigned int mss);
 	/* set descriptor skbuff address */
@@ -147,14 +147,16 @@ struct stmmac_dma_ops {
 	void (*dma_tx_mode)(void __iomem *ioaddr, int mode, u32 channel,
 			    int fifosz, u8 qmode);
 	void (*enable_dma_transmission)(void __iomem *ioaddr);
-	void (*enable_dma_irq)(void __iomem *ioaddr, u32 chan);
-	void (*disable_dma_irq)(void __iomem *ioaddr, u32 chan);
+	void (*enable_dma_irq)(void __iomem *ioaddr, u32 chan,
+			       bool rx, bool tx);
+	void (*disable_dma_irq)(void __iomem *ioaddr, u32 chan,
+				bool rx, bool tx);
 	void (*start_tx)(void __iomem *ioaddr, u32 chan);
 	void (*stop_tx)(void __iomem *ioaddr, u32 chan);
 	void (*start_rx)(void __iomem *ioaddr, u32 chan);
 	void (*stop_rx)(void __iomem *ioaddr, u32 chan);
-	int (*dma_interrupt)(void __iomem *ioaddr,
-			     struct stmmac_extra_stats *x, u32 chan);
+	int (*dma_interrupt) (void __iomem *ioaddr,
+			      struct stmmac_extra_stats *x, u32 chan, u32 dir);
 	/* Program the HW RX Watchdog */
 	void (*rx_watchdog)(void __iomem *ioaddr, u32 riwt, u32 chan);
 	void (*set_tx_ring_len)(void __iomem *ioaddr, u32 len, u32 chan);
@@ -163,9 +165,9 @@ struct stmmac_dma_ops {
 	void (*set_tx_tail_ptr)(void __iomem *ioaddr, u32 tail_ptr, u32 chan);
 	void (*enable_tso)(void __iomem *ioaddr, bool en, u32 chan);
 	void (*set_bfsize)(void __iomem *ioaddr, int bfsize, u32 chan);
-	void (*dma_stats)(void __iomem *ioaddr,
-			  struct stmmac_extra_stats *x, u32 chan);
-	void (*reg_vals)(void __iomem *ioaddr, u32 chan);
+//	void (*dma_stats)(void __iomem *ioaddr,
+//			  struct stmmac_extra_stats *x, u32 chan);
+//	void (*reg_vals)(void __iomem *ioaddr, u32 chan);
 };
 
 #define stmmac_init_chan(__priv, __args...) \
@@ -208,10 +210,10 @@ struct stmmac_dma_ops {
 	stmmac_do_void_callback(__priv, dma, enable_tso, __args)
 #define stmmac_set_dma_bfsize(__priv, __args...) \
 	stmmac_do_void_callback(__priv, dma, set_bfsize, __args)
-#define stmmac_get_dma_stats(__priv, __args...) \
-	stmmac_do_void_callback(__priv, dma, dma_stats, __args)
-#define stmmac_get_reg(__priv, __args...) \
-	stmmac_do_void_callback(__priv, dma, reg_vals, __args)
+//#define stmmac_get_dma_stats(__priv, __args...) \
+//	stmmac_do_void_callback(__priv, dma, dma_stats, __args)
+//#define stmmac_get_reg(__priv, __args...) \
+//	stmmac_do_void_callback(__priv, dma, reg_vals, __args)
 
 struct mac_device_info;
 
@@ -222,6 +224,11 @@ struct stmmac_ops {
 					u32 weight, u32 queue);
 	/* Handle MTL interrupts */
 	int (*host_mtl_irq_status)(struct mac_device_info *hw, u32 chan);
+	/* Set/Get Unicast MAC addresses */
+	void (*set_umac_addr)(struct mac_device_info *hw, unsigned char *addr,
+			      unsigned int reg_n);
+	void (*get_umac_addr)(struct mac_device_info *hw, unsigned char *addr,
+			      unsigned int reg_n);
 	void (*debug)(void __iomem *ioaddr, struct stmmac_extra_stats *x,
 		      u32 rx_queue, u32 tx_queue);
 };
@@ -230,6 +237,10 @@ struct stmmac_ops {
 	stmmac_do_void_callback(__priv, mac, set_mtl_tx_queue_weight, __args)
 #define stmmac_host_mtl_irq_status(__priv, __args...) \
 	stmmac_do_callback(__priv, mac, host_mtl_irq_status, __args)
+#define stmmac_set_umac_addr(__priv, __args...) \
+		stmmac_do_void_callback(__priv, mac, set_umac_addr, __args)
+#define stmmac_get_umac_addr(__priv, __args...) \
+		stmmac_do_void_callback(__priv, mac, get_umac_addr, __args)
 #define stmmac_mac_debug(__priv, __args...) \
 	stmmac_do_void_callback(__priv, mac, debug, __args)
 
@@ -240,5 +251,9 @@ int stmmac_hwif_init(struct stmmac_priv *priv);
 extern const struct stmmac_ops dwmac4_ops;
 extern const struct stmmac_dma_ops dwmac4_dma_ops;
 extern const struct stmmac_desc_ops dwmac4_desc_ops;
+extern const struct stmmac_ops dwxgmac210_ops;
+extern const struct stmmac_dma_ops dwxgmac210_dma_ops;
+extern const struct stmmac_desc_ops dwxgmac210_desc_ops;
+
 
 #endif /* __STMMAC_HWIF_H__ */
