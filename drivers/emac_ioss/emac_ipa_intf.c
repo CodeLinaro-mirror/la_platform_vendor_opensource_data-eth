@@ -483,6 +483,13 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		return NULL;
 	}
 
+	if ((channel_input->ch_dir != CH_DIR_RX) &&
+		(channel_input->ch_dir != CH_DIR_TX)) {
+		netdev_err(priv->dev,
+			   "%s: ERROR: Invalid Channel direction\n", __func__);
+		return NULL;
+	}
+
 	priv = netdev_priv(channel_input->ndev);
 	if (!priv) {
 		pr_err("%s: ERROR: Invalid private data pointer\n", __func__);
@@ -557,10 +564,6 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 				   "%s: ERROR: allocating Rx resources\n", __func__);
 			goto err_buff_dma_mem_alloc;
 		}
-	} else {
-		netdev_err(priv->dev,
-			   "%s: ERROR: Invalid channel direction\n", __func__);
-		goto err_buff_dma_mem_alloc;
 	}
 
 #if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
@@ -594,10 +597,6 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		channel_input->tail_ptr_addr = DMA_CHAN_RX_END_ADDR(channel->channel_num);
 #endif
 		stmmac_map_mtl_to_dma(priv, priv->hw, IPA_QUEUE_BE, IPA_QUEUE_BE);
-	} else {
-		netdev_err(priv->dev,
-			   "%s: ERROR: Invalid channel direction\n", __func__);
-		goto err_buff_dma_mem_alloc;
 	}
 
 	return channel;
@@ -635,8 +634,6 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	struct stmmac_priv *priv;
 	struct mem_ops *mem_ops;
 
-	int ret = -EINVAL;
-
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
 		return -ENODEV;
@@ -651,6 +648,13 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	if (!channel) {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel info structure\n", __func__);
+		return -EINVAL;
+	}
+
+	if ((channel->direction != CH_DIR_RX) &&
+	    (channel->direction != CH_DIR_TX)) {
+		netdev_err(priv->dev,
+			   "%s: ERROR: Invalid Channel direction\n", __func__);
 		return -EINVAL;
 	}
 
@@ -683,26 +687,17 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	if (channel->direction == CH_DIR_TX) {
 		stmmac_stop_tx(priv, priv->ioaddr, channel->channel_num);
 		dealloc_ipa_tx_resources(ndev, channel);
-		ret = 0;
 	} else if (channel->direction == CH_DIR_RX) {
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		dealloc_ipa_rx_resources(ndev, channel);
-		ret = 0;
-	} else {
-		netdev_err(priv->dev,
-			   "%s: ERROR: Invalid channel direction\n", __func__);
-		ret = -EINVAL;
-		goto err_invalid_ch_dir;
 	}
 
-	return 0;
-
-err_invalid_ch_dir:
 	kfree(channel->buff_pool_addr.buff_pool_va_addrs_base);
+	kfree(channel->buff_pool_addr.buff_pool_dma_addrs_base);
 	channel->desc_addr.desc_dma_addrs_base = 0;
 	kfree(channel);
 
-	return ret;
+	return 0;
 }
 EXPORT_SYMBOL_GPL(release_channel);
 
