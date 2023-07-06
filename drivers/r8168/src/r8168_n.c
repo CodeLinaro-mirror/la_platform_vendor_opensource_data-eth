@@ -30221,6 +30221,29 @@ out:
 
 #endif /* CONFIG_PM */
 
+static int
+rtl8168_suspend_temp(struct device *dev)
+{
+       return 0;
+}
+
+static int
+rtl8168_resume_temp(struct device *dev)
+{
+       return 0;
+}
+
+static struct dev_pm_ops rtl8168_pm_ops = {
+       .suspend = rtl8168_suspend_temp,
+       .resume = rtl8168_resume_temp,
+       .freeze = rtl8168_suspend_temp,
+       .thaw = rtl8168_resume_temp,
+       .poweroff = rtl8168_suspend_temp,
+       .restore = rtl8168_resume_temp,
+};
+
+#define RTL8168_PM_OPS       (&rtl8168_pm_ops)
+
 static struct pci_driver rtl8168_pci_driver = {
         .name       = MODULENAME,
         .id_table   = rtl8168_pci_tbl,
@@ -30233,6 +30256,7 @@ static struct pci_driver rtl8168_pci_driver = {
         .suspend    = rtl8168_suspend,
         .resume     = rtl8168_resume,
 #endif
+	.driver.pm = RTL8168_PM_OPS,
 };
 
 static int __init
