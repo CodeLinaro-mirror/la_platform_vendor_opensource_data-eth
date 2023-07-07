@@ -6,14 +6,14 @@ obj-y := data-eth.o
 ifneq ($(CONFIG_ETHQOS_QCOM_SVM), y)
 obj-m += drivers/ioss/
 obj-m += drivers/emac_ioss/
+obj-m += drivers/r8125/src/
+obj-m += drivers/r8125_ioss/
 endif
 
 obj-$(CONFIG_QPS615) += drivers/qps615/src/
 obj-$(CONFIG_QPS615_IOSS) += drivers/qps615_ioss/
-obj-m += drivers/r8125/src/
-obj-$(CONFIG_R8125_IOSS) += drivers/r8125_ioss/
 obj-$(CONFIG_AQFWD_IOSS)  += drivers/aqc_ioss/
-obj-$(CONFIG_ETHQOS_QCOM_SVM) += drivers/emac_ctrl_fe/
+obj-$(CONFIG_QTI_QUIN_GVM) += drivers/emac_ctrl_fe/
 obj-$(CONFIG_EMAC_SHIM) += drivers/emac_shim/
 
 ifeq ($(KP_MODULE_ROOT),)

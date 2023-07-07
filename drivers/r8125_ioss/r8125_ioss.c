@@ -9,10 +9,14 @@
 #include <linux/pm_wakeup.h>
 #include <net/rtnetlink.h>
 
-#include <linux/msm/ioss.h>
+#include "ioss/ioss_i.h"
+#include "ioss/ioss_version.h"
+#include "ioss/include/linux/msm/ioss.h"
 
 #include "r8125.h"
 #include "r8125_lib.h"
+
+
 
 #define MODC_UNIT_MASK 0x3000
 #define MODC_UNIT_SHIFT 12
@@ -140,7 +144,7 @@ static int r8125_ioss_open_device(struct ioss_device *idev)
 	return 0;
 
 err_notif:
-	kzfree(rdev);
+	kfree_sensitive(rdev);
 
 	return -EFAULT;
 }
@@ -152,7 +156,7 @@ static int r8125_ioss_close_device(struct ioss_device *idev)
 	ioss_dev_dbg(idev, "%s", __func__);
 
 	rtl8125_unregister_notifier(idev->net_dev, &rdev->nb);
-	kzfree(rdev);
+	kfree_sensitive(rdev);
 
 	return 0;
 }

@@ -5,12 +5,10 @@
 
 #include <linux/workqueue.h>
 #include <linux/rtnetlink.h>
-#include <linux/suspend.h>
 #include <linux/bitops.h>
 
 #include "ioss_i.h"
 
-#define IOSS_CHECK_ACTIVE_MS 1250
 #define IOSS_NET_DEVICE_MAX_EVENTS (NETDEV_CHANGE_TX_QUEUE_LEN + 1)
 
 static const char * const
@@ -56,26 +54,6 @@ void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush)
 		flush_work(&iface->refresh);
 }
 
-static void ioss_net_check_active(struct ioss_interface *iface)
-{
-	struct rtnl_link_stats64 last_stats = iface->netdev_stats;
-	struct net_device *net_dev = ioss_iface_to_netdev(iface);
-	struct ioss_device *idev = ioss_iface_dev(iface);
-
-	if (!net_dev)
-		return;
-
-	dev_get_stats(net_dev, &iface->netdev_stats);
-
-	if (last_stats.rx_packets != iface->netdev_stats.rx_packets)
-		__pm_stay_awake(iface->active_ws);
-	else
-		__pm_relax(iface->active_ws);
-
-	queue_delayed_work(idev->root->wq, &iface->check_active,
-				msecs_to_jiffies(IOSS_CHECK_ACTIVE_MS));
-}
-
 static void __netdev_get_stats64(struct net_device *net_dev,
 		struct rtnl_link_stats64 *stats)
 {
@@ -115,22 +93,6 @@ static void __restore_netdev_ops(struct ioss_interface *iface)
 	ioss_iface_to_netdev(iface)->netdev_ops = iface->netdev_ops_real;
 }
 
-static int __pm_notifier_cb(struct notifier_block *nb,
-	unsigned long pm_event, void *__unused)
-{
-	struct ioss_interface *iface =
-			container_of(nb, struct ioss_interface, pm_nb);
-
-	switch (pm_event) {
-	case PM_SUSPEND_PREPARE:
-	case PM_POST_SUSPEND:
-		ioss_net_check_active(iface);
-		break;
-	}
-
-	return NOTIFY_DONE;
-}
-
 static void ioss_net_event_register(struct ioss_interface *iface,
 		unsigned long event, void *ptr)
 {
@@ -150,11 +112,8 @@ static void ioss_net_event_register(struct ioss_interface *iface,
 
 	__hijack_netdev_ops(iface);
 
-	iface->pm_nb.notifier_call = __pm_notifier_cb;
-	register_pm_notifier(&iface->pm_nb);
 
 	ioss_iface_queue_refresh(iface, false);
-	ioss_net_check_active(iface);
 }
 
 static void ioss_net_event_unregister(struct ioss_interface *iface,
@@ -165,12 +124,7 @@ static void ioss_net_event_unregister(struct ioss_interface *iface,
 
 	ioss_dev_log(idev, "Unregister event for %s", net_dev->name);
 
-	cancel_delayed_work_sync(&iface->check_active);
-	__pm_relax(iface->active_ws);
-
-	unregister_pm_notifier(&iface->pm_nb);
 	__restore_netdev_ops(iface);
-
 	ioss_bus_unregister_iface(iface);
 
 	ioss_iface_queue_refresh(iface, false);
@@ -744,16 +698,10 @@ static void ioss_refresh_work(struct work_struct *work)
 		"Interface %s state is %s", idev->net_dev->name, if_st_s(iface));
 }
 
-static void ioss_net_active_work(struct work_struct *work)
-{
-	ioss_net_check_active(ioss_active_work_to_iface(work));
-}
-
 int ioss_net_watch_device(struct ioss_device *idev)
 {
 	int rc = 0;
 	struct ioss_interface *iface = &idev->interface;
-	char ws_name[32];
 
 	rc = ioss_debugfs_add_idev(idev);
 	if (rc) {
@@ -765,15 +713,6 @@ int ioss_net_watch_device(struct ioss_device *idev)
 
 	INIT_WORK(&iface->refresh, ioss_refresh_work);
 	iface->net_dev_nb.notifier_call = ioss_net_device_event;
-
-	INIT_DELAYED_WORK(&iface->check_active, ioss_net_active_work);
-
-	snprintf(ws_name, sizeof(ws_name), "ioss.%s.active", idev->net_dev->name);
-	iface->active_ws = wakeup_source_register(&idev->dev, ws_name);
-	if (!iface->active_ws) {
-		ioss_dev_err(idev, "Failed to register active wake source");
-		goto err_register;
-	}
 
 	ioss_dev_log(idev, "Watching interface %s", idev->net_dev->name);
 
@@ -792,9 +731,6 @@ err_register:
 
 	flush_work(&iface->refresh);
 
-	cancel_delayed_work_sync(&iface->check_active);
-	wakeup_source_unregister(iface->active_ws);
-	iface->active_ws = NULL;
 
 	ioss_debugfs_remove_idev(idev);
 
@@ -819,9 +755,6 @@ int ioss_net_unwatch_device(struct ioss_device *idev)
 
 	flush_work(&iface->refresh);
 
-	cancel_delayed_work_sync(&iface->check_active);
-	wakeup_source_unregister(iface->active_ws);
-	iface->active_ws = NULL;
 
 	ioss_debugfs_remove_idev(idev);
 
