@@ -56,7 +56,6 @@ struct msg_format {
 struct emac_msgq_priv {
 	struct device 			*dev;
 	void 				*msgq_hdl;
-	u32 				gunyah_label;
 	bool 				is_pvm;
 	bool 				init_done;
 	bool notify_hw_events;
@@ -333,7 +332,7 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 
 		dev_info(msgq_priv->dev, "Deleting Filter for unicast MacAddr: %pM\n", filter.unicast_mac.enm_addr);
 		msgq_priv->tx_msg.type = UNICAST_DEL;
-		memcpy(&(msgq_priv->tx_msg.data[0]), &filter.unicast_mac, ETH_ALEN);
+		memcpy(&msgq_priv->tx_msg.data[0], &filter.unicast_mac, ETH_ALEN);
 		emac_msgq_xmit(&msgq_priv->tx_msg);
 		break;
 
@@ -345,7 +344,7 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 
 		dev_info(msgq_priv->dev, "Deleting Filter for multicast MacAddr: %pM\n", filter.multi_mac.enm_addr);
 		msgq_priv->tx_msg.type = MULTICAST_DEL;
-		memcpy(msgq_priv->tx_msg.data[0], filter.multi_mac.enm_addr, ETH_ALEN);
+		memcpy(&msgq_priv->tx_msg.data[0], filter.multi_mac.enm_addr, ETH_ALEN);
 		emac_msgq_xmit(&msgq_priv->tx_msg);
 		break;
 
@@ -357,14 +356,14 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 
 		dev_info(msgq_priv->dev, "Deleting Vlan filter: %d\n", filter.vlan_id);
 		msgq_priv->tx_msg.type = VLAN_DEL;
-		memcpy(msgq_priv->tx_msg.data[0], filter.multi_mac.enm_addr, 2);
+		memcpy(&msgq_priv->tx_msg.data[0], filter.multi_mac.enm_addr, 2);
 		emac_msgq_xmit(&msgq_priv->tx_msg);
 		break;
 
 	case PRIORITY_FILTER:
 		dev_info(msgq_priv->dev, "Deleting Vlan priority: %d\n", filter.vlan_prio);
 		msgq_priv->tx_msg.type = PRIO_DEL;
-		memcpy(msgq_priv->tx_msg.data[0], filter.multi_mac.enm_addr, 1);
+		memcpy(&msgq_priv->tx_msg.data[0], filter.multi_mac.enm_addr, 1);
 		emac_msgq_xmit(&msgq_priv->tx_msg);
 		break;
 
@@ -391,15 +390,9 @@ int qcom_ethmsgq_init(struct device *dev)
 
 	msgq_priv->dev = dev;
 
-	ret = of_property_read_u32(node, "msgq-label", &msgq_priv->gunyah_label);
-	if (ret) {
-		dev_err(dev, "Can't find gunyah label\n");
-		return ret;
-	}
-
 	/* we are in SVM*/
 	msgq_priv->is_pvm = false;
-	msgq_priv->msgq_hdl = gh_msgq_register(msgq_priv->gunyah_label);
+	msgq_priv->msgq_hdl = gh_msgq_register(GH_MSGQ_LABEL_ETH);
 	if (IS_ERR_OR_NULL(msgq_priv->msgq_hdl)) {
 		ret = PTR_ERR(msgq_priv->msgq_hdl);
 		dev_err(dev, "failed to get gunyah msgq %d\n", ret);

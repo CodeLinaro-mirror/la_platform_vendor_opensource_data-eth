@@ -88,7 +88,7 @@ enum filter_type {
 	UNICAST_TYPE,
 	MULTICAST_TYPE,
 	VLAN_TYPE,
-	VLAN_PRIOIRITY,
+	VLAN_PRIORITY,
 };
 
 struct stmmac_priv {

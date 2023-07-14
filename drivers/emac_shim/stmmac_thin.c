@@ -2407,14 +2407,16 @@ void stmmac_mac_link_down(struct net_device *ndev)
 		return;
 
 	priv = netdev_priv(ndev);
-	if (priv->dev_opened)
+	if (priv->dev_opened) {
 		netif_carrier_off(ndev);
+		stmmac_stop_dma(priv);
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	if (priv->boot_kpi) {
-		place_marker("M - Ethernet is not Ready. Link is DOWN");
-		priv->boot_kpi = false;
-	}
+			if (priv->boot_kpi) {
+				place_marker("M - Ethernet is not Ready. Link is DOWN");
+				priv->boot_kpi = false;
+			}
 #endif
+	}
 }
 
 void stmmac_mac_link_up(struct net_device *ndev)
@@ -2427,6 +2429,7 @@ void stmmac_mac_link_up(struct net_device *ndev)
 	priv = netdev_priv(ndev);
 	if (priv->dev_opened) {
 		netif_carrier_on(ndev);
+		stmmac_start_dma(priv);
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 		if (!priv->boot_kpi) {
 			place_marker("M - Ethernet is Ready. Link is UP");
@@ -2492,6 +2495,8 @@ int stmmac_dvr_init(struct net_device *dev)
 		stmmac_init_coalesce(priv);
 	else
 		priv->rx_coal_frames = STMMAC_RX_FRAMES;
+
+	netif_carrier_off(dev);
 
 	/* Request the IRQ lines */
 	if (dev->irq) {

@@ -95,8 +95,9 @@ static ssize_t store_cv2x_priority(struct device *dev,
 	}
 
 	if (input == priv->prio) {
-		ETHQOSERR("No effect as duplicate input\n");
+		ETHQOSINFO("Ethqos:  cv2x_priority input: %d\n", input);
 	} else {
+		ETHQOSINFO("Ethqos:  cv2x_priority input: %d\n", input);
 		priv->filter_type = PRIORITY_FILTER;
 		if (priv->prio > 0) {
 			priv->del_filter(netdev);
@@ -529,7 +530,7 @@ static int qcom_ethqos_add_filter(struct net_device *ndev)
 		filter.vlan_id = priv->vid;
 		ret = emac_ctrl_fe_filter_add_request(filter_type, &filter);
 		break;
-	case VLAN_PRIOIRITY:
+	case VLAN_PRIORITY:
 		filter_type = PRIORITY_FILTER;
 		filter.vlan_prio = priv->prio;
 		ret = emac_ctrl_fe_filter_add_request(filter_type, &filter);
@@ -569,7 +570,7 @@ static int qcom_ethqos_del_filter(struct net_device *ndev)
 		return emac_ctrl_fe_filter_del_request(filter_type, filter);
 	}
 
-	if (priv->filter_type == VLAN_PRIOIRITY) {
+	if (priv->filter_type == VLAN_PRIORITY) {
 		filter_type = PRIORITY_FILTER;
 		filter.vlan_id = priv->prio;
 		return emac_ctrl_fe_filter_del_request(filter_type, filter);
