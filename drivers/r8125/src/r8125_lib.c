@@ -189,31 +189,35 @@ static void rtl8125_free_ring_mem(struct rtl8125_ring *ring)
                 ring->desc_addr = NULL;
         }
 
-        if (ring->flags & RTL8125_CONTIG_BUFS) {
-                struct rtl8125_buf *rtl_buf = &ring->bufs[0];
-                dma_free_coherent(
-                        &pdev->dev,
-                        ring->ring_size * ring->buff_size,
-                        rtl_buf->addr,
-                        rtl_buf->dma_addr);
-        } else {
-                for (i=0; i<ring->ring_size ; i++) {
-                        struct rtl8125_buf *rtl_buf = &ring->bufs[i];
+        if (ring->bufs) {
+	        if (ring->flags & RTL8125_CONTIG_BUFS) {
+	                struct rtl8125_buf *rtl_buf = &ring->bufs[0];
                         if (rtl_buf->addr) {
-                                dma_free_coherent(
-                                        &pdev->dev,
-                                        rtl_buf->size,
-                                        rtl_buf->addr,
-                                        rtl_buf->dma_addr);
+		                dma_free_coherent(
+		                        &pdev->dev,
+		                        ring->ring_size * ring->buff_size,
+		                        rtl_buf->addr,
+		                        rtl_buf->dma_addr);
 
                                 rtl_buf->addr = NULL;
                         }
-                }
-        }
+	        } else {
+	                for (i=0; i<ring->ring_size ; i++) {
+	                        struct rtl8125_buf *rtl_buf = &ring->bufs[i];
+	                        if (rtl_buf->addr) {
+	                                dma_free_coherent(
+	                                        &pdev->dev,
+	                                        rtl_buf->size,
+	                                        rtl_buf->addr,
+	                                        rtl_buf->dma_addr);
 
-        if (ring->bufs) {
-                kfree(ring->bufs);
-                ring->bufs = 0;
+	                                rtl_buf->addr = NULL;
+	                        }
+	                }
+	        }
+
+            kfree(ring->bufs);
+            ring->bufs = 0;
         }
 }
 
@@ -297,7 +301,6 @@ static int rtl8125_alloc_ring_mem(struct rtl8125_ring *ring)
         return 0;
 
 error_out:
-
         rtl8125_free_ring_mem(ring);
 
         return -ENOMEM;
@@ -313,16 +316,13 @@ struct rtl8125_ring *rtl8125_request_ring(struct net_device *ndev,
         struct rtl8125_ring * ring = 0;
         bool locked = true;
 
-        if (direction == RTL8125_CH_DIR_TX) {
+        if (direction == RTL8125_CH_DIR_TX)
                 ring = rtl8125_get_tx_ring(tp);
-                if (!ring)
-                        goto error_out;
-        } else if (direction == RTL8125_CH_DIR_RX) {
+        else if (direction == RTL8125_CH_DIR_RX)
                 ring = rtl8125_get_rx_ring(tp);
+
                 if (!ring)
                         goto error_out;
-        } else
-                goto error_out;
 
         ring->ring_size = ring_size;
         ring->buff_size = buff_size;
@@ -330,7 +330,7 @@ struct rtl8125_ring *rtl8125_request_ring(struct net_device *ndev,
         ring->flags = flags;
 
         if (rtl8125_alloc_ring_mem(ring))
-                goto error_out;
+                goto error_put_ring;
 
         /* initialize descriptors to point to buffers allocated */
         if (!rtnl_trylock())
@@ -346,10 +346,9 @@ struct rtl8125_ring *rtl8125_request_ring(struct net_device *ndev,
 
         return ring;
 
-error_out:
-        rtl8125_free_ring_mem(ring);
+error_put_ring:
         rtl8125_put_ring(ring);
-
+error_out:
         return NULL;
 }
 EXPORT_SYMBOL(rtl8125_request_ring);

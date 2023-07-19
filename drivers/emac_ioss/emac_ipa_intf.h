@@ -26,6 +26,11 @@
 #define EMAC0_IPA_TX_INTR_EN	BIT(0)
 #define XGMAC_AE_SHIFT	31
 #define XGMAC_MBC_SHIFT	24
+#define GMAC_AE_SHIFT	31
+#define GMAC_MBC_SHIFT	24
+
+#define EMAC_HW_v3_1_0 0x30010000
+#define EMAC_HW_v4_0_0 0x40000000
 
 /* Supporting MACROs for SCM API's */
 #define EMAC_SELECT_ALLCH		0xFFFF

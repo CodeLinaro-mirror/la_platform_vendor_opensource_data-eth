@@ -244,6 +244,12 @@ static int disable_pm_support = 1;
 static int disable_pm_support = 0;
 #endif
 
+#ifdef ENABLE_DOUBLE_VLAN
+static int enable_double_vlan = 1;
+#else
+static int enable_double_vlan = 0;
+#endif
+
 MODULE_AUTHOR("Realtek and the Linux r8125 crew <netdev@vger.kernel.org>");
 MODULE_DESCRIPTION("Realtek RTL8125 2.5Gigabit Ethernet driver");
 
@@ -294,6 +300,9 @@ MODULE_PARM_DESC(enable_ptp_master_mode, "Enable PTP Master Mode.");
 
 module_param(disable_pm_support, int, 0);
 MODULE_PARM_DESC(disable_pm_support, "Disable PM support.");
+
+module_param(enable_double_vlan, int, 0);
+MODULE_PARM_DESC(enable_double_vlan, "Enable Double VLAN.");
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,0)
 module_param_named(debug, debug.msg_enable, int, 0);
@@ -800,6 +809,7 @@ static int proc_get_driver_variable(struct seq_file *m, void *v)
         seq_printf(m, "hwoptimize\t0x%lx\n", hwoptimize);
         seq_printf(m, "proc_init_num\t0x%x\n", proc_init_num);
         seq_printf(m, "s0_magic_packet\t0x%x\n", s0_magic_packet);
+        seq_printf(m, "enable_double_vlan\t0x%x\n", enable_double_vlan);
         seq_printf(m, "HwSuppMagicPktVer\t0x%x\n", tp->HwSuppMagicPktVer);
         seq_printf(m, "HwSuppLinkChgWakeUpVer\t0x%x\n", tp->HwSuppLinkChgWakeUpVer);
         seq_printf(m, "HwSuppD0SpeedUpVer\t0x%x\n", tp->HwSuppD0SpeedUpVer);
@@ -1194,6 +1204,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         "hwoptimize\t0x%lx\n"
                         "proc_init_num\t0x%x\n"
                         "s0_magic_packet\t0x%x\n"
+                        "enable_double_vlan\t0x%x\n"
                         "HwSuppMagicPktVer\t0x%x\n"
                         "HwSuppLinkChgWakeUpVer\t0x%x\n"
                         "HwSuppD0SpeedUpVer\t0x%x\n"
@@ -1310,6 +1321,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         hwoptimize,
                         proc_init_num,
                         s0_magic_packet,
+                        enable_double_vlan,
                         tp->HwSuppMagicPktVer,
                         tp->HwSuppLinkChgWakeUpVer,
                         tp->HwSuppD0SpeedUpVer,
@@ -3435,6 +3447,38 @@ static int rtl8125_disable_eee_plus(struct rtl8125_private *tp)
         return ret;
 }
 
+static void rtl8125_enable_double_vlan(struct rtl8125_private *tp)
+{
+        switch (tp->mcfg) {
+        case CFG_METHOD_2:
+        case CFG_METHOD_3:
+        case CFG_METHOD_4:
+        case CFG_METHOD_5:
+        case CFG_METHOD_6:
+        case CFG_METHOD_7:
+                RTL_W16(tp, DOUBLE_VLAN_CONFIG, 0xf002);
+                break;
+        default:
+                break;
+        }
+}
+
+static void rtl8125_disable_double_vlan(struct rtl8125_private *tp)
+{
+        switch (tp->mcfg) {
+        case CFG_METHOD_2:
+        case CFG_METHOD_3:
+        case CFG_METHOD_4:
+        case CFG_METHOD_5:
+        case CFG_METHOD_6:
+        case CFG_METHOD_7:
+                RTL_W16(tp, DOUBLE_VLAN_CONFIG, 0);
+                break;
+        default:
+                break;
+        }
+}
+
 static void
 rtl8125_link_on_patch(struct net_device *dev)
 {
@@ -4481,6 +4525,7 @@ rtl8125_set_speed_xmii(struct net_device *dev,
             (speed != SPEED_10)) {
                 speed = SPEED_2500;
                 duplex = DUPLEX_FULL;
+                adv |= tp->advertising;
         }
 
         giga_ctrl = rtl8125_mdio_read(tp, MII_CTRL1000);
@@ -4511,7 +4556,7 @@ rtl8125_set_speed_xmii(struct net_device *dev,
                         ctrl_2500 |= RTK_ADVERTISE_2500FULL;
 
                 //flow control
-                if (dev->mtu <= ETH_DATA_LEN && tp->fcpause == rtl8125_fc_full)
+                if (tp->fcpause == rtl8125_fc_full)
                         auto_nego |= ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM;
 
                 tp->phy_auto_nego_reg = auto_nego;
@@ -4913,21 +4958,20 @@ static void rtl8125_gset_xmii(struct net_device *dev,
                     SUPPORTED_2500baseX_Full |
                     SUPPORTED_Autoneg |
                     SUPPORTED_TP |
-                    SUPPORTED_Pause	|
+                    SUPPORTED_Pause |
                     SUPPORTED_Asym_Pause;
+
+        advertising = tp->advertising;
 
         if (tp->mcfg == CFG_METHOD_6 || tp->mcfg == CFG_METHOD_7)
                 supported &= ~SUPPORTED_2500baseX_Full;
 
-        advertising = ADVERTISED_TP;
-
         rtl8125_mdio_write(tp, 0x1F, 0x0000);
         bmcr = rtl8125_mdio_read(tp, MII_BMCR);
 
-        if (bmcr & BMCR_ANENABLE) {
-                advertising |= ADVERTISED_Autoneg;
-                autoneg = AUTONEG_ENABLE;
-
+        if (tp->phy_auto_nego_reg || tp->phy_1000_ctrl_reg ||
+            tp->phy_2500_ctrl_reg ) {
+                advertising = 0;
                 if (tp->phy_auto_nego_reg & ADVERTISE_10HALF)
                         advertising |= ADVERTISED_10baseT_Half;
                 if (tp->phy_auto_nego_reg & ADVERTISE_10FULL)
@@ -4940,9 +4984,16 @@ static void rtl8125_gset_xmii(struct net_device *dev,
                         advertising |= ADVERTISED_1000baseT_Full;
                 if (tp->phy_2500_ctrl_reg & RTK_ADVERTISE_2500FULL)
                         advertising |= ADVERTISED_2500baseX_Full;
+        }
+
+        if (bmcr & BMCR_ANENABLE) {
+                autoneg = AUTONEG_ENABLE;
+                advertising |= ADVERTISED_Autoneg;
         } else {
                 autoneg = AUTONEG_DISABLE;
         }
+
+        advertising |= ADVERTISED_TP;
 
         status = RTL_R16(tp, PHYstatus);
         if (netif_running(dev) && (status & LinkStatus))
@@ -6144,7 +6195,7 @@ rtl8125_exit_oob(struct net_device *dev)
                 rtl8125_wait_ll_share_fifo_ready(dev);
 
                 rtl8125_mac_ocp_write(tp, 0xC0AA, 0x07D0);
-                rtl8125_mac_ocp_write(tp, 0xC0A6, 0x01B5);
+                rtl8125_mac_ocp_write(tp, 0xC0A6, 0x04E2);
                 rtl8125_mac_ocp_write(tp, 0xC01E, 0x5555);
 
                 rtl8125_wait_ll_share_fifo_ready(dev);
@@ -10070,7 +10121,10 @@ rtl8125_set_rxbufsize(struct rtl8125_private *tp,
 {
         unsigned int mtu = dev->mtu;
 
-        tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 1 : RX_BUF_SIZE;
+	if (enable_double_vlan)
+		tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 + 4 : RX_BUF_SIZE;
+	else
+		tp->rx_buf_sz = (mtu > ETH_DATA_LEN) ? mtu + ETH_HLEN + 8 : RX_BUF_SIZE;
 }
 
 static void rtl8125_free_irq(struct rtl8125_private *tp)
@@ -10579,6 +10633,11 @@ rtl8125_hw_config(struct net_device *dev)
         if (tp->EnableTxNoClose)
                 RTL_W32(tp, TxConfig, (RTL_R32(tp, TxConfig) | BIT_6));
 
+        if (enable_double_vlan)
+                rtl8125_enable_double_vlan(tp);
+        else
+                rtl8125_disable_double_vlan(tp);
+
         if (tp->mcfg == CFG_METHOD_2 ||
             tp->mcfg == CFG_METHOD_3 ||
             tp->mcfg == CFG_METHOD_4 ||
@@ -10795,7 +10854,6 @@ rtl8125_hw_config(struct net_device *dev)
         }
 
         RTL_W16(tp, RxMaxSize, tp->rx_buf_sz);
-
         rtl8125_disable_rxdvgate(dev);
 
         if (!tp->pci_cfg_is_read) {

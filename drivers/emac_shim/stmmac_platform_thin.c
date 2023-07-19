@@ -17,7 +17,11 @@
 #include "stmmac_thin.h"
 #include "stmmac_platform_thin.h"
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+#define VM_TRAFFIC_CHANNEL 4
+#else
 #define VM_TRAFFIC_CHANNEL 1
+#endif
 
 #ifdef CONFIG_OF
 
@@ -34,6 +38,10 @@ static int stmmac_mtl_setup(struct platform_device *pdev,
 	struct device_node *np = pdev->dev.of_node;
 	u8 queue = 0;
 	int ret = 0;
+
+#ifdef CONFIG_ETHQOS_QCOM_SVM
+	queue = 4;
+#endif
 
 	/* For backwards-compatibility with device trees that don't have any
 	 * snps,mtl-rx-config or snps,mtl-tx-config properties, we fall back
@@ -182,6 +190,7 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 	if (!plat)
 		return ERR_PTR(-ENOMEM);
 
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	rc = of_get_mac_address(np, mac);
 	if (rc) {
 		if (rc == -EPROBE_DEFER)
@@ -189,7 +198,7 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 
 		eth_zero_addr(mac);
 	}
-
+#endif
 
 	of_property_read_u32(np, "tx-fifo-depth", &plat->tx_fifo_size);
 
@@ -265,6 +274,9 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	/* Get IRQ information early to have an ability to ask for deferred
 	 * probe if needed before we went too far with resource allocation.
 	 */
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	stmmac_res->irq[4] = platform_get_irq_byname(pdev, "tx_rx_ch4_intr");
+#else
 	stmmac_res->irq[0] = platform_get_irq_byname(pdev, "tx_rx_ch0_intr");
 	stmmac_res->irq[1] = platform_get_irq_byname(pdev, "tx_rx_ch1_intr");
 	stmmac_res->irq[2] = platform_get_irq_byname(pdev, "tx_rx_ch2_intr");
@@ -273,6 +285,8 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	stmmac_res->irq[5] = platform_get_irq_byname(pdev, "tx_rx_ch5_intr");
 	stmmac_res->irq[6] = platform_get_irq_byname(pdev, "tx_rx_ch6_intr");
 	stmmac_res->irq[7] = platform_get_irq_byname(pdev, "tx_rx_ch7_intr");
+#endif
+
 	for (i = 0; i < MAX_NUM_CH; i++) {
 		if (stmmac_res->irq[i] < 0) {
 			dev_warn(&pdev->dev,

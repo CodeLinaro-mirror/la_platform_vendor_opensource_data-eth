@@ -23,9 +23,14 @@
 #include "stmmac_thin.h"
 #include "stmmac_platform_thin.h"
 #include "dwmac-qcom-ethqos-thin.h"
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+#include "dwmac-qcom-msgq-svm.h"
+#endif
 
 #define EMAC_HW_v3_0_0 0x30000000
 #define MAX_FILTER_CHK 10
+#define ETHQOS_SYSFS_DEV_ATTR_PERMS 0644
+#define BUFF_SZ 256
 
 void *ipc_emac_log_ctxt;
 
@@ -39,6 +44,123 @@ struct emac_fe_ev {
 
 static struct multicast_mac_addr mc_addrs[MAX_FILTER_CHK];
 static struct unicast_mac_addr uc_addrs[MAX_FILTER_CHK];
+
+static ssize_t show_cv2x_priority(struct device *dev,
+				  struct device_attribute *attr, char *user_buf)
+{
+	struct net_device *netdev = to_net_dev(dev);
+	struct stmmac_priv *priv;
+
+	if (!netdev) {
+		ETHQOSERR("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	priv = netdev_priv(netdev);
+	if (!priv) {
+		ETHQOSERR("priv is NULL\n");
+		return -EINVAL;
+	}
+
+	return scnprintf(user_buf, BUFF_SZ, "%d\n", priv->prio);
+}
+
+static ssize_t store_cv2x_priority(struct device *dev,
+				   struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	struct net_device *netdev = to_net_dev(dev);
+	struct stmmac_priv *priv;
+	union emac_ctrl_fe_filter filter;
+	s8 input = 0;
+
+	if (!netdev) {
+		ETHQOSERR("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	priv = netdev_priv(netdev);
+	if (!priv) {
+		ETHQOSERR("priv is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos8(user_buf, 0, &input)) {
+		ETHQOSERR("Error in reading option from user\n");
+		return -EINVAL;
+	}
+
+	if (input < 0 || input > 7) {
+		ETHQOSERR("Invalid option set by user\n");
+		return -EINVAL;
+	}
+
+	if (input == priv->prio) {
+		ETHQOSINFO("Ethqos:  cv2x_priority input: %d\n", input);
+	} else {
+		ETHQOSINFO("Ethqos:  cv2x_priority input: %d\n", input);
+		priv->filter_type = PRIORITY_FILTER;
+		if (priv->prio > 0) {
+			priv->del_filter(netdev);
+		}
+		priv->prio = input;
+		priv->add_filter(netdev);
+	}
+
+	return size;
+}
+
+static DEVICE_ATTR(cv2x_priority, ETHQOS_SYSFS_DEV_ATTR_PERMS, show_cv2x_priority,
+		   store_cv2x_priority);
+
+static int ethqos_remove_sysfs(struct qcom_ethqos *ethqos)
+{
+	struct net_device *net_dev;
+
+	if (!ethqos) {
+		ETHQOSERR("ethqos is NULL\n");
+		return -EINVAL;
+	}
+
+	net_dev = platform_get_drvdata(ethqos->pdev);
+	if (!net_dev) {
+		ETHQOSERR("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	sysfs_remove_file(&net_dev->dev.kobj,
+			  &dev_attr_cv2x_priority.attr);
+
+	return 0;
+}
+
+static int ethqos_create_sysfs(struct qcom_ethqos *ethqos)
+{
+	int ret;
+	struct net_device *net_dev;
+
+	if (!ethqos) {
+		ETHQOSERR("ethqos is NULL\n");
+		return -EINVAL;
+	}
+
+	net_dev = platform_get_drvdata(ethqos->pdev);
+	if (!net_dev) {
+		ETHQOSERR("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	ret = sysfs_create_file(&net_dev->dev.kobj,
+				&dev_attr_cv2x_priority.attr);
+	if (ret) {
+		ETHQOSERR("unable to create cv2x_priority sysfs node\n");
+		goto fail;
+	}
+
+	return ret;
+
+fail:
+	return ethqos_remove_sysfs(ethqos);
+}
 
 static void emac_fe_ev_wq(struct work_struct *work)
 {
@@ -287,11 +409,12 @@ static int qcom_ethqos_mac_addr(struct net_device *ndev)
 	struct unicast_mac_addr mac;
 
 	ETHQOSINFO("Enter\n");
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	if (is_valid_ether_addr(ndev->dev_addr)) {
 		memcpy(mac.enm_addr, ndev->dev_addr, ETH_ALEN);
 		return emac_ctrl_fe_mac_addr_chg(&mac);
 	}
-
+#endif
 	return 0;
 }
 
@@ -407,11 +530,20 @@ static int qcom_ethqos_add_filter(struct net_device *ndev)
 		filter.vlan_id = priv->vid;
 		ret = emac_ctrl_fe_filter_add_request(filter_type, &filter);
 		break;
+	case VLAN_PRIORITY:
+		filter_type = PRIORITY_FILTER;
+		filter.vlan_prio = priv->prio;
+		ret = emac_ctrl_fe_filter_add_request(filter_type, &filter);
+		break;
 	case MULTICAST_TYPE:
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 		ret = qcom_ethqos_set_mc_filters(ndev);
+#endif
 		break;
 	case UNICAST_TYPE:
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 		ret = qcom_ethqos_set_uc_filters(ndev);
+#endif
 		break;
 	default:
 		ETHQOSINFO("Wrong filter type %d\n", priv->filter_type);
@@ -435,6 +567,12 @@ static int qcom_ethqos_del_filter(struct net_device *ndev)
 	if (priv->filter_type == VLAN_TYPE) {
 		filter_type = VLAN_FILTER;
 		filter.vlan_id = priv->vid;
+		return emac_ctrl_fe_filter_del_request(filter_type, filter);
+	}
+
+	if (priv->filter_type == VLAN_PRIORITY) {
+		filter_type = PRIORITY_FILTER;
+		filter.vlan_id = priv->prio;
 		return emac_ctrl_fe_filter_del_request(filter_type, filter);
 	}
 
@@ -470,6 +608,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	struct stmmac_priv *priv;
 
 	ETHQOSINFO("Start\n");
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	qcom_ethmsgq_init(&pdev->dev);
+#endif
 
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (ret) {
@@ -571,12 +713,17 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv->del_filter = qcom_ethqos_del_filter;
 
 	priv->emac_state = EMAC_INIT_ST;
+	priv->prio = 0;
+	ethqos_create_sysfs(ethqos);
 
 	while (count < 10) {
 		if (!emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,
 						    (void *)ethqos))
 			break;
 		cond_resched();
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+		msleep(200);
+#endif
 		count++;
 	}
 	if (count == 10) {
@@ -622,6 +769,13 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 		return -ENODEV;
 
 	ETHQOSINFO("Enter\n");
+
+	ethqos_remove_sysfs(ethqos);
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	qcom_ethmsgq_deinit(&pdev->dev);
+#endif
+
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_UNMOUNT);
 	cancel_work_sync(&ethqos->emac_fe_work);
 	destroy_workqueue(ethqos->wq);
