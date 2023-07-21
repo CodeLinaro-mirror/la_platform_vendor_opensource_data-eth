@@ -10,9 +10,12 @@ obj-m += drivers/r8125/src/
 obj-m += drivers/r8125_ioss/
 endif
 
+ifeq ($(CONFIG_ARCH_SDXPINN), y)
+obj-m += drivers/aqc_ioss/
+endif
+
 obj-$(CONFIG_QPS615) += drivers/qps615/src/
 obj-$(CONFIG_QPS615_IOSS) += drivers/qps615_ioss/
-obj-$(CONFIG_AQFWD_IOSS)  += drivers/aqc_ioss/
 obj-$(CONFIG_QTI_QUIN_GVM) += drivers/emac_ctrl_fe/
 obj-$(CONFIG_EMAC_SHIM) += drivers/emac_shim/
 
