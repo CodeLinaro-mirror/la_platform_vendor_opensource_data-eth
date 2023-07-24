@@ -38,7 +38,9 @@
 #include "r8168.h"
 #include "r8168_lib.h"
 
-dma_addr_t gb_db;
+void __iomem * gb_db;
+void __iomem * gb_db_rx;
+
 static void
 rtl8168_map_to_asic(struct rtl8168_private *tp,
                     struct rtl8168_ring *ring,
@@ -476,19 +478,28 @@ void rtl8168_disable_ring(struct rtl8168_ring *ring)
 }
 EXPORT_SYMBOL(rtl8168_disable_ring);
 
-int r8168_update_db(dma_addr_t daddr)
+int r8168_update_db(void __iomem *daddr)
 {
     gb_db = daddr;
     return 0;
 }
 EXPORT_SYMBOL(r8168_update_db);
 
+int r8168_update_db_rx(void __iomem *daddr)
+{
+    gb_db_rx = daddr;
+    return 0;
+}
+EXPORT_SYMBOL(r8168_update_db_rx);
+
 int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
-                          dma_addr_t addr, u64 data)
+                          dma_addr_t addr, u64 data, phys_addr_t paddr)
 {
         struct rtl8168_private *tp;
         struct pci_dev *pdev;
         u32 message_id;
+	void __iomem *ioremap_doorbell;
+	void __iomem *ioremap_doorbell_rx;
 
         if (!ring)
                 return -EINVAL;
@@ -502,8 +513,16 @@ int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
                  * return non-zero here, IPA will fail to init.
                  */
                 message_id = 0;
-		r8168_update_db(addr);
+		ioremap_doorbell = ioremap(paddr,sizeof(data));
+
+		r8168_update_db(ioremap_doorbell);
+
                 goto out;
+        }
+        else if (ring->direction == RTL8168_CH_DIR_RX)
+        {
+		ioremap_doorbell_rx = ioremap(paddr,sizeof(data));
+		r8168_update_db_rx(ioremap_doorbell_rx);
         }
 
         message_id = ring->queue_num;
@@ -853,10 +872,15 @@ void rtl8168_init_lib_ring(struct rtl8168_private *tp)
 void rtl8168_lib_tx_interrupt(struct rtl8168_private *tp)
 {
         if(!tp->lib_tx_ring[1].enabled)
-        {
+             return;
             writel_relaxed(1, gb_db);
-        }
+}
+
+void rtl8168_lib_rx_interrupt(struct rtl8168_private *tp)
+{
+        if(!tp->lib_rx_ring[1].enabled)
         return;
+        writel_relaxed(1, gb_db_rx);
 }
 
 /*
