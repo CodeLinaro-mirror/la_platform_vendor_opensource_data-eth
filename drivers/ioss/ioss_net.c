@@ -57,9 +57,17 @@ void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush)
 static void __netdev_get_stats64(struct net_device *net_dev,
 		struct rtnl_link_stats64 *stats)
 {
-	struct ioss_interface *iface = ioss_netdev_to_iface(net_dev);
-	const struct net_device_ops *real_ops = iface->netdev_ops_real;
+	struct ioss_interface *iface = NULL;
+	const struct net_device_ops *real_ops = NULL;
 
+	if (!net_dev)
+		return;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return;
+
+	real_ops = iface->netdev_ops_real;
 	/* Retrieve stats for direct software path. Modeled after kernel API
 	 * dev_get_stats().
 	 */
@@ -78,7 +86,14 @@ static void __netdev_get_stats64(struct net_device *net_dev,
 
 static void __hijack_netdev_ops(struct ioss_interface *iface)
 {
-	struct net_device *net_dev = ioss_iface_to_netdev(iface);
+	struct net_device *net_dev = NULL;
+
+	if(!iface)
+		return;
+
+	net_dev = ioss_iface_to_netdev(iface);
+	if (!net_dev)
+		return;
 
 	iface->netdev_ops_real = net_dev->netdev_ops;
 	iface->netdev_ops = *iface->netdev_ops_real;
@@ -90,7 +105,16 @@ static void __hijack_netdev_ops(struct ioss_interface *iface)
 
 static void __restore_netdev_ops(struct ioss_interface *iface)
 {
-	ioss_iface_to_netdev(iface)->netdev_ops = iface->netdev_ops_real;
+	struct net_device *net_dev = NULL;
+
+	if (!iface)
+		return ;
+
+	net_dev = ioss_iface_to_netdev(iface);
+	if (!net_dev)
+		return ;
+
+	net_dev->netdev_ops = iface->netdev_ops_real;
 }
 
 static void ioss_net_event_register(struct ioss_interface *iface,
