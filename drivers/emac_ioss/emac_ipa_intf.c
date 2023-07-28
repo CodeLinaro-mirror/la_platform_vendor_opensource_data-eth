@@ -710,7 +710,7 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 	unsigned long DMA_TX_INT_MASK = 0xFC07;
 	unsigned long DMA_TX_INT_RESET_MASK = 0xFBC0;
 	unsigned long DMA_RX_INT_MASK = 0xFBC0;
-	unsigned long DMA_RX_INT_RESET_MASK = 0xF407;
+	unsigned long DMA_RX_INT_RESET_MASK = 0xF087;
 #else
 	unsigned long DMA_TX_INT_MASK = 0xFC07;
 	unsigned long DMA_TX_INT_RESET_MASK = 0xFBC0;
@@ -745,7 +745,7 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 
 		reg = readl(priv->ioaddr + XGMAC_DMA_CH_INT_EN(channel->channel_num));
 		reg &= DMA_TX_INT_RESET_MASK;
-		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15);
+		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15) | ((0x1) << 7);
 
 		ioss_log_msg(NULL, "%s: ch = %d Interrupt Enabled = 0x%x",
 					__func__,
@@ -787,7 +787,7 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 #if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 		reg = readl(priv->ioaddr + XGMAC_DMA_CH_INT_EN(channel->channel_num));
 		reg &= (unsigned long)DMA_RX_INT_RESET_MASK;
-		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15);
+		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15) | ((0x1) << 7);
 
 		ioss_log_msg(NULL, "%s: ch = %d Interrupt Enabled = 0x%x",
 					__func__,
