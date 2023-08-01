@@ -5973,7 +5973,6 @@ rtl8168_set_speed_xmii(struct net_device *dev,
                         break;
                 }
 
-
                 tp->phy_auto_nego_reg = auto_nego;
                 tp->phy_1000_ctrl_reg = giga_ctrl;
 
@@ -6269,7 +6268,7 @@ static int rtl8168_hw_set_features(struct net_device *dev,
         else
                 tp->cp_cmd &= ~RxChkSum;
 
-        if (dev->features & NETIF_F_HW_VLAN_RX)
+        if (features & NETIF_F_HW_VLAN_RX)
                 tp->cp_cmd |= RxVlan;
         else
                 tp->cp_cmd &= ~RxVlan;
@@ -28481,6 +28480,16 @@ rtl8168_hw_set_rx_packet_filter(struct net_device *dev)
         mc_filter[1] = swab32(tmp);
 
         tp->rtl8168_rx_config = rtl_chip_info[tp->chipset].RCR_Cfg;
+        switch (tp->mcfg) {
+        case CFG_METHOD_21 ... CFG_METHOD_35:
+                if (tp->EnableRss)
+                        tp->rtl8168_rx_config &= ~Rx_Single_fetch_V2;
+                else
+                        tp->rtl8168_rx_config |= Rx_Single_fetch_V2;
+                break;
+        default:
+                break;
+        }
         if (tp->InitRxDescType == RX_DESC_RING_TYPE_2)
                 tp->rtl8168_rx_config |= RxCfg_rx_desc_v2_en;
         tmp = tp->rtl8168_rx_config | rx_mode | (RTL_R32(tp, RxConfig) & rtl_chip_info[tp->chipset].RxConfigMask);

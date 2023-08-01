@@ -360,7 +360,7 @@ do { \
 #define RSS_SUFFIX ""
 #endif
 
-#define RTL8168_VERSION "8.051.02-b20_fc_mod" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
+#define RTL8168_VERSION "8.051.02-b22_RxVlan_mod" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
 #define MODULENAME "r8168"
 #define PFX MODULENAME ": "
 
@@ -1276,7 +1276,7 @@ enum RTL8168_register_content {
         Cxpl_dbg_sel    = (1 << 9),//This bit is reserved in RTL8168B
         ASF     = (1 << 8),//This bit is reserved in RTL8168C
         PktCntrDisable  = (1 << 7),
-        RxVlan      = (1 << 6),
+        RxVlan      = 0,
         RxChkSum    = (1 << 5),
         Macdbgo_sel = 0x001C,
         INTT_0      = 0x0000,
