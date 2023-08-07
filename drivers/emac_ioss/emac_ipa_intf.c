@@ -17,6 +17,8 @@
 #include "common.h"
 #include "stmmac.h"
 #include "dwxgmac2.h"
+#include "dwmac4.h"
+#include "dwmac4_dma.h"
 #include "emac_ipa_intf.h"
 #include "dwmac-qcom-ethqos.h"
 
@@ -28,6 +30,33 @@
 #define MAC_ADDR_MBC 0x3F
 #define MAC_ADDR_DCS 0x1
 static u8 mac_addr_default[6] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
+
+/* Local SMC buffer is valid only for HW where IO macro space is moved to TZ.
+ * for other configurations it should always be passed as NULL
+ */
+static int rgmii_readl(struct qcom_ethqos *ethqos, unsigned int offset)
+{
+	if (ethqos->shm_rgmii_local.vaddr)
+		return readl(ethqos->shm_rgmii_local.vaddr + offset);
+	else
+		return readl(ethqos->rgmii_base + offset);
+}
+
+static void rgmii_writel(struct qcom_ethqos *ethqos,
+			 int value, unsigned int offset)
+{
+	writel(value, ethqos->rgmii_base + offset);
+}
+
+static void rgmii_updatel(struct qcom_ethqos *ethqos,
+			  int mask, int val, unsigned int offset)
+{
+	unsigned int temp;
+
+	temp =  rgmii_readl(ethqos, offset);
+	temp = (temp & ~(mask)) | val;
+	rgmii_writel(ethqos, temp, offset);
+}
 
 static void free_ipa_tx_resources(struct net_device *ndev,
 				  struct channel_info *channel)
@@ -454,6 +483,13 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		return NULL;
 	}
 
+	if ((channel_input->ch_dir != CH_DIR_RX) &&
+		(channel_input->ch_dir != CH_DIR_TX)) {
+		netdev_err(priv->dev,
+			   "%s: ERROR: Invalid Channel direction\n", __func__);
+		return NULL;
+	}
+
 	priv = netdev_priv(channel_input->ndev);
 	if (!priv) {
 		pr_err("%s: ERROR: Invalid private data pointer\n", __func__);
@@ -528,29 +564,39 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 				   "%s: ERROR: allocating Rx resources\n", __func__);
 			goto err_buff_dma_mem_alloc;
 		}
-	} else {
-		netdev_err(priv->dev,
-			   "%s: ERROR: Invalid channel direction\n", __func__);
-		goto err_buff_dma_mem_alloc;
 	}
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
+	if (ethqos->emac_ver == EMAC_HW_v4_0_0) {
+
+		/* Disabling interrupts on all channels */
+		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, EMAC_SELECT_ALLCH);
+	}
+#else
 	/* Disabling interrupts on all channels */
-	qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, EMAC_SELECT_ALLCH);
+	rgmii_updatel(ethqos, EMAC_SELECT_ALLCH, 0, EMAC0_EMAC_INTERRUPT_ENABLE);
+#endif
 
 	/* Configure DMA registers */
 	if (channel_input->ch_dir == CH_DIR_TX) {
 		stmmac_stop_tx(priv, priv->ioaddr, channel->channel_num);
 		stmmac_init_ipa_tx_ch(priv, channel);
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 		channel_input->tail_ptr_addr = XGMAC_DMA_CH_TxDESC_TAIL_LPTR(channel->channel_num);
+#else
+		channel_input->tail_ptr_addr = DMA_CHAN_TX_END_ADDR(channel->channel_num);
+#endif
 	} else if (channel_input->ch_dir == CH_DIR_RX) {
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		stmmac_init_ipa_rx_ch(priv, channel);
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 		channel_input->tail_ptr_addr = XGMAC_DMA_CH_RxDESC_TAIL_LPTR(channel->channel_num);
+#else
+		channel_input->tail_ptr_addr = DMA_CHAN_RX_END_ADDR(channel->channel_num);
+#endif
 		stmmac_map_mtl_to_dma(priv, priv->hw, IPA_QUEUE_BE, IPA_QUEUE_BE);
-	} else {
-		netdev_err(priv->dev,
-			   "%s: ERROR: Invalid channel direction\n", __func__);
-		goto err_buff_dma_mem_alloc;
 	}
 
 	return channel;
@@ -588,8 +634,6 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	struct stmmac_priv *priv;
 	struct mem_ops *mem_ops;
 
-	int ret = -EINVAL;
-
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
 		return -ENODEV;
@@ -604,6 +648,13 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	if (!channel) {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel info structure\n", __func__);
+		return -EINVAL;
+	}
+
+	if ((channel->direction != CH_DIR_RX) &&
+	    (channel->direction != CH_DIR_TX)) {
+		netdev_err(priv->dev,
+			   "%s: ERROR: Invalid Channel direction\n", __func__);
 		return -EINVAL;
 	}
 
@@ -636,26 +687,17 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	if (channel->direction == CH_DIR_TX) {
 		stmmac_stop_tx(priv, priv->ioaddr, channel->channel_num);
 		dealloc_ipa_tx_resources(ndev, channel);
-		ret = 0;
 	} else if (channel->direction == CH_DIR_RX) {
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		dealloc_ipa_rx_resources(ndev, channel);
-		ret = 0;
-	} else {
-		netdev_err(priv->dev,
-			   "%s: ERROR: Invalid channel direction\n", __func__);
-		ret = -EINVAL;
-		goto err_invalid_ch_dir;
 	}
 
-	return 0;
-
-err_invalid_ch_dir:
 	kfree(channel->buff_pool_addr.buff_pool_va_addrs_base);
+	kfree(channel->buff_pool_addr.buff_pool_dma_addrs_base);
 	channel->desc_addr.desc_dma_addrs_base = 0;
 	kfree(channel);
 
-	return ret;
+	return 0;
 }
 EXPORT_SYMBOL_GPL(release_channel);
 
@@ -663,25 +705,43 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 {
 	struct stmmac_priv *priv;
 	u32 reg;
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 	unsigned long DMA_TX_INT_MASK = 0xFC07;
 	unsigned long DMA_TX_INT_RESET_MASK = 0xFBC0;
 	unsigned long DMA_RX_INT_MASK = 0xFBC0;
 	unsigned long DMA_RX_INT_RESET_MASK = 0xF407;
+#else
+	unsigned long DMA_TX_INT_MASK = 0xFC07;
+	unsigned long DMA_TX_INT_RESET_MASK = 0xFBC0;
+	unsigned long DMA_RX_INT_MASK = 0xFBC0;
+	unsigned long DMA_RX_INT_RESET_MASK = 0xF407;
+#endif
 
 	priv = netdev_priv(ndev);
 
 	ioss_log_msg(NULL, "%s: Start", __func__);
 
 	if (channel->direction == CH_DIR_TX) {
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 		/* clear all the interrupts which are set */
 		reg = readl(priv->ioaddr + XGMAC_DMA_CH_STATUS(channel->channel_num));
 		reg &= DMA_TX_INT_MASK;
 		writel(reg, priv->ioaddr + XGMAC_DMA_CH_STATUS(channel->channel_num));
+#else
+		/* clear all the interrupts which are set */
+		reg = readl(priv->ioaddr + DMA_CHAN_STATUS(channel->channel_num));
 
+		reg &= DMA_TX_INT_MASK;
+		writel(reg, priv->ioaddr + DMA_CHAN_STATUS(channel->channel_num));
+#endif
 		/* Enable following interrupts for Queue */
 		/* NIE - Normal Interrupt Summary Enable */
 		/* AIE - Abnormal Interrupt Summary Enable */
 		/* FBE - Fatal Bus Error Enable */
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 
 		reg = readl(priv->ioaddr + XGMAC_DMA_CH_INT_EN(channel->channel_num));
 		reg &= DMA_TX_INT_RESET_MASK;
@@ -693,17 +753,38 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 					reg);
 
 		writel(reg, priv->ioaddr + XGMAC_DMA_CH_INT_EN(channel->channel_num));
+#else
+		reg = readl(priv->ioaddr + DMA_CHAN_INTR_ENA(channel->channel_num));
+		reg &= DMA_TX_INT_RESET_MASK;
+		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15);
+
+		ioss_log_msg(NULL, "%s: ch = %d Interrupt Enabled = 0x%x",
+					__func__,
+					channel->channel_num,
+					reg);
+
+		writel(reg, priv->ioaddr + DMA_CHAN_INTR_ENA(channel->channel_num));
+#endif
+
 	} else if (channel->direction == CH_DIR_RX) {
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 		/* clear all the interrupts which are set */
 		reg = readl(priv->ioaddr + XGMAC_DMA_CH_STATUS(channel->channel_num));
 		reg &= DMA_RX_INT_MASK;
 		writel(reg, priv->ioaddr + XGMAC_DMA_CH_STATUS(channel->channel_num));
-
+#else
+		/* clear all the interrupts which are set */
+		reg = readl(priv->ioaddr + DMA_CHAN_STATUS(channel->channel_num));
+		reg &= DMA_RX_INT_MASK;
+		writel(reg, priv->ioaddr + DMA_CHAN_STATUS(channel->channel_num));
+#endif
 		/* Enable following interrupts for Queue */
 		/* NIE - Normal Interrupt Summary Enable */
 		/* AIE - Abnormal Interrupt Summary Enable */
 		/* FBE - Fatal Bus Error Enable */
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 		reg = readl(priv->ioaddr + XGMAC_DMA_CH_INT_EN(channel->channel_num));
 		reg &= (unsigned long)DMA_RX_INT_RESET_MASK;
 		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15);
@@ -714,6 +795,18 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 					reg);
 
 		writel(reg, priv->ioaddr + XGMAC_DMA_CH_INT_EN(channel->channel_num));
+#else
+		reg = readl(priv->ioaddr + DMA_CHAN_INTR_ENA(channel->channel_num));
+		reg &= (unsigned long)DMA_RX_INT_RESET_MASK;
+		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15);
+
+		ioss_log_msg(NULL, "%s: ch = %d Interrupt Enabled = 0x%x",
+					__func__,
+					channel->channel_num,
+					reg);
+
+		writel(reg, priv->ioaddr + DMA_CHAN_INTR_ENA(channel->channel_num));
+#endif
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel direction\n", __func__);
@@ -897,11 +990,29 @@ int enable_event(struct net_device *ndev, struct channel_info *channel)
 	}
 
 	if (channel->direction == CH_DIR_TX) {
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
 		reg |= (EMAC_CHANNEL_INTR_EN | EMAC0_IPA_TX_INTR_EN);
-		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
+		if (ethqos->emac_ver == EMAC_HW_v4_0_0) {
+			/* Disabling interrupts on all channels */
+			qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
+		}
+#else
+		reg |= EMAC0_IPA_TX_INTR_EN;
+		/* Disabling interrupts on all channels */
+		rgmii_updatel(ethqos, reg, reg, EMAC0_EMAC_INTERRUPT_ENABLE);
+#endif
+
 	} else if (channel->direction == CH_DIR_RX) {
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
 		reg |= (EMAC_CHANNEL_INTR_EN | EMAC0_IPA_RX_INTR_EN);
-		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
+		if (ethqos->emac_ver == EMAC_HW_v4_0_0) {
+			/* Disabling interrupts on all channels */
+			qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
+		}
+#else
+		reg |= EMAC0_IPA_RX_INTR_EN;
+		rgmii_updatel(ethqos, reg, reg, EMAC0_EMAC_INTERRUPT_ENABLE);
+#endif
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel direction\n", __func__);
@@ -971,10 +1082,20 @@ int disable_event(struct net_device *ndev, struct channel_info *channel)
 
 	if (channel->direction == CH_DIR_TX) {
 		reg = EMAC0_IPA_TX_INTR_EN;
-		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
+		if (ethqos->emac_ver == EMAC_HW_v4_0_0)
+			qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
+#else
+		rgmii_updatel(ethqos, reg, 0, EMAC0_EMAC_INTERRUPT_ENABLE);
+#endif
 	} else if (channel->direction == CH_DIR_RX) {
 		reg = EMAC0_IPA_RX_INTR_EN;
-		qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
+		if (ethqos->emac_ver == EMAC_HW_v4_0_0)
+			qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
+#else
+		rgmii_updatel(ethqos, reg, 0, EMAC0_EMAC_INTERRUPT_ENABLE);
+#endif
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel direction\n", __func__);
@@ -1359,6 +1480,7 @@ int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 ind
 		return -EPERM;
 	}
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 	data = (mac_addr->addr[5] << 8) | (mac_addr->addr[4]) |
 		(mac_addr->ae << XGMAC_AE_SHIFT) | (mac_addr->mbc << XGMAC_MBC_SHIFT);
 	writel(data, priv->ioaddr + XGMAC_ADDRx_HIGH(index));
@@ -1366,6 +1488,16 @@ int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 ind
 	data = (mac_addr->addr[3] << 24) | (mac_addr->addr[2] << 16) |
 		(mac_addr->addr[1] << 8) | mac_addr->addr[0];
 	writel(data, priv->ioaddr + XGMAC_ADDRx_LOW(index));
+#else
+	data = (mac_addr->addr[5] << 8) | (mac_addr->addr[4]) |
+			(mac_addr->ae << GMAC_AE_SHIFT) | (mac_addr->mbc << GMAC_MBC_SHIFT);
+	writel(data, priv->ioaddr + GMAC_ADDR_HIGH(index));
+
+	data = (mac_addr->addr[3] << 24) | (mac_addr->addr[2] << 16) |
+		(mac_addr->addr[1] << 8) | mac_addr->addr[0];
+	writel(data, priv->ioaddr + GMAC_ADDR_LOW(index));
+
+#endif
 
 	return 0;
 }
