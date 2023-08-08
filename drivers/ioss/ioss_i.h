@@ -14,6 +14,10 @@
 
 #include <linux/ipa_eth.h>
 
+#if IPA_ETH_API_VER != 2
+#error Unsupported IPA interface IPA_ETH_API_VER
+#endif
+
 #include "include/linux/msm/ioss.h"
 #include <linux/panic_notifier.h>
 
@@ -36,21 +40,9 @@ struct ioss_ch_priv {
 	struct ipa_eth_client_pipe_info ipa_pi;
 };
 
-#if IPA_ETH_API_VER < 2
-union ioss_ipa_eth_hdr {
-	struct ethhdr l2;
-	struct vlan_ethhdr vlan;
-};
-#endif
-
 struct ioss_iface_priv {
 	struct ipa_eth_client ipa_ec;
 	struct ipa_eth_intf_info ipa_ii;
-
-#if IPA_ETH_API_VER < 2
-	union ioss_ipa_eth_hdr ipa_hdr_v4;
-	union ioss_ipa_eth_hdr ipa_hdr_v6;
-#endif
 };
 
 extern struct ioss_mem_allocator ioss_default_alctr;
