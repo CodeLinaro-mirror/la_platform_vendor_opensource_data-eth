@@ -6,11 +6,11 @@ obj-y := data-eth.o
 ifneq ($(CONFIG_ETHQOS_QCOM_SVM), y)
 obj-m += drivers/ioss/
 obj-m += drivers/emac_ioss/
-obj-m += drivers/r8125/src/
-obj-m += drivers/r8125_ioss/
 endif
 
 ifeq ($(CONFIG_ARCH_SDXPINN), y)
+obj-m += drivers/r8125/src/
+obj-m += drivers/r8125_ioss/
 obj-m += drivers/aqc_ioss/
 endif
 
