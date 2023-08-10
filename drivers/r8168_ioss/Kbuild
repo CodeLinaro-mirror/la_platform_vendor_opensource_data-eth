@@ -1,0 +1,9 @@
+ifeq ($(building_out_of_srctree),1)
+ccflags-y += -I$(src)/../ioss/include/
+ccflags-y += -I$(src)/../r8168/src/
+endif
+
+ccflags-y += -I$(srctree)/techpack/data-eth/drivers/ioss/include
+ccflags-y += -I$(srctree)/techpack/data-eth/drivers/r8168/src
+
+obj-$(CONFIG_R8168_IOSS) += r8168_ioss.o

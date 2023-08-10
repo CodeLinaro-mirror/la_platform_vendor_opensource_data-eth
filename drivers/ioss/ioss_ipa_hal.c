@@ -50,6 +50,38 @@ static bool match_r8125(struct device *real_dev)
 		!strcmp(to_pci_driver(real_dev->driver)->name, "r8125");
 }
 
+/* Realtek R8168 HAL implementation */
+
+static int __fill_r8168_si(struct ioss_channel *ch,
+		struct ipa_eth_realtek_setup_info *rtk)
+{
+	static const int RTL8168_BAR_MMIO = 2;
+
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(idev));
+
+	rtk->bar_addr = pci_resource_start(pdev, RTL8168_BAR_MMIO);
+	rtk->bar_size = pci_resource_len(pdev, RTL8168_BAR_MMIO);
+	rtk->queue_number = ch->id;
+	rtk->num_queues_enabled = 2;
+
+	return 0;
+}
+static int fill_r8168_si(enum ipa_eth_client_type ctype,
+		struct ioss_channel *ch)
+{
+	struct ioss_ch_priv *cp = ch->ioss_priv;
+	struct ipa_eth_pipe_setup_info *si = &cp->ipa_pi.info;
+
+	return __fill_r8168_si(ch, &si->client_info.rtk);
+}
+
+static bool match_r8168(struct device *real_dev)
+{
+	return (real_dev->bus == &pci_bus_type) &&
+		!strcmp(to_pci_driver(real_dev->driver)->name, "r8168");
+}
+
 /* AQC HAL implementation */
 #define AQC_RX_TAIL_PTR_OFFSET 0x00005B10
 #define AQC_RX_TAIL_PTR(base, idx) \
@@ -131,6 +163,7 @@ static bool match_ntn3(struct device *real_dev)
 
 struct ioss_ipa_map ioss_ipa_map_table[IPA_ETH_CLIENT_MAX] = {
 	[IPA_ETH_CLIENT_RTK8125B] = { match_r8125, fill_r8125_si },
+	[IPA_ETH_CLIENT_RTK8111K] = { match_r8168, fill_r8168_si },
 	[IPA_ETH_CLIENT_AQC107] = { match_aqc, fill_aqc_si },
 #if IPA_ETH_API_VER >= 2
 	[IPA_ETH_CLIENT_NTN3] = { match_ntn3, fill_ntn3_si },

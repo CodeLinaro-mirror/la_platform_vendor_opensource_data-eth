@@ -448,11 +448,32 @@ static void emac_ctl_fe_recv_done(struct virtqueue *rvq)
 	spin_unlock_irqrestore(&pdev->rxq_lock, flags);
 }
 
+static void emac_ctl_fe_xmit_done(struct virtqueue *txq)
+{
+	struct emac_ctrl_fe_virtio_dev         *pdev = txq->vdev->priv;
+	struct emac_ctrl_fe_to_be_virtio_msg   *msg = NULL;
+	unsigned long                           flags = 0;
+	unsigned int                            len = 0;
+
+	EMAC_CTL_FE_INFO("-->");
+	while (1) {
+		spin_lock_irqsave(&pdev->txq_lock, flags);
+		EMAC_CTL_FE_DBG("Call virtqueue_get_buf");
+		msg = virtqueue_get_buf(pdev->emac_ctl_txq, &len);
+		spin_unlock_irqrestore(&pdev->txq_lock, flags);
+		if (!msg) {
+			break;
+		}
+	}/*while*/
+	EMAC_CTL_FE_INFO("<--");
+	return ;
+}
+
 static int emac_ctrl_fe_init_vqs(struct emac_ctrl_fe_virtio_dev *pdev)
 {
 	struct virtqueue *vqs[EMAC_CTRL_FE_VIRTQ_NUM];
 	static const char *const names[] = { "emac_ctl_tx", "emac_ctl_rx" };
-	vq_callback_t *cbs[] = {NULL, emac_ctl_fe_recv_done};
+	vq_callback_t *cbs[] = {emac_ctl_fe_xmit_done, emac_ctl_fe_recv_done};
 	int ret;
 
 	/* Find VirtQueues and Register callback*/
@@ -535,8 +556,8 @@ static int emac_ctrl_fe_probe(struct virtio_device *vdev)
 	EMAC_CTL_FE_INFO("Allocate RXBufs \n");
 	emac_ctrl_fe_allocate_rxbufs(pdev);
 
-	/* Disable TX Complete ISR*/
-	virtqueue_disable_cb(pdev->emac_ctl_txq);
+	/* Enable TX Complete ISR*/
+	virtqueue_enable_cb(pdev->emac_ctl_txq);
 
 	/*Enable Rx Complete ISR*/
 	virtqueue_enable_cb(pdev->emac_ctl_rxq);
@@ -639,11 +660,9 @@ static int __init emac_ctrl_fe_init(void)
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - DRIVER EMAC_CTRL_FE Init");
 #endif
-	pr_err("%s: Module Entry \n", __func__);
+	EMAC_CTL_FE_INFO("%s: Module Entry \n", __func__);
 	return register_virtio_driver(&emac_ctrl_fe_virtio_drv);
-
 }
-
 
 static void __exit emac_ctrl_fe_exit(void)
 {
