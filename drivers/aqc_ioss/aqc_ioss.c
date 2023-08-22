@@ -186,7 +186,7 @@ static int aqc_ioss_request_channel(struct ioss_channel *ch)
 		break;
 	default:
 		ioss_dev_err(ioss_ch_dev(ch), "Unsupported direction %d", ch->direction);
-		kzfree(mem_ops);
+		kfree_sensitive(mem_ops);
 		return -EINVAL;
 	}
 
@@ -236,7 +236,7 @@ err_add_buff:
 err_add_desc:
 	atl_fwd_release_ring(ring);
 err_ring:
-	kzfree(mem_ops);
+	kfree_sensitive(mem_ops);
 
 	ch->id = -1;
 	ch->private = NULL;
@@ -262,7 +262,7 @@ static int aqc_ioss_release_channel(struct ioss_channel *ch)
 	ioss_channel_del_desc_mem(ch, ring->hw.descs);
 
 	atl_fwd_release_ring(ring);
-	kzfree(mem_ops);
+	kfree_sensitive(mem_ops);
 
 	ch->id = -1;
 	ch->private = NULL;
@@ -333,7 +333,7 @@ static int aqc_ioss_request_event(struct ioss_channel *ch)
 err_intr_mod:
 	atl_fwd_release_event(event);
 err_req_event:
-	kzfree(event);
+	kfree_sensitive(event);
 err_alloc:
 	ioss_channel_unmap_event(ch);
 
@@ -349,7 +349,7 @@ static int aqc_ioss_release_event(struct ioss_channel *ch)
 		&ch->event.daddr, ch->event.data);
 
 	atl_fwd_release_event(event);
-	kzfree(event);
+	kfree_sensitive(event);
 	ioss_channel_unmap_event(ch);
 
 	return 0;

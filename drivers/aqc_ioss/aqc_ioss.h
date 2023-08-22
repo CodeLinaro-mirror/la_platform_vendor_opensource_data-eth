@@ -11,8 +11,9 @@
 #include <linux/slab.h>
 #include <linux/device.h>
 #include <linux/pm_wakeup.h>
-
-#include <linux/msm/ioss.h>
+#include "ioss/ioss_i.h"
+#include "ioss/ioss_version.h"
+#include "ioss/include/linux/msm/ioss.h"
 #include <atl_fwd.h>
 #include "aqc_regs.h"
 

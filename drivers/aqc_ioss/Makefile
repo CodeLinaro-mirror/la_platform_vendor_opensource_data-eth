@@ -1,14 +1,26 @@
-
-ifeq ($(building_out_of_srctree),1)
-ccflags-y += -I$(src)/../ioss/include/
+ifeq ($(KP_MODULE_ROOT),)
+		KP_MODULE_ROOT=$(KERNEL_SRC)/$(M)
 endif
 
-ccflags-y += -I$(srctree)/drivers/net/ethernet/aquantia/atlantic-fwd/
-ccflags-y += -I$(srctree)/techpack/data-eth/drivers/ioss/include/
+M ?= $(shell pwd)
 
-obj-$(CONFIG_AQFWD_IOSS) += aqc-ioss.o
+KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 
-aqc-ioss-objs := \
-		aqc_ioss.o \
-		aqc_regs.o
+aqc_ioss-y := \
+	aqc_ioss.o \
+	aqc_regs.o
 
+KBUILD_OPTIONS+=KBUILD_DTC_INCLUDE=$(KP_MODULE_ROOT)
+KBUILD_OPTIONS+=CONFIG_AQFWD_IOSS=m
+
+all:
+		$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)
+
+modules_install:
+		$(MAKE) M=$(M) -C $(KERNEL_SRC) modules_install
+
+clean:
+		$(MAKE) -C $(KERNEL_SRC) M=$(M) clean
+
+%:
+		$(MAKE) -C $(KERNEL_SRC) M=$(M) $@ $(KBUILD_OPTIONS)
