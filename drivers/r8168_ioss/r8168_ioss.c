@@ -190,7 +190,7 @@ static int r8168_ioss_request_event(struct ioss_channel *ch)
 		return -EFAULT;
 
 	rc = rtl8168_request_event(ring, MSIX_event_type,
-					ch->event.daddr, ch->event.data, ch->event.paddr);
+					ch->event.daddr, ch->event.data);
 	if (rc) {
 		ioss_dev_err(ioss_ch_dev(ch), "Failed to request event");
 		goto err_req_event;

@@ -63,7 +63,7 @@ static int __fill_r8168_si(struct ioss_channel *ch,
 	rtk->bar_addr = pci_resource_start(pdev, RTL8168_BAR_MMIO);
 	rtk->bar_size = pci_resource_len(pdev, RTL8168_BAR_MMIO);
 	rtk->queue_number = ch->id;
-	rtk->num_queues_enabled = 2;
+	rtk->num_queues_enabled = 4;
 
 	return 0;
 }
