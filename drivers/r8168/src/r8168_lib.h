@@ -159,10 +159,6 @@ int rtl8168_enable_ring(struct rtl8168_ring *ring);
 
 void rtl8168_disable_ring(struct rtl8168_ring *ring);
 
-int r8168_update_db(void __iomem *daddr);
-
-int r8168_update_db_rx(void __iomem *daddr);
-
 /* Allocate an event (MSI-X, pointer wrb, etc.). Only one type of event will
 be requested from a ring at any point of time.
 */
