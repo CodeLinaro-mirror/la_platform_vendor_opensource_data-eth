@@ -28029,7 +28029,7 @@ rtl8168_init_one(struct pci_dev *pdev,
 #endif
 
 #ifdef ENABLE_LIB_SUPPORT
-        ATOMIC_INIT_NOTIFIER_HEAD(&tp->lib_nh);
+        BLOCKING_INIT_NOTIFIER_HEAD(&tp->lib_nh);
 #endif
         rtl8168_init_all_schedule_work(tp);
 
@@ -28200,7 +28200,7 @@ static int rtl8168_alloc_irq(struct rtl8168_private *tp)
         unsigned long irq_flags = 0;
 #ifdef ENABLE_LIB_SUPPORT
         if (tp->features & (RTL_FEATURE_MSI | RTL_FEATURE_MSIX))
-        irq_flags |= IRQF_NO_SUSPEND;
+                irq_flags |= IRQF_NO_SUSPEND;
 #endif
         if (tp->features & RTL_FEATURE_MSIX) {
                 for (i=0; i<tp->irq_nvecs; i++) {
@@ -28220,7 +28220,7 @@ static int rtl8168_alloc_irq(struct rtl8168_private *tp)
                 irq->handler = rtl8168_interrupt;
                 r8168napi = &tp->r8168napi[0];
                 snprintf(irq->name, len, "%s-0", dev->name);
-                        irq->vector = dev->irq;
+                irq->vector = dev->irq;
                 irq_flags |= (tp->features & (RTL_FEATURE_MSI | RTL_FEATURE_MSIX)) ? 0 : SA_SHIRQ;
                 rc = request_irq(irq->vector, irq->handler, irq_flags, irq->name, r8168napi);
 
@@ -29910,7 +29910,7 @@ rtl8168_rx_desc_init(struct rtl8168_private *tp)
         if (rtl8168_num_lib_rx_rings(tp) > 0)
                 return;
 
-                memset(tp->RxDescArray, 0x0, tp->RxDescAllocSize);
+        memset(tp->RxDescArray, 0x0, tp->RxDescAllocSize);
 }
 
 int
@@ -31655,12 +31655,12 @@ rtl8168_resume_temp(struct device *dev)
 }
 
 static struct dev_pm_ops rtl8168_pm_ops = {
-       .suspend = rtl8168_suspend_temp,
-       .resume = rtl8168_resume_temp,
-       .freeze = rtl8168_suspend_temp,
-       .thaw = rtl8168_resume_temp,
-       .poweroff = rtl8168_suspend_temp,
-       .restore = rtl8168_resume_temp,
+        .suspend = rtl8168_suspend_temp,
+        .resume = rtl8168_resume_temp,
+        .freeze = rtl8168_suspend_temp,
+        .thaw = rtl8168_resume_temp,
+        .poweroff = rtl8168_suspend_temp,
+        .restore = rtl8168_resume_temp,
 };
 
 #define RTL8168_PM_OPS       (&rtl8168_pm_ops)
@@ -31677,7 +31677,7 @@ static struct pci_driver rtl8168_pci_driver = {
         .suspend    = rtl8168_suspend,
         .resume     = rtl8168_resume,
 #endif
-	.driver.pm = RTL8168_PM_OPS,
+        .driver.pm = RTL8168_PM_OPS,
 };
 
 static int __init

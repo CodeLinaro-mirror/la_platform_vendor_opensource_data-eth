@@ -728,7 +728,7 @@ int rtl8168_register_notifier(struct net_device *net_dev,
 {
         struct rtl8168_private *tp = netdev_priv(net_dev);
 
-        return atomic_notifier_chain_register(&tp->lib_nh, nb);
+        return blocking_notifier_chain_register(&tp->lib_nh, nb);
 }
 EXPORT_SYMBOL(rtl8168_register_notifier);
 
@@ -737,21 +737,21 @@ int rtl8168_unregister_notifier(struct net_device *net_dev,
 {
         struct rtl8168_private *tp = netdev_priv(net_dev);
 
-        return atomic_notifier_chain_unregister(&tp->lib_nh, nb);
+        return blocking_notifier_chain_unregister(&tp->lib_nh, nb);
 }
 EXPORT_SYMBOL(rtl8168_unregister_notifier);
 
 void rtl8168_lib_reset_prepare(struct rtl8168_private *tp)
 {
-        atomic_notifier_call_chain(&tp->lib_nh,
-                                   RTL8168_NOTIFY_RESET_PREPARE, NULL);
+        blocking_notifier_call_chain(&tp->lib_nh,
+                                     RTL8168_NOTIFY_RESET_PREPARE, NULL);
 }
 EXPORT_SYMBOL(rtl8168_lib_reset_prepare);
 
 void rtl8168_lib_reset_complete(struct rtl8168_private *tp)
 {
-        atomic_notifier_call_chain(&tp->lib_nh,
-                                   RTL8168_NOTIFY_RESET_COMPLETE, NULL);
+        blocking_notifier_call_chain(&tp->lib_nh,
+                                     RTL8168_NOTIFY_RESET_COMPLETE, NULL);
 }
 EXPORT_SYMBOL(rtl8168_lib_reset_complete);
 

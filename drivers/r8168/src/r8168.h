@@ -360,7 +360,7 @@ do { \
 #define RSS_SUFFIX ""
 #endif
 
-#define RTL8168_VERSION "8.051.02-b22_unmap_db" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
+#define RTL8168_VERSION "8.051.02-b22_blocking_notifier" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
 #define MODULENAME "r8168"
 #define PFX MODULENAME ": "
 
@@ -1812,7 +1812,7 @@ struct rtl8168_private {
         struct rtl8168_tx_ring tx_ring[R8168_MAX_TX_QUEUES]; // non-ring-lib tx ring
         struct rtl8168_rx_ring rx_ring[R8168_MAX_RX_QUEUES]; // non-ring-lib rx ring
 #ifdef ENABLE_LIB_SUPPORT
-        struct atomic_notifier_head lib_nh;
+        struct blocking_notifier_head lib_nh;
         struct rtl8168_ring lib_tx_ring[R8168_MAX_TX_QUEUES]; // ring-lib tx ring
         struct rtl8168_ring lib_rx_ring[R8168_MAX_RX_QUEUES]; // ring-lib rx ring
 #endif
