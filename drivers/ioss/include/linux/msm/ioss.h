@@ -501,7 +501,7 @@ static inline int ioss_channel_add_mem(
 	imem->size = size;
 
 	if (ch->multi_rx_queues)
-		size *=2;
+		size *=4;
 
 	if (dma_get_sgtable(real_dev, &imem->sgt, addr, daddr, size)) {
 		kfree(imem);

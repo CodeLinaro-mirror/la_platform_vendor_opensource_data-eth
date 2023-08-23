@@ -193,193 +193,193 @@ static const struct {
 
         _R("RTL8168C/8111C",
         CFG_METHOD_4,
-        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168C/8111C",
         CFG_METHOD_5,
-        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168C/8111C",
         CFG_METHOD_6,
-        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168CP/8111CP",
         CFG_METHOD_7,
-        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168CP/8111CP",
         CFG_METHOD_8,
-        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168D/8111D",
         CFG_METHOD_9,
-        (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168D/8111D",
         CFG_METHOD_10,
-        (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168DP/8111DP",
         CFG_METHOD_11,
-        (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168DP/8111DP",
         CFG_METHOD_12,
-        (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168DP/8111DP",
         CFG_METHOD_13,
-        (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168E/8111E",
         CFG_METHOD_14,
-        (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168E/8111E",
         CFG_METHOD_15,
-        (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168E-VL/8111E-VL",
         CFG_METHOD_16,
-        RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e0080,
         Jumbo_Frame_9k),
 
         _R("RTL8168E-VL/8111E-VL",
         CFG_METHOD_17,
-        RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168F/8111F",
         CFG_METHOD_18,
-        RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168F/8111F",
         CFG_METHOD_19,
-        RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8411",
         CFG_METHOD_20,
-        (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168G/8111G",
         CFG_METHOD_21,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168G/8111G",
         CFG_METHOD_22,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168EP/8111EP",
         CFG_METHOD_23,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168GU/8111GU",
         CFG_METHOD_24,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168GU/8111GU",
         CFG_METHOD_25,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("8411B",
         CFG_METHOD_26,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168EP/8111EP",
         CFG_METHOD_27,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168EP/8111EP",
         CFG_METHOD_28,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168H/8111H",
         CFG_METHOD_29,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168H/8111H",
         CFG_METHOD_30,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168FP/8111FP",
         CFG_METHOD_31,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168FP/8111FP",
         CFG_METHOD_32,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168FP/8111FP",
         CFG_METHOD_33,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168FP/8111FP",
         CFG_METHOD_34,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168H/8111H",
         CFG_METHOD_35,
-        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
@@ -569,11 +569,11 @@ static int rtl8168_rx_interrupt(struct net_device *, struct rtl8168_private *, s
 #ifdef CONFIG_R8168_NAPI
 static int rtl8168_poll_msix_ring(napi_ptr napi, napi_budget budget);
 static int rtl8168_poll_msix_rx(napi_ptr napi, napi_budget budget);
-#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
 static irqreturn_t rtl8168_interrupt_msix(int irq, void *dev_instance, struct pt_regs *regs);
 #else
 static irqreturn_t rtl8168_interrupt_msix(int irq, void *dev_instance);
+#endif
 #endif
 static void rtl8168_wait_for_quiescence(struct net_device *dev);
 static int rtl8168_change_mtu(struct net_device *dev, int new_mtu);
@@ -983,24 +983,17 @@ static int proc_get_driver_variable(struct seq_file *m, void *v)
         seq_printf(m, "num_rx_desc\t0x%x\n", tp->num_rx_desc);
         seq_printf(m, "cur_rx0\t0x%x\n", tp->rx_ring[0].cur_rx);
         seq_printf(m, "dirty_rx0\t0x%x\n", tp->rx_ring[0].dirty_rx);
-        seq_printf(m, "rdu0\t0x%x\n", tp->rx_ring[0].rdu);
         seq_printf(m, "cur_rx1\t0x%x\n", tp->rx_ring[1].cur_rx);
         seq_printf(m, "dirty_rx1\t0x%x\n", tp->rx_ring[1].dirty_rx);
-        seq_printf(m, "rdu1\t0x%x\n", tp->rx_ring[1].rdu);
         seq_printf(m, "cur_rx2\t0x%x\n", tp->rx_ring[2].cur_rx);
         seq_printf(m, "dirty_rx2\t0x%x\n", tp->rx_ring[2].dirty_rx);
-        seq_printf(m, "rdu2\t0x%x\n", tp->rx_ring[2].rdu);
         seq_printf(m, "cur_rx3\t0x%x\n", tp->rx_ring[3].cur_rx);
         seq_printf(m, "dirty_rx3\t0x%x\n", tp->rx_ring[3].dirty_rx);
-        seq_printf(m, "rdu3\t0x%x\n", tp->rx_ring[3].rdu);
-        seq_printf(m, "rx_fifo_of\t0x%x\n", tp->rx_fifo_of);
         seq_printf(m, "num_tx_desc\t0x%x\n", tp->tx_ring[0].num_tx_desc);
         seq_printf(m, "cur_tx0\t0x%x\n", tp->tx_ring[0].cur_tx);
         seq_printf(m, "dirty_tx0\t0x%x\n", tp->tx_ring[0].dirty_tx);
-        seq_printf(m, "tdu0\t0x%x\n", tp->tx_ring[0].tdu);
         seq_printf(m, "cur_tx1\t0x%x\n", tp->tx_ring[1].cur_tx);
         seq_printf(m, "dirty_tx1\t0x%x\n", tp->tx_ring[1].dirty_tx);
-        seq_printf(m, "tdu1\t0x%x\n", tp->tx_ring[1].tdu);
         seq_printf(m, "rx_buf_sz\t0x%x\n", tp->rx_buf_sz);
         seq_printf(m, "esd_flag\t0x%x\n", tp->esd_flag);
         seq_printf(m, "pci_cfg_is_read\t0x%x\n", tp->pci_cfg_is_read);
@@ -1472,24 +1465,17 @@ static int proc_get_driver_variable(char *page, char **start,
                         "num_rx_desc\t0x%x\n"
                         "cur_rx0\t0x%x\n"
                         "dirty_rx0\t0x%x\n"
-                        "rdu0\t0x%x\n"
                         "cur_rx1\t0x%x\n"
                         "dirty_rx1\t0x%x\n"
-                        "rdu1\t0x%x\n"
                         "cur_rx2\t0x%x\n"
                         "dirty_rx2\t0x%x\n"
-                        "rdu2\t0x%x\n"
                         "cur_rx3\t0x%x\n"
                         "dirty_rx3\t0x%x\n"
-                        "rdu3\t0x%x\n"
-                        "rx_fifo_of\t0x%x\n"
                         "num_tx_desc\t0x%x\n"
                         "cur_tx0\t0x%x\n"
                         "dirty_tx0\t0x%x\n"
-                        "tdu0\t0x%x\n"
                         "cur_tx1\t0x%x\n"
                         "dirty_tx1\t0x%x\n"
-                        "tdu0\t1x%x\n"
                         "rx_buf_sz\t0x%x\n"
                         "esd_flag\t0x%x\n"
                         "pci_cfg_is_read\t0x%x\n"
@@ -1585,24 +1571,17 @@ static int proc_get_driver_variable(char *page, char **start,
                         tp->num_rx_desc,
                         tp->rx_ring[0].cur_rx,
                         tp->rx_ring[0].dirty_rx,
-                        tp->rx_ring[0].rdu,
                         tp->rx_ring[1].cur_rx,
                         tp->rx_ring[1].dirty_rx,
-                        tp->rx_ring[1].rdu,
                         tp->rx_ring[2].cur_rx,
                         tp->rx_ring[2].dirty_rx,
-                        tp->rx_ring[2].rdu,
                         tp->rx_ring[3].cur_rx,
                         tp->rx_ring[3].dirty_rx,
-                        tp->rx_ring[3].rdu,
-                        tp->rx_fifo_of,
                         tp->tx_ring[0].num_tx_desc,
                         tp->tx_ring[0].cur_tx,
                         tp->tx_ring[0].dirty_tx,
-                        tp->tx_ring[0].tdu,
                         tp->tx_ring[1].cur_tx,
                         tp->tx_ring[1].dirty_tx,
-                        tp->tx_ring[1].tdu,
                         tp->rx_buf_sz,
                         tp->esd_flag,
                         tp->pci_cfg_is_read,
@@ -3945,19 +3924,10 @@ static inline void rtl8168_clear_isr_by_vector(struct rtl8168_private *tp,
         if (message_id >= R8168_MAX_MSIX_VEC)
                 return;
 
-        if (message_id == 0) {
+        if (message_id == 0)
                 RTL_W16(tp, tp->isr_reg[0], val);
-
-                if (val & RxDescUnavail)
-                        tp->rx_ring[message_id].rdu++;
-                if (val & TxDescUnavail)
-                        tp->tx_ring[message_id].tdu++;
-        } else {
+        else
                 RTL_W8(tp, tp->isr_reg[message_id], val);
-
-                if (val & RxDU1)
-                        tp->rx_ring[message_id].rdu++;
-        }
 }
 
 static inline void rtl8168_self_clear_isr_by_vector(struct rtl8168_private *tp,
@@ -3969,9 +3939,6 @@ static inline void rtl8168_self_clear_isr_by_vector(struct rtl8168_private *tp,
                 return;
 
         val = rtl8168_get_isr_by_vector(tp, message_id);
-        if ((message_id == 0) && (val & RxFIFOOver))
-                tp->rx_fifo_of++;
-
         switch (tp->mcfg) {
         case CFG_METHOD_9:
         case CFG_METHOD_10:
@@ -4044,29 +4011,11 @@ rtl8168_enable_interrupt(struct rtl8168_private *tp)
 }
 
 static inline void
-rtl8168_enable_lib_interrupt(struct rtl8168_private *tp)
-{
-        int i;
-
-        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
-                rtl8168_enable_interrupt_by_vector(tp, i);
-}
-
-static inline void
 rtl8168_disable_interrupt(struct rtl8168_private *tp)
 {
         int i;
 
         for (i=0; i<tp->num_rx_rings; i++)
-                rtl8168_disable_interrupt_by_vector(tp, i);
-}
-
-static inline void
-rtl8168_disable_lib_interrupt(struct rtl8168_private *tp)
-{
-        int i;
-
-        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
                 rtl8168_disable_interrupt_by_vector(tp, i);
 }
 
@@ -4085,8 +4034,6 @@ rtl8168_switch_to_hw_interrupt(struct rtl8168_private *tp)
         RTL_W32(tp, TimeInt0, 0x0000);
 
         rtl8168_enable_interrupt(tp);
-
-        rtl8168_enable_lib_interrupt(tp);
 }
 
 static inline void
@@ -4280,8 +4227,6 @@ rtl8168_hw_reset(struct net_device *dev)
 {
         struct rtl8168_private *tp = netdev_priv(dev);
 
-        rtl8168_lib_reset_prepare(tp);
-
         /* Disable interrupts */
         rtl8168_irq_mask_and_ack(tp);
 
@@ -4290,20 +4235,14 @@ rtl8168_hw_reset(struct net_device *dev)
         rtl8168_nic_reset(dev);
 }
 
-static void _rtl8168_doorbell(struct rtl8168_tx_ring *ring)
+static void rtl8168_doorbell(struct rtl8168_tx_ring *ring)
 {
         struct rtl8168_private *tp = ring->priv;
 
-        if (ring->index > 0)
-                RTL_W8(tp, TxPoll, HPQ);
+        if (R8168_MULTI_TX_Q(tp))
+                RTL_W8(tp, TxPoll, NPQ | HPQ);
         else
                 RTL_W8(tp, TxPoll, NPQ);
-}
-
-static void rtl8168_doorbell(struct rtl8168_tx_ring *ring)
-{
-        _rtl8168_doorbell(ring);
-        _rtl8168_doorbell(ring);
 }
 
 static void rtl8168_mac_loopback_test(struct rtl8168_private *tp)
@@ -4492,7 +4431,7 @@ void rtl8168_init_ring_indexes(struct rtl8168_private *tp)
 
         for (i = 0; i < tp->HwSuppNumRxQueues; i++) {
                 struct rtl8168_rx_ring *ring = &tp->rx_ring[i];
-                ring->dirty_rx = ring->cur_rx = 0;
+                ring->dirty_rx = tp->rx_ring[i].cur_rx = 0;
                 ring->index = i;
                 ring->priv = tp;
         }
@@ -26020,11 +25959,10 @@ err1:
         if (!tp->EnableRss || tp->num_rx_rings < 1)
                 tp->num_rx_rings = 1;
 
-#ifdef ENABLE_LIB_SUPPORT
-        tp->num_hw_tot_en_rx_rings = 2;
-#else
-        tp->num_hw_tot_en_rx_rings = tp->num_rx_rings;
-#endif //ENABLE_LIB_SUPPORT
+        tp->num_hw_tot_en_rx_rings = 1;
+#ifdef ENABLE_RSS_SUPPORT
+        tp->num_hw_tot_en_rx_rings = tp->HwSuppNumRxQueues;
+#endif //ENABLE_RSS_SUPPORT
 
         rtl8168_setup_mqs_reg(tp);
 
@@ -27612,13 +27550,19 @@ static int rtl8168_try_msi(struct rtl8168_private *tp)
 
         tp->max_irq_nvecs = 1;
         tp->min_irq_nvecs = 1;
-
+#ifndef DISABLE_MULTI_MSIX_VECTOR
 #ifdef ENABLE_RSS_SUPPORT
-        if (!pci_enable_msi(pdev))
-                msi |= RTL_FEATURE_MSI;
-        else
-                dev_info(&pdev->dev, "Default use INTx.\n");
-#else
+        switch (tp->mcfg) {
+        case CFG_METHOD_29:
+        case CFG_METHOD_30:
+        case CFG_METHOD_35:
+                tp->max_irq_nvecs = tp->hw_supp_irq_nvecs;
+                tp->min_irq_nvecs = tp->hw_supp_irq_nvecs;
+                break;
+        }
+#endif
+#endif
+
         switch (tp->mcfg) {
         case CFG_METHOD_1:
         case CFG_METHOD_2:
@@ -27645,7 +27589,7 @@ static int rtl8168_try_msi(struct rtl8168_private *tp)
 #endif
                 break;
         }
-#endif //ENABLE_RSS_SUPPORT
+
         if (!(msi & (RTL_FEATURE_MSI | RTL_FEATURE_MSIX)))
                 dev_info(&pdev->dev, "no MSI. Back to INTx.\n");
 
@@ -28102,7 +28046,6 @@ static int rtl8168_alloc_irq(struct rtl8168_private *tp)
 #else
         unsigned long irq_flags = 0;
 #ifdef ENABLE_LIB_SUPPORT
-        if (tp->features & (RTL_FEATURE_MSI | RTL_FEATURE_MSIX))
         irq_flags |= IRQF_NO_SUSPEND;
 #endif
         if (tp->features & RTL_FEATURE_MSIX) {
@@ -28123,6 +28066,7 @@ static int rtl8168_alloc_irq(struct rtl8168_private *tp)
                 irq->handler = rtl8168_interrupt;
                 r8168napi = &tp->r8168napi[0];
                 snprintf(irq->name, len, "%s-0", dev->name);
+                if (!(tp->features & RTL_FEATURE_MSIX))
                         irq->vector = dev->irq;
                 irq_flags |= (tp->features & (RTL_FEATURE_MSI | RTL_FEATURE_MSIX)) ? 0 : SA_SHIRQ;
                 rc = request_irq(irq->vector, irq->handler, irq_flags, irq->name, r8168napi);
@@ -29533,8 +29477,6 @@ rtl8168_hw_start(struct net_device *dev)
         RTL_W8(tp, ChipCmd, CmdTxEnb | CmdRxEnb);
 
         rtl8168_enable_interrupt(tp);
-
-        rtl8168_lib_reset_complete(tp);
 }
 
 static int
@@ -29797,12 +29739,7 @@ rtl8168_rx_desc_offset0_init(struct rtl8168_private *tp, int own)
 static void
 rtl8168_rx_desc_init(struct rtl8168_private *tp)
 {
-        if (!tp->RxDescArray)
-                return;
-
-        if (rtl8168_num_lib_rx_rings(tp) > 0)
-                return;
-
+        if (tp->RxDescArray)
                 memset(tp->RxDescArray, 0x0, tp->RxDescAllocSize);
 }
 
@@ -30807,12 +30744,6 @@ rtl8168_rx_interrupt(struct net_device *dev,
         if (!tp->RxDescArray)
                 goto rx_out;
 
-#ifdef ENABLE_LIB_SUPPORT
-        if (ring->index > 0) {
-                rtl8168_lib_rx_interrupt(tp);
-                goto rx_out;
-        }
-#endif
         rx_quota = RTL_RX_QUOTA(budget);
         cur_rx = ring->cur_rx;
         rx_left = tp->num_rx_desc + ring->dirty_rx - cur_rx;
@@ -30939,13 +30870,14 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
         u8 other_q_status = 0;
         int handled = 0;
         int status;
-        int i;
 
         do {
                 status = RTL_R16(tp, tp->isr_reg[0]);
 #ifdef ENABLE_RSS_SUPPORT
                 if (R8168_MULTI_RX_Q(tp)) {
-                        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
+                        int i;
+
+                        for (i=1; i<tp->num_rx_rings; i++)
                                 other_q_status |= RTL_R8(tp, tp->isr_reg[i]);
                 }
 #endif
@@ -30962,7 +30894,6 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
                 handled = 1;
 
                 rtl8168_disable_interrupt(tp);
-                rtl8168_disable_lib_interrupt(tp);
 
                 switch (tp->mcfg) {
                 case CFG_METHOD_9:
@@ -31013,11 +30944,12 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
                                 rtl8168_hw_start(dev);
                                 netif_tx_wake_all_queues(dev);
                         }
-                        tp->rx_fifo_of++;
                 }
 
                 if (other_q_status) {
-                        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
+                        int i;
+
+                        for (i=1; i<tp->num_rx_rings; i++)
                                 rtl8168_clear_isr_by_vector(tp, i, other_q_status);
                 }
 
@@ -31078,8 +31010,9 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
                     tp->keep_intr_cnt-- > 0) {
                         u32 const max_rx_queue =
                                 (other_q_status & other_q_intr_mask) > 0 ?
-                                rtl8168_tot_rx_rings(tp) : 1;
+                                tp->num_rx_rings : 1;
                         u32 budget = ~(u32)0;
+                        int i;
 
                         if ((status & tp->intr_mask) ||
                             (other_q_status & other_q_intr_mask))

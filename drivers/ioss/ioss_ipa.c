@@ -50,7 +50,7 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	si->transfer_ring_sgt = &desc_mem->sgt;
 
 	if (ch->multi_rx_queues)
-		si->transfer_ring_size = desc_mem->size*2;
+		si->transfer_ring_size = desc_mem->size*4;
 	else
 		si->transfer_ring_size = desc_mem->size;
 
