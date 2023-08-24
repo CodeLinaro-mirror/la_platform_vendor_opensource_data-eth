@@ -27941,7 +27941,10 @@ rtl8168_init_one(struct pci_dev *pdev,
 
 #ifdef CONFIG_R8168_VLAN
         if (tp->mcfg != CFG_METHOD_DEFAULT) {
-                dev->features |= NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
+                dev->features |= NETIF_F_HW_VLAN_TX;
+#ifndef ENABLE_LIB_SUPPORT
+                dev->features |= NETIF_F_HW_VLAN_RX;
+#endif //!ENABLE_LIB_SUPPORT
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
                 dev->vlan_rx_kill_vid = rtl8168_vlan_rx_kill_vid;
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)

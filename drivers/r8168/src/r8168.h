@@ -1276,7 +1276,7 @@ enum RTL8168_register_content {
         Cxpl_dbg_sel    = (1 << 9),//This bit is reserved in RTL8168B
         ASF     = (1 << 8),//This bit is reserved in RTL8168C
         PktCntrDisable  = (1 << 7),
-        RxVlan      = 0,
+        RxVlan      = (1 << 6),
         RxChkSum    = (1 << 5),
         Macdbgo_sel = 0x001C,
         INTT_0      = 0x0000,
