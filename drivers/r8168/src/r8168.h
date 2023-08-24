@@ -360,7 +360,7 @@ do { \
 #define RSS_SUFFIX ""
 #endif
 
-#define RTL8168_VERSION "8.051.02-b8" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
+#define RTL8168_VERSION "8.051.02-b22_eee" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
 #define MODULENAME "r8168"
 #define PFX MODULENAME ": "
 
@@ -457,16 +457,16 @@ This is free software, and you are welcome to redistribute it under certain cond
 #define MIN_NUM_TX_DESC 32    /* Minimum number of Tx descriptor registers */
 #define MIN_NUM_RX_DESC 32    /* Minimum number of Rx descriptor registers */
 
-#define NUM_TX_DESC 256    /* Number of Tx descriptor registers */
-#define NUM_RX_DESC 256    /* Number of Rx descriptor registers */
+#define NUM_TX_DESC 1024    /* Number of Tx descriptor registers */
+#define NUM_RX_DESC 1024    /* Number of Rx descriptor registers */
 
 #define RX_BUF_SIZE 0x05F2  /* 0x05F2 = 1522bye */
 #define R8168_MAX_TX_QUEUES (2)
 #define R8168_MAX_RX_QUEUES (4)
 #define R8168_MAX_QUEUES R8168_MAX_RX_QUEUES
 #define R8168_MULTI_TX_Q(tp) (rtl8168_tot_tx_rings(tp) > 1)
-#define R8168_MULTI_RX_Q(tp) (tp->num_rx_rings > 1)
-#define R8168_MULTI_RX_4Q(tp) (tp->num_rx_rings > 3)
+#define R8168_MULTI_RX_Q(tp) (rtl8168_tot_rx_rings(tp) > 1)
+#define R8168_MULTI_RX_4Q(tp) (rtl8168_tot_rx_rings(tp) > 3)
 #define R8168_MULTI_RSS_4Q(tp) (tp->num_hw_tot_en_rx_rings > 3)
 
 #define OCP_STD_PHY_BASE	0xa400
@@ -1276,7 +1276,7 @@ enum RTL8168_register_content {
         Cxpl_dbg_sel    = (1 << 9),//This bit is reserved in RTL8168B
         ASF     = (1 << 8),//This bit is reserved in RTL8168C
         PktCntrDisable  = (1 << 7),
-        RxVlan      = (1 << 6),
+        RxVlan      = 0,
         RxChkSum    = (1 << 5),
         Macdbgo_sel = 0x001C,
         INTT_0      = 0x0000,
@@ -1572,6 +1572,7 @@ struct rtl8168_tx_ring {
         u32 cur_tx; /* Index into the Tx descriptor buffer of next Rx pkt. */
         u32 dirty_tx;
         u32 num_tx_desc; /* Number of Tx descriptor registers */
+        u32 tdu; /* Tx descriptor unavailable count */
         struct TxDesc *TxDescArray; /* 256-aligned Tx descriptor ring */
         dma_addr_t TxPhyAddr;
         u32 TxDescAllocSize;
@@ -1585,6 +1586,7 @@ struct rtl8168_rx_ring {
         u32 index;
         u32 cur_rx; /* Index into the Rx descriptor buffer of next Rx pkt. */
         u32 dirty_rx;
+        u32 rdu; /* Rx descriptor unavailable count */
         //struct RxDesc *RxDescArray; /* 256-aligned Rx descriptor ring */
         //u32 RxDescAllocSize;
         u64 RxDescPhyAddr[MAX_NUM_RX_DESC]; /* Rx desc physical address*/
@@ -2023,8 +2025,7 @@ struct rtl8168_private {
         //Realwow--------------
 #endif //ENABLE_REALWOW_SUPPORT
 
-        u32 eee_adv_t;
-        u8 eee_enabled;
+        struct ethtool_eee eee;
 
         u32 dynamic_aspm_packet_count;
 
@@ -2048,6 +2049,7 @@ struct rtl8168_private {
         u8 rss_indir_tbl[RTL8168_MAX_INDIRECTION_TABLE_ENTRIES];
         u32 rss_options;
 #endif
+        u32 rx_fifo_of; /* Rx fifo overflow count */
 };
 
 #ifdef ENABLE_LIB_SUPPORT
