@@ -7,6 +7,10 @@
 
 #include "ioss_i.h"
 
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+#include <soc/qcom/boot_stats.h>
+#endif
+
 static void ioss_ipa_notify_cb(void *priv,
 					enum ipa_dp_evt_type evt,
 					unsigned long data)
@@ -14,11 +18,22 @@ static void ioss_ipa_notify_cb(void *priv,
 	struct ioss_channel *ch = priv;
 	struct sk_buff *skb = (struct sk_buff *)data;
 	struct ioss_interface *iface = ch->iface;
+	struct rtnl_link_stats64 netdev_stats;
 
 	if (evt != IPA_RECEIVE)
 		return;
 
 	iface->exception_stats.rx_packets++;
+
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+	if(iface->exception_stats.rx_packets == 1) {
+		memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
+		dev_get_stats(ioss_iface_to_netdev(iface), &netdev_stats);
+		if (netdev_stats.rx_packets == 1)
+			update_marker("M - Ethernet first packet received");
+	}
+#endif
+
 	iface->exception_stats.rx_bytes += skb->len;
 
 	skb->protocol = eth_type_trans(skb, ioss_iface_to_netdev(iface));
