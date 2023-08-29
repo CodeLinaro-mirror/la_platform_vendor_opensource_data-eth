@@ -878,7 +878,7 @@ static int stmmac_tx_clean(struct stmmac_priv *priv, int budget, u32 queue)
 				priv->dev->stats.tx_packets++;
 				priv->xstats.tx_pkt_n++;
 				priv->xstats.q_tx_pkt_n[queue]++;
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 if (priv->dev->stats.tx_packets == 1)
 	place_marker("M - Ethernet first packet transmitted");
 #endif
@@ -1241,7 +1241,7 @@ static int stmmac_open(struct net_device *dev)
 	int bfsize = 0;
 	int ret = 0;
 
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 	place_marker("M - Ethernet device open");
 #endif
 	/* Extra statistics */
@@ -2057,7 +2057,7 @@ read_again:
 		napi_gro_receive(&ch->rx_napi, skb);
 		trace_stmmac_rx_pkt(queue);
 		priv->dev->stats.rx_packets++;
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 	if (priv->dev->stats.rx_packets == 1)
 		place_marker("M - Ethernet first packet received");
 #endif
@@ -2410,11 +2410,11 @@ void stmmac_mac_link_down(struct net_device *ndev)
 	if (priv->dev_opened) {
 		netif_carrier_off(ndev);
 		stmmac_stop_dma(priv);
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-			if (priv->boot_kpi) {
-				place_marker("M - Ethernet is not Ready. Link is DOWN");
-				priv->boot_kpi = false;
-			}
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
+		if (priv->boot_kpi) {
+			place_marker("M - Ethernet is not Ready. Link is DOWN");
+			priv->boot_kpi = false;
+		}
 #endif
 	}
 }
@@ -2430,7 +2430,7 @@ void stmmac_mac_link_up(struct net_device *ndev)
 	if (priv->dev_opened) {
 		netif_carrier_on(ndev);
 		stmmac_start_dma(priv);
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 		if (!priv->boot_kpi) {
 			place_marker("M - Ethernet is Ready. Link is UP");
 			priv->boot_kpi = true;
