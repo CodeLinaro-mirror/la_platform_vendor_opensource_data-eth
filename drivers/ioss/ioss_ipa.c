@@ -11,6 +11,38 @@
 #include <soc/qcom/boot_stats.h>
 #endif
 
+#define to_ipa_dir(ioss_dir) \
+	((ioss_dir == IOSS_CH_DIR_TX)? IPA_ETH_PIPE_DIR_TX : IPA_ETH_PIPE_DIR_RX)
+
+#define to_ioss_dir(ipa_dir) \
+	((ipa_dir == IPA_ETH_PIPE_DIR_TX) ? IOSS_CH_DIR_TX : IOSS_CH_DIR_RX)
+
+static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type ioss_type)
+{
+	static const enum ipa_eth_pipe_traffic_type ipa_map[IOSS_TRAFFIC_TYPE_MAX] = {
+		[IOSS_TRAFFIC_BE] = IPA_ETH_PIPE_BEST_EFFORT,
+#if IPA_ETH_API_VER > 2
+		[IOSS_TRAFFIC_BE_TAGGED] = IPA_ETH_PIPE_BEST_EFFORT_VLAN,
+#endif
+		[IOSS_TRAFFIC_LL] = IPA_ETH_PIPE_LOW_LATENCY,
+	};
+
+	return ipa_map[ioss_type];
+}
+
+static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa_type)
+{
+	static const enum ioss_traffic_type ioss_map[IPA_ETH_PIPE_TRAFFIC_TYPE_MAX] = {
+		[IPA_ETH_PIPE_BEST_EFFORT] = IOSS_TRAFFIC_BE,
+		[IPA_ETH_PIPE_LOW_LATENCY] = IOSS_TRAFFIC_LL,
+#if IPA_ETH_API_VER > 2
+		[IPA_ETH_PIPE_BEST_EFFORT_VLAN] = IOSS_TRAFFIC_BE_TAGGED,
+#endif
+	};
+
+	return ioss_map[ipa_type];
+}
+
 static void ioss_ipa_notify_cb(void *priv,
 					enum ipa_dp_evt_type evt,
 					unsigned long data)
@@ -51,8 +83,10 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	struct ipa_eth_pipe_setup_info *si = &pi->info;
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
-	pi->dir = (ch->direction == IOSS_CH_DIR_TX) ?
-			IPA_ETH_PIPE_DIR_TX : IPA_ETH_PIPE_DIR_RX;
+	pi->dir = to_ipa_dir(ch->direction);
+#if IPA_ETH_API_VER > 2
+	pi->traffic_type = to_ipa_traffic_type(ch->traffic_type);
+#endif
 
 	desc_mem = list_first_entry_or_null(
 			&ch->desc_mem, typeof(*desc_mem), node);
@@ -143,7 +177,9 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	ec->priv = iface;
 	ec->inst_id = iface->instance_id;
-	ec->traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
+#if IPA_ETH_API_VER < 3
+	ec->traffic_type = to_ipa_traffic_type(DEFAULT_IOSS_TRAFFIC_TYPE);
+#endif
 	ec->client_type = ioss_ipa_hal_get_ctype(idev);
 
 	if (ec->client_type == IPA_ETH_CLIENT_MAX) {
@@ -242,4 +278,151 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	memset(ec, 0, sizeof(*ec));
 
 	return 0;
+}
+
+static bool channel_match_ipa_config(struct ioss_channel *ch, const char *ipa_config)
+{
+	int i;
+
+	if (!ipa_config)
+		return false;
+
+	/* A channel config (ex. legacy) that does not explicitly list any compatible IPA configs
+	 * is assumed to be compatible only with the default IPA config.
+	 */
+	if (!ch->num_ipa_configs)
+		return !strcmp(ipa_config, DEFAULT_IPA_CONFIG);
+
+	for (i = 0; i < ch->num_ipa_configs; i++)
+		if (!strcmp(ipa_config, ch->ipa_configs[i]))
+			return true;
+
+	return false;
+}
+
+static bool validate_channel(struct ioss_channel *ch,
+		enum ioss_channel_dir dir, enum ioss_traffic_type traffic)
+{
+	if (ch->direction != dir)
+		return false;
+
+	if (ch->traffic_type != traffic)
+		return false;
+
+	return channel_match_ipa_config(ch, ch->iface->ipa_config);
+}
+
+#if IPA_ETH_API_VER > 2
+
+/* Recursively select channels as per the channel config list provided by IPA */
+static int ioss_ipa_validate_one_channel(struct ioss_interface *iface, struct dma_ch_config *ch_list, int num_channels)
+{
+	int ret = -ENOENT;
+	enum ioss_channel_dir dir;
+	enum ioss_traffic_type traffic;
+	struct ioss_channel *ch, *tmp_ch;
+	const char *ipa_config = iface->ipa_config;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	if (!num_channels)
+		return 0;
+
+	dir = to_ioss_dir(ch_list->dir);
+	traffic = to_ioss_traffic(ch_list->traffic_type);
+
+	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
+		struct ioss_ch_priv *ch_priv = ch->ioss_priv;
+
+		if (!validate_channel(ch, dir, traffic))
+			continue;
+
+		ioss_dev_log(idev, "Selected channel '%s' for %s '%s' traffic",
+			ch->name, ioss_ch_dir_name(dir), ioss_traffic_name(traffic));
+
+		list_move(&ch->node, &iface->valid_channels);
+
+		ret = ioss_ipa_validate_one_channel(iface, ch_list + 1, num_channels - 1);
+		if (!ret)
+			ch_priv->ipa_ch_config = ch_list; /* for debug purposes */
+		else
+			list_move(&ch->node, &iface->invalid_channels);
+
+		return ret;
+	}
+
+	ioss_dev_err(idev,
+		"Failed to find (%u more needed) a matching channel for IPA DMA config: "
+		"dir=%u traffic=%u config='%s'",
+		num_channels, dir, traffic, ipa_config);
+
+	return ret;
+}
+
+int ioss_ipa_validate_channels(struct ioss_interface *iface)
+{
+	int ret;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	u32 inst_id = iface->instance_id;
+	enum ipa_eth_client_type ct = ioss_ipa_hal_get_ctype(idev);
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_config *ipa_config = &ifp->ipa_config;
+
+	iface->ipa_config = NULL;
+
+	memset(ipa_config, 0, sizeof(*ipa_config));
+
+	ret = ipa_eth_get_config_type(ct, inst_id, ipa_config);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to get IPA config for %u.%u", ct, inst_id);
+		return ret;
+	}
+
+	iface->ipa_config = ipa_config->config;
+
+	ioss_dev_log(idev,
+			"IPA config for %u.%u is '%s' and uses %u channels",
+			ct, inst_id, ipa_config->config, ipa_config->num_dma_channel);
+
+	ioss_ipa_invalidate_channels(iface);
+
+	return ioss_ipa_validate_one_channel(
+			iface, ipa_config->dma_config, ipa_config->num_dma_channel);
+}
+
+#else
+
+/* Select any channel that applies to default IPA profile and carries
+ * default traffic type.
+ */
+int ioss_ipa_validate_channels(struct ioss_interface *iface)
+{
+	int count = 0;
+	struct ioss_channel *ch, *tmp_ch;
+	enum ioss_traffic_type be = to_ioss_traffic(IPA_ETH_PIPE_BEST_EFFORT);
+
+	iface->ipa_config = DEFAULT_IPA_CONFIG;
+
+	ioss_ipa_invalidate_channels(iface);
+
+	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
+		if (!validate_channel(ch, ch->direction, be))
+			continue;
+
+		list_move(&ch->node, &iface->valid_channels);
+		count++;
+	}
+
+	ioss_dev_log(ioss_iface_dev(iface), "Selected %d channels", count);
+
+	return 0;
+}
+
+#endif
+
+void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
+{
+	struct ioss_channel *ch, *tmp_ch;
+
+	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node)
+		list_move(&ch->node, &iface->invalid_channels);
 }

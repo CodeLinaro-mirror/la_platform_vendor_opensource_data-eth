@@ -362,7 +362,7 @@ static int ioss_net_alloc_channels(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Allocating channels for %s", idev->net_dev->name);
 
-	return ioss_list_iter_action(&iface->channels,
+	return ioss_list_iter_action(&iface->valid_channels,
 			__alloc_channel_action, __alloc_channel_revert);
 }
 
@@ -445,7 +445,7 @@ static int ioss_net_enable_channels(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Enabling channels for %s", idev->net_dev->name);
 
-	return ioss_list_iter_action(&iface->channels,
+	return ioss_list_iter_action(&iface->valid_channels,
 			__enable_channel_action, __enable_channel_revert);
 }
 
@@ -550,7 +550,7 @@ static int ioss_net_setup_events(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Setting up all device events");
 
-	return ioss_list_iter_action(&iface->channels,
+	return ioss_list_iter_action(&iface->valid_channels,
 			__setup_event_action, __setup_event_revert);
 }
 
@@ -582,6 +582,12 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 	}
 
 	ioss_dev_log(idev, "Bringing up %s", idev->net_dev->name);
+
+	rc = ioss_ipa_validate_channels(iface);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to validate channels");
+		goto err_validate_channels;
+	}
 
 	rc = ioss_net_alloc_channels(iface);
 	if (rc) {
@@ -618,6 +624,8 @@ err_setup_events:
 err_ipa_register:
 	ioss_net_free_channels(iface);
 err_alloc_channels:
+	ioss_ipa_invalidate_channels(iface);
+err_validate_channels:
 	iface->state = IOSS_IF_ST_ERROR;
 
 	return;
@@ -663,6 +671,8 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 		ioss_dev_err(idev, "Failed to release channels");
 		iface->state = IOSS_IF_ST_ERROR;
 	}
+
+	ioss_ipa_invalidate_channels(iface);
 }
 
 static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)

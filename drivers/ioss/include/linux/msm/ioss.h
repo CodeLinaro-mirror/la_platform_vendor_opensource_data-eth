@@ -31,9 +31,11 @@
  *            of event doorbell address logic to glue drivers
  *   6      - Change one-to-many mapping to one-to-one mapping from ioss_device to
  *            ioss_interface
+ *   7      - Added support for channel allocation using IPA config type and channel
+ *            traffic type properties
  */
 
-#define IOSS_API_VER 6
+#define IOSS_API_VER 7
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -142,6 +144,13 @@ enum ioss_filter_types {
 	IOSS_RXF_F_IP = BIT(IOSS_RXF_IP),
 };
 
+enum ioss_traffic_type {
+	IOSS_TRAFFIC_BE, /* 0 = Best Effort */
+	IOSS_TRAFFIC_BE_TAGGED, /* Best Effort VLAN tagged */
+	IOSS_TRAFFIC_LL, /* Low Latency */
+	IOSS_TRAFFIC_TYPE_MAX
+};
+
 extern struct bus_type ioss_bus;
 extern struct device_type ioss_idev_type;
 extern struct device_type ioss_iface_type;
@@ -171,7 +180,14 @@ struct ioss_interface {
 
 	struct notifier_block net_dev_nb;
 	struct work_struct refresh;
-	struct list_head channels;
+
+	/* All channel configs from devicetree are initially added to invalid_channels and later
+	 * moved to valid_channels based on channel selection performed during validation stage.
+         */
+	struct list_head invalid_channels;
+	struct list_head valid_channels;
+
+	const char *ipa_config; /* currently selected IPA config type */
 
 	void *ioss_priv;
 
@@ -289,7 +305,14 @@ struct ioss_channel_event {
 struct ioss_channel {
 	struct list_head node;
 
+	const char *name;
 	struct ioss_interface *iface;
+
+	enum ioss_traffic_type traffic_type;
+
+	/* List of all IPA configs that this channel config is applicable to. */
+	size_t num_ipa_configs;
+	const char **ipa_configs;
 
 	struct ioss_channel_config default_config;
 	struct ioss_channel_config config;
@@ -473,7 +496,7 @@ struct ioss_channel_status {
 #define ioss_ch_dev(ch) ioss_iface_dev(ch->iface)
 
 #define ioss_for_each_channel(ch, iface) \
-	list_for_each_entry(ch, &iface->channels, node)
+	list_for_each_entry(ch, &iface->valid_channels, node)
 
 static inline char *ioss_ch_dir_s(struct ioss_channel *ch)
 {
