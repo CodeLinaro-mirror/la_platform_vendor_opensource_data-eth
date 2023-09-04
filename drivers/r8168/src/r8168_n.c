@@ -29869,6 +29869,22 @@ rtl8168_desc_addr_fill(struct rtl8168_private *tp)
                 RTL_W32(tp, ring->tdsar_reg + 4, ((u64)ring->TxPhyAddr >> 32));
         }
 
+#ifdef ENABLE_LIB_SUPPORT
+        /*
+         * The lib tx q1 polling may be set after tx is disabled. If lib tx q1
+         * is released, after enable tx, device will try to access invalid tx q1
+         * desc base address. Set tx q1 desc base address to tx q0 desc base
+         * address to let device to access the valid address and clear tx q1
+         * polling bit after enable tx.
+         */
+        if (rtl8168_lib_tx_ring_released(tp)) {
+                struct rtl8168_tx_ring *ring = &tp->tx_ring[0];
+                u16 tdsar_reg = TxHDescStartAddrLow;
+                RTL_W32(tp, tdsar_reg, ((u64)ring->TxPhyAddr & DMA_BIT_MASK(32)));
+                RTL_W32(tp, tdsar_reg + 4, ((u64)ring->TxPhyAddr >> 32));
+        }
+#endif
+
         RTL_W32(tp, RxDescAddrLow, ((u64) tp->RxPhyAddr & DMA_BIT_MASK(32)));
         RTL_W32(tp, RxDescAddrLow + 4, ((u64) tp->RxPhyAddr >> 32));
 }

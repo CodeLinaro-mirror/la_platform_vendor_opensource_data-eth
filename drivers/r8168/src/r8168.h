@@ -2077,6 +2077,42 @@ rtl8168_num_lib_rx_rings(struct rtl8168_private *tp)
         return count;
 }
 
+static inline bool
+rtl8168_lib_tx_ring_released(struct rtl8168_private *tp)
+{
+        int i;
+        bool released = 0;
+
+        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
+                struct rtl8168_ring *ring = &tp->lib_tx_ring[i];
+                if (ring->allocated)
+                        goto exit;
+        }
+
+        released = 1;
+
+exit:
+        return released;
+}
+
+static inline bool
+rtl8168_lib_rx_ring_released(struct rtl8168_private *tp)
+{
+        int i;
+        bool released = 0;
+
+        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
+                struct rtl8168_ring *ring = &tp->lib_rx_ring[i];
+                if (ring->allocated)
+                        goto exit;
+        }
+
+        released = 1;
+
+exit:
+        return released;
+}
+
 #else
 static inline unsigned int
 rtl8168_num_lib_tx_rings(struct rtl8168_private *tp)
@@ -2088,6 +2124,18 @@ static inline unsigned int
 rtl8168_num_lib_rx_rings(struct rtl8168_private *tp)
 {
         return 0;
+}
+
+static inline bool
+rtl8168_lib_tx_ring_released(struct rtl8168_private *tp)
+{
+        return 1;
+}
+
+static inline bool
+rtl8168_lib_rx_ring_released(struct rtl8168_private *tp)
+{
+        return 1;
 }
 #endif
 
@@ -2101,6 +2149,13 @@ static inline unsigned int
 rtl8168_tot_rx_rings(struct rtl8168_private *tp)
 {
         return tp->num_rx_rings + rtl8168_num_lib_rx_rings(tp);
+}
+
+static inline bool
+rtl8168_lib_all_ring_released(struct rtl8168_private *tp)
+{
+        return (rtl8168_lib_tx_ring_released(tp) &&
+                rtl8168_lib_rx_ring_released(tp));
 }
 
 enum eetype {

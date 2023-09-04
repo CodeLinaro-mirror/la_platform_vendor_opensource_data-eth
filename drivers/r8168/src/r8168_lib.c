@@ -317,6 +317,8 @@ struct rtl8168_ring *rtl8168_request_ring(struct net_device *ndev,
         struct rtl8168_private *tp = netdev_priv(ndev);
         struct rtl8168_ring * ring = 0;
 
+        rtnl_lock();
+
         if (direction == RTL8168_CH_DIR_TX)
                 ring = rtl8168_get_tx_ring(tp);
         else if (direction == RTL8168_CH_DIR_RX)
@@ -334,8 +336,6 @@ struct rtl8168_ring *rtl8168_request_ring(struct net_device *ndev,
                 goto error_put_ring;
 
         /* initialize descriptors to point to buffers allocated */
-        rtnl_lock();
-
         if (direction == RTL8168_CH_DIR_TX)
                 rtl8168_init_tx_ring(ring);
         else if (direction == RTL8168_CH_DIR_RX)
@@ -348,32 +348,10 @@ struct rtl8168_ring *rtl8168_request_ring(struct net_device *ndev,
 error_put_ring:
         rtl8168_put_ring(ring);
 error_out:
+        rtnl_unlock();
         return NULL;
 }
 EXPORT_SYMBOL(rtl8168_request_ring);
-
-static int rtl8168_all_ring_released(struct rtl8168_private *tp)
-{
-        int i;
-        int released = 0;
-
-        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_tx_ring[i];
-                if (ring->allocated)
-                        goto exit;
-        }
-
-        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_rx_ring[i];
-                if (ring->allocated)
-                        goto exit;
-        }
-
-        released = 1;
-
-exit:
-        return released;
-}
 
 void rtl8168_release_ring(struct rtl8168_ring *ring)
 {
@@ -384,20 +362,20 @@ void rtl8168_release_ring(struct rtl8168_ring *ring)
 
         tp = ring->private;
 
+        rtnl_lock();
+
         rtl8168_free_ring_mem(ring);
         rtl8168_put_ring(ring);
-        if (rtl8168_all_ring_released(tp)) {
+        if (rtl8168_lib_all_ring_released(tp)) {
                 struct net_device *dev = tp->dev;
-
-                rtnl_lock();
 
                 if (netif_running(dev)) {
                         rtl8168_close(dev);
                         rtl8168_open(dev);
                 }
-
-                rtnl_unlock();
         }
+
+        rtnl_unlock();
 }
 EXPORT_SYMBOL(rtl8168_release_ring);
 
