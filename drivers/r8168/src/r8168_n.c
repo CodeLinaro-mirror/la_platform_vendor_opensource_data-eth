@@ -458,6 +458,11 @@ static int s0_magic_packet = 1;
 #else
 static int s0_magic_packet = 0;
 #endif
+#ifdef DISABLE_WOL_SUPPORT
+static int disable_wol_support = 1;
+#else
+static int disable_wol_support = 0;
+#endif
 
 MODULE_AUTHOR("Realtek and the Linux r8168 crew <netdev@vger.kernel.org>");
 MODULE_DESCRIPTION("RealTek RTL-8168 Gigabit Ethernet driver");
@@ -500,6 +505,9 @@ MODULE_PARM_DESC(hwoptimize, "Enable HW optimization function.");
 
 module_param(s0_magic_packet, int, 0);
 MODULE_PARM_DESC(s0_magic_packet, "Enable S0 Magic Packet.");
+
+module_param(disable_wol_support, int, 0);
+MODULE_PARM_DESC(disable_wol_support, "Disable WOL support.");
 
 module_param(dynamic_aspm_packet_threshold, int, 0);
 MODULE_PARM_DESC(dynamic_aspm_packet_threshold, "Dynamic ASPM packet threshold.");
@@ -1061,6 +1069,7 @@ static int proc_get_driver_variable(struct seq_file *m, void *v)
         seq_printf(m, "hwoptimize\t0x%lx\n", hwoptimize);
         seq_printf(m, "proc_init_num\t0x%x\n", proc_init_num);
         seq_printf(m, "s0_magic_packet\t0x%x\n", s0_magic_packet);
+        seq_printf(m, "disable_wol_support\t0x%x\n", disable_wol_support);
         seq_printf(m, "HwSuppMagicPktVer\t0x%x\n", tp->HwSuppMagicPktVer);
         seq_printf(m, "HwSuppUpsVer\t0x%x\n", tp->HwSuppUpsVer);
         seq_printf(m, "HwSuppEsdVer\t0x%x\n", tp->HwSuppEsdVer);
@@ -1550,6 +1559,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         "hwoptimize\t0x%lx\n"
                         "proc_init_num\t0x%x\n"
                         "s0_magic_packet\t0x%x\n"
+                        "disable_wol_support\t0x%x\n"
                         "HwSuppMagicPktVer\t0x%x\n"
                         "HwSuppUpsVer\t0x%x\n"
                         "HwSuppEsdVer\t0x%x\n"
@@ -1663,6 +1673,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         hwoptimize,
                         proc_init_num,
                         s0_magic_packet,
+                        disable_wol_support,
                         tp->HwSuppMagicPktVer,
                         tp->HwSuppUpsVer,
                         tp->HwSuppEsdVer,
@@ -5474,6 +5485,9 @@ rtl8168_get_hw_wol(struct net_device *dev)
         u8 options;
         u32 csi_tmp;
 
+        if (disable_wol_support)
+                goto out;
+
         tp->wol_opts = 0;
         options = RTL_R8(tp, Config1);
         if (!(options & PMEnable))
@@ -5840,14 +5854,12 @@ rtl8168_get_wol(struct net_device *dev,
         struct rtl8168_private *tp = netdev_priv(dev);
         u8 options;
 
-        wol->wolopts = 0;
+        wol->wolopts = wol->supported = 0;
 
-        if (tp->mcfg == CFG_METHOD_DEFAULT) {
-                wol->supported = 0;
+        if (disable_wol_support)
                 return;
-        } else {
-                wol->supported = WAKE_ANY;
-        }
+
+        wol->supported = WAKE_ANY;
 
         options = RTL_R8(tp, Config1);
         if (!(options & PMEnable))
@@ -5862,7 +5874,7 @@ rtl8168_set_wol(struct net_device *dev,
 {
         struct rtl8168_private *tp = netdev_priv(dev);
 
-        if (tp->mcfg == CFG_METHOD_DEFAULT)
+        if (disable_wol_support)
                 return -EOPNOTSUPP;
 
         tp->wol_opts = wol->wolopts;
@@ -25464,6 +25476,9 @@ rtl8168_init_software_variable(struct net_device *dev)
 #ifdef ENABLE_LIB_SUPPORT
         tp->ring_lib_enabled = 1;
 #endif
+
+        if (tp->mcfg == CFG_METHOD_DEFAULT)
+                disable_wol_support = 1;
 
         switch (tp->mcfg) {
         case CFG_METHOD_11:

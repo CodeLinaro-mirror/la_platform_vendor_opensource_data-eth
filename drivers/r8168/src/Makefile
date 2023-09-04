@@ -47,6 +47,7 @@ CONFIG_CTAP_SHORT_OFF = n
 ENABLE_MULTIPLE_TX_QUEUE = y
 ENABLE_RSS_SUPPORT = y
 ENABLE_LIB_SUPPORT = y
+DISABLE_WOL_SUPPORT = y
 
 ifneq ($(KERNELRELEASE),)
 	obj-m := r8168.o
@@ -112,6 +113,9 @@ ifneq ($(KERNELRELEASE),)
 	ifeq ($(ENABLE_LIB_SUPPORT), y)
 		r8168-objs += r8168_lib.o
 		EXTRA_CFLAGS += -DENABLE_LIB_SUPPORT
+	endif
+	ifeq ($(DISABLE_WOL_SUPPORT), y)
+		EXTRA_CFLAGS += -DDISABLE_WOL_SUPPORT
 	endif
 else
 	BASEDIR := /lib/modules/$(shell uname -r)
