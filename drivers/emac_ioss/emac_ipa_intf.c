@@ -483,16 +483,16 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		return NULL;
 	}
 
+	priv = netdev_priv(channel_input->ndev);
+        if (!priv) {
+                pr_err("%s: ERROR: Invalid private data pointer\n", __func__);
+                return NULL;
+        }
+
 	if ((channel_input->ch_dir != CH_DIR_RX) &&
 		(channel_input->ch_dir != CH_DIR_TX)) {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid Channel direction\n", __func__);
-		return NULL;
-	}
-
-	priv = netdev_priv(channel_input->ndev);
-	if (!priv) {
-		pr_err("%s: ERROR: Invalid private data pointer\n", __func__);
 		return NULL;
 	}
 
