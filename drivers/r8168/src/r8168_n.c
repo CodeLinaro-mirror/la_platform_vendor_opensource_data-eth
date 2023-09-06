@@ -31509,11 +31509,17 @@ net_device_stats *rtl8168_get_stats(struct net_device *dev)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11)
 static int
 rtl8168_suspend(struct pci_dev *pdev, u32 state)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
+static int
+rtl8168_suspend(struct device *device)
 #else
 static int
 rtl8168_suspend(struct pci_dev *pdev, pm_message_t state)
 #endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
+        struct pci_dev *pdev = to_pci_dev(device);
+#endif
         struct net_device *dev = pci_get_drvdata(pdev);
         struct rtl8168_private *tp = netdev_priv(dev);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
@@ -31560,29 +31566,47 @@ out:
         if (HW_DASH_SUPPORT_DASH(tp))
                 rtl8168_driver_stop(tp);
 
+        pci_disable_device(pdev);
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
         pci_save_state(pdev, &pci_pm_state);
 #else
         pci_save_state(pdev);
 #endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
         pci_enable_wake(pdev, pci_choose_state(pdev, state), tp->wol_enabled);
-//  pci_set_power_state(pdev, pci_choose_state(pdev, state));
+#endif
+
+        pci_prepare_to_sleep(pdev);
 
         return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
 static int
 rtl8168_resume(struct pci_dev *pdev)
+#else
+static int
+rtl8168_resume(struct device *device)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
+        struct pci_dev *pdev = to_pci_dev(device);
+#endif 
         struct net_device *dev = pci_get_drvdata(pdev);
         struct rtl8168_private *tp = netdev_priv(dev);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
         u32 pci_pm_state = PCI_D0;
 #endif
+        int err;
 
         rtnl_lock();
 
-        pci_set_power_state(pdev, PCI_D0);
+        err = pci_enable_device(pdev);
+        if (err) {
+                dev_err(&pdev->dev, "Cannot enable PCI device from suspend\n");
+                goto out_unlock;
+        }
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
         pci_restore_state(pdev, &pci_pm_state);
 #else
@@ -31631,33 +31655,29 @@ out_unlock:
 
         rtnl_unlock();
 
-        return 0;
+        return err;
 }
 
-#endif /* CONFIG_PM */
-
-static int
-rtl8168_suspend_temp(struct device *dev)
-{
-       return 0;
-}
-
-static int
-rtl8168_resume_temp(struct device *dev)
-{
-       return 0;
-}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
 
 static struct dev_pm_ops rtl8168_pm_ops = {
-        .suspend = rtl8168_suspend_temp,
-        .resume = rtl8168_resume_temp,
-        .freeze = rtl8168_suspend_temp,
-        .thaw = rtl8168_resume_temp,
-        .poweroff = rtl8168_suspend_temp,
-        .restore = rtl8168_resume_temp,
+        .suspend = rtl8168_suspend,
+        .resume = rtl8168_resume,
+        .freeze = rtl8168_suspend,
+        .thaw = rtl8168_resume,
+        .poweroff = rtl8168_suspend,
+        .restore = rtl8168_resume,
 };
 
 #define RTL8168_PM_OPS       (&rtl8168_pm_ops)
+
+#endif
+
+#else /* !CONFIG_PM */
+
+#define RTL8168_PM_OPS	NULL
+
+#endif /* CONFIG_PM */
 
 static struct pci_driver rtl8168_pci_driver = {
         .name       = MODULENAME,
@@ -31668,10 +31688,13 @@ static struct pci_driver rtl8168_pci_driver = {
         .shutdown   = rtl8168_shutdown,
 #endif
 #ifdef CONFIG_PM
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
         .suspend    = rtl8168_suspend,
         .resume     = rtl8168_resume,
-#endif
+#else
         .driver.pm = RTL8168_PM_OPS,
+#endif
+#endif
 };
 
 static int __init
