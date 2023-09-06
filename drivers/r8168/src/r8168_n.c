@@ -4290,7 +4290,7 @@ rtl8168_hw_reset(struct net_device *dev)
         rtl8168_nic_reset(dev);
 }
 
-static void _rtl8168_doorbell(struct rtl8168_tx_ring *ring)
+static void rtl8168_doorbell(struct rtl8168_tx_ring *ring)
 {
         struct rtl8168_private *tp = ring->priv;
 
@@ -4298,12 +4298,6 @@ static void _rtl8168_doorbell(struct rtl8168_tx_ring *ring)
                 RTL_W8(tp, TxPoll, HPQ);
         else
                 RTL_W8(tp, TxPoll, NPQ);
-}
-
-static void rtl8168_doorbell(struct rtl8168_tx_ring *ring)
-{
-        _rtl8168_doorbell(ring);
-        _rtl8168_doorbell(ring);
 }
 
 static void rtl8168_mac_loopback_test(struct rtl8168_private *tp)
