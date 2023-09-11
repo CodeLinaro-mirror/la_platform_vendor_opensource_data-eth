@@ -82,9 +82,24 @@ static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 static ssize_t show_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, char *user_buf)
 {
-	struct net_device *net_dev = to_net_dev(dev);
-	struct ioss_interface *iface = ioss_netdev_to_iface(net_dev);
-	struct ioss_device *idev = ioss_iface_dev(iface);
+	struct net_device *net_dev = NULL;
+        struct ioss_interface *iface = NULL;
+	struct ioss_device *idev = NULL;
+
+	if (!dev)
+		return -EINVAL;
+
+	net_dev = to_net_dev(dev);
+	if (!net_dev)
+		return -EINVAL;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
 
 	return snprintf(user_buf, PAGE_SIZE, "%d\n", idev->dev.offline);
 }
@@ -92,10 +107,25 @@ static ssize_t show_suspend_ipa_offload(struct device *dev,
 static ssize_t store_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, const char *user_buf, size_t size)
 {
-	struct net_device *net_dev = to_net_dev(dev);
-	struct ioss_interface *iface = ioss_netdev_to_iface(net_dev);
-	struct ioss_device *idev = ioss_iface_dev(iface);
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+	struct ioss_device *idev = NULL;
 	bool input;
+
+	if (!dev)
+		return -EINVAL;
+
+	net_dev = to_net_dev(dev);
+	if (!net_dev)
+		return -EINVAL;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if (!idev)
+		return -EINVAL;
 
 	if (kstrtobool(user_buf, &input) < 0)
 		return -EINVAL;

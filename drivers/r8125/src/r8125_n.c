@@ -1105,6 +1105,128 @@ static int proc_get_temperature(struct seq_file *m, void *v)
         seq_putc(m, '\n');
         return 0;
 }
+
+void _proc_dump_desc(struct seq_file *m, void *desc_base, u32 alloc_size)
+{
+        u32 *pdword;
+        int i;
+
+        if (desc_base == NULL ||
+            alloc_size == 0)
+                return;
+
+        pdword = (u32*)desc_base;
+        for (i=0; i<(alloc_size/4); i++) {
+                if (!(i % 4))
+                        seq_printf(m, "\n%04x ", i);
+                seq_printf(m, "%08x ", pdword[i]);
+        }
+
+        seq_putc(m, '\n');
+        return;
+}
+
+static int proc_dump_rx_desc(struct seq_file *m, void *v)
+{
+        struct net_device *dev = m->private;
+        struct rtl8125_private *tp = netdev_priv(dev);
+        struct rtl8125_rx_ring *ring = &tp->rx_ring[0];
+
+        if (!ring)
+                return -EOPNOTSUPP;
+
+        rtnl_lock();
+
+        seq_printf(m, "\ndump rx desc:%d\n", ring->num_rx_desc);
+
+        _proc_dump_desc(m, (void*)ring->RxDescArray, ring->RxDescAllocSize);
+
+#ifdef ENABLE_LIB_SUPPORT
+        if (rtl8125_num_lib_rx_rings(tp) > 0) {
+                int i;
+
+                for (i = 0; i < tp->HwSuppNumRxQueues; i++) {
+                        struct rtl8125_ring *lib_ring = &tp->lib_rx_ring[i];
+                        if(lib_ring->enabled) {
+                                seq_printf(m, "\ndump lib rx %d desc:%d\n", i,
+                                           lib_ring->ring_size);
+                                _proc_dump_desc(m, (void*)lib_ring->desc_addr,
+                                                lib_ring->desc_size);
+                        }
+                }
+        }
+#endif //ENABLE_LIB_SUPPORT
+
+        rtnl_unlock();
+
+        seq_putc(m, '\n');
+        return 0;
+}
+
+static int proc_dump_tx_desc(struct seq_file *m, void *v)
+{
+        struct net_device *dev = m->private;
+        struct rtl8125_private *tp = netdev_priv(dev);
+        struct rtl8125_tx_ring *ring = &tp->tx_ring[0];
+
+        if (!ring)
+                return -EOPNOTSUPP;
+
+        rtnl_lock();
+
+        seq_printf(m, "\ndump tx desc:%d\n", ring->num_tx_desc);
+
+        _proc_dump_desc(m, (void*)ring->TxDescArray, ring->TxDescAllocSize);
+
+#ifdef ENABLE_LIB_SUPPORT
+        if (rtl8125_num_lib_tx_rings(tp) > 0) {
+                int i;
+
+                for (i = 0; i < tp->HwSuppNumTxQueues; i++) {
+                        struct rtl8125_ring *lib_ring = &tp->lib_tx_ring[i];
+                        if(lib_ring->enabled) {
+                                seq_printf(m, "\ndump lib tx %d desc:%d\n", i,
+                                           lib_ring->ring_size);
+                                _proc_dump_desc(m, (void*)lib_ring->desc_addr,
+                                                lib_ring->desc_size);
+                        }
+                }
+        }
+#endif //ENABLE_LIB_SUPPORT
+
+        rtnl_unlock();
+
+        seq_putc(m, '\n');
+        return 0;
+}
+
+static int proc_dump_msix_tbl(struct seq_file *m, void *v)
+{
+        int i;
+        struct net_device *dev = m->private;
+        struct rtl8125_private *tp = netdev_priv(dev);
+
+        rtnl_lock();
+
+        seq_printf(m, "\ndump MSI-X Table. Total Entry %d. \n", tp->max_irq_nvecs);
+
+        for (i=0; i<tp->max_irq_nvecs; i++) {
+                seq_printf(m, "\n%04x ", i);
+                seq_printf(m, "%08x ", rtl8125_eri_read(tp, i*0x10, 4,
+                                                        ERIAR_MSIX));
+                seq_printf(m, "%08x ", rtl8125_eri_read(tp, i*0x10 + 4, 4,
+                                                        ERIAR_MSIX));
+                seq_printf(m, "%08x ", rtl8125_eri_read(tp, i*0x10 + 8, 4,
+                                                        ERIAR_MSIX));
+                seq_printf(m, "%08x ", rtl8125_eri_read(tp, i*0x10 + 12, 4,
+                                                        ERIAR_MSIX));
+        }
+
+        rtnl_unlock();
+
+        seq_putc(m, '\n');
+        return 0;
+}
 #else
 
 static int proc_get_driver_variable(char *page, char **start,
@@ -1742,7 +1864,177 @@ static int proc_get_temperature(char *page, char **start,
         *eof = 1;
         return len;
 }
-#endif
+
+void _proc_dump_desc(char *page, int *page_len, int *count, void *desc_base,
+                     u32 alloc_size)
+{
+        u32 *pdword;
+        int i;
+
+        if (desc_base == NULL ||
+            alloc_size == 0)
+                return;
+
+        len = *page_len;
+        pdword = (u32*)desc_base;
+        for (i =0; i<(alloc_size/4); i++) {
+                if (!(i % 4))
+                        len += snprintf(page + len, *count - len,
+                                        "\n%04x ",
+                                        i);
+                len += snprintf(page + len, *count - len,
+                                "%08x ",
+                                pdword[i]);
+        }
+
+        len += snprintf(page + len, *count - len, "\n");
+
+        *page_len = len;
+        return;
+}
+
+static int proc_dump_rx_desc(char *page, char **start,
+                             off_t offset, int count,
+                             int *eof, void *data)
+{
+        int len = 0;
+        struct net_device *dev = data;
+        struct rtl8125_private *tp = netdev_priv(dev);
+        struct rtl8125_rx_ring *ring = &tp->rx_ring[0];
+
+        if (!ring)
+                return -EOPNOTSUPP;
+
+        rtnl_lock();
+
+        len += snprintf(page + len, count - len,
+                        "\ndump rx desc:%d",
+                        ring->num_rx_desc);
+
+        _proc_dump_desc(page, &len, &count,
+                        ring->RxDescArray,
+                        ring->RxDescAllocSize);
+
+#ifdef ENABLE_LIB_SUPPORT
+        if (rtl8125_num_lib_rx_rings(tp) > 0) {
+                int i;
+
+                for (i = 0; i < tp->HwSuppNumRxQueues; i++) {
+                        struct rtl8125_ring *lib_ring = &tp->lib_rx_ring[i];
+                        if(lib_ring->enabled) {
+                                len += snprintf(page + len, count - len,
+                                                "\ndump lib rx %d desc:%d",
+                                                i,
+                                                ring->ring_size);
+                                _proc_dump_desc(page, &len, &count,
+                                                (void*)lib_ring->desc_addr,
+                                                lib_ring->desc_size);
+                        }
+                }
+        }
+#endif //ENABLE_LIB_SUPPORT
+
+        rtnl_unlock();
+
+        len += snprintf(page + len, count - len, "\n");
+
+        *eof = 1;
+
+        return len;
+}
+
+static int proc_dump_tx_desc(char *page, char **start,
+                             off_t offset, int count,
+                             int *eof, void *data)
+{
+        int len = 0;
+        struct net_device *dev = data;
+        struct rtl8125_private *tp = netdev_priv(dev);
+        struct rtl8125_tx_ring *ring = &tp->tx_ring[0];
+
+        if (!ring)
+                return -EOPNOTSUPP;
+
+        rtnl_lock();
+
+        len += snprintf(page + len, count - len,
+                        "\ndump tx desc:%d",
+                        ring->num_tx_desc);
+
+        _proc_dump_desc(page, &len, &count,
+                        ring->TxDescArray,
+                        ring->TxDescAllocSize);
+
+#ifdef ENABLE_LIB_SUPPORT
+        if (rtl8125_num_lib_tx_rings(tp) > 0) {
+                int i;
+
+                for (i = 0; i < tp->HwSuppNumTxQueues; i++) {
+                        struct rtl8125_ring *lib_ring = &tp->lib_tx_ring[i];
+                        if(lib_ring->enabled) {
+                                len += snprintf(page + len, count - len,
+                                                "\ndump lib tx %d desc:%d",
+                                                i,
+                                                ring->ring_size);
+                                _proc_dump_desc(page, &len, &count,
+                                                (void*)lib_ring->desc_addr,
+                                                lib_ring->desc_size);
+                        }
+                }
+        }
+#endif //ENABLE_LIB_SUPPORT
+
+        rtnl_unlock();
+
+        len += snprintf(page + len, count - len, "\n");
+
+        *eof = 1;
+
+        return len;
+}
+
+static int proc_dump_msix_tbl(char *page, char **start,
+                              off_t offset, int count,
+                              int *eof, void *data)
+{
+        int i;
+        int len = 0;
+        struct net_device *dev = data;
+        struct rtl8125_private *tp = netdev_priv(dev);
+
+        rtnl_lock();
+
+        len += snprintf(page + len, count - len,
+                        "\ndump MSI-X Table. Total Entry %d. \n",
+                        tp->max_irq_nvecs);
+
+        for (i=0; i<tp->max_irq_nvecs; i++) {
+                seq_printf(m, "\n%04x ", i);
+                len += snprintf(page + len, count - len,
+                                "\n%04x ", i);
+                len += snprintf(page + len, count - len,
+                                "%08x ", rtl8125_eri_read(tp, i*0x10, 4,
+                                                ERIAR_MSIX));
+                len += snprintf(page + len, count - len,
+                                "%08x ", rtl8125_eri_read(tp, i*0x10 + 4, 4,
+                                                ERIAR_MSIX));
+                len += snprintf(page + len, count - len,
+                                "%08x ", rtl8125_eri_read(tp, i*0x10 + 8, 4,
+                                                ERIAR_MSIX));
+                len += snprintf(page + len, count - len,
+                                "%08x ", rtl8125_eri_read(tp, i*0x10 + 12, 4,
+                                                ERIAR_MSIX));
+        }
+
+        rtnl_unlock();
+
+        len += snprintf(page + len, count - len, "\n");
+
+        *eof = 1;
+        return 0;
+}
+#endif //LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
+
 static void rtl8125_proc_module_init(void)
 {
         //create /proc/net/r8125
@@ -1810,6 +2102,9 @@ static const struct rtl8125_proc_file rtl8125_proc_files[] = {
         { "ext_regs", &proc_get_extended_registers },
         { "pci_regs", &proc_get_pci_registers },
         { "temp", &proc_get_temperature },
+        { "tx_desc", &proc_dump_tx_desc },
+        { "rx_desc", &proc_dump_rx_desc },
+        { "msix_tbl", &proc_dump_msix_tbl },
         { "", NULL }
 };
 
