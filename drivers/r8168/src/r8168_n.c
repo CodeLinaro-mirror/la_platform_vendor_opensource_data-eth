@@ -29082,8 +29082,8 @@ rtl8168_hw_config(struct net_device *dev)
                         set_offset711(tp, 0x04);
 
                 rtl8168_eri_write(tp, 0xC8, 4, 0x00080002, ERIAR_ExGMAC);
-                rtl8168_eri_write(tp, 0xCC, 1, 0x38, ERIAR_ExGMAC);
-                rtl8168_eri_write(tp, 0xD0, 1, 0x48, ERIAR_ExGMAC);
+                rtl8168_eri_write(tp, 0xCC, 1, 0x60, ERIAR_ExGMAC);
+                rtl8168_eri_write(tp, 0xD0, 1, 0x70, ERIAR_ExGMAC);
                 rtl8168_eri_write(tp, 0xE8, 4, 0x00100006, ERIAR_ExGMAC);
 
                 RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | BIT_7);
