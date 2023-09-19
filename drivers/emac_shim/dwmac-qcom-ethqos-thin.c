@@ -609,6 +609,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	ETHQOSINFO("Start\n");
 
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
+	place_marker("M - Ethernet probe start");
+#endif
+
 #if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
 	qcom_ethmsgq_init(&pdev->dev);
 #endif
@@ -623,10 +627,6 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	}
 	if (of_device_is_compatible(np, "qcom,emac-smmu-embedded"))
 		return emac_emb_smmu_cb_probe(pdev);
-
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	place_marker("M - Ethernet probe start");
-#endif
 
 	ipc_emac_log_ctxt = ipc_log_context_create(IPCLOG_STATE_PAGES,
 						   "emac", 0);
@@ -731,9 +731,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		goto err_fe;
 	}
 
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 	place_marker("M - Ethernet probe end");
 #endif
+
 	ETHQOSINFO("End\n");
 	return 0;
 
@@ -811,6 +812,9 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct stmmac_priv *priv = NULL;
 	int ret = 0;
 
+#ifdef CONFIG_MSM_GVM_BOOT_TIME_MARKER
+	update_marker("M - Ethernet Suspend start");
+#endif
 	ETHQOSINFO("Enter Suspend\n");
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded")) {
 		ETHQOSDBG("smmu return\n");
@@ -851,6 +855,9 @@ unregister:
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_SUSPEND);
 
 	priv->boot_kpi = false;
+#ifdef CONFIG_MSM_GVM_BOOT_TIME_MARKER
+	update_marker("M - Ethernet Suspend End");
+#endif
 	ETHQOSINFO("Suspend ret = %d\n", ret);
 	return ret;
 }
@@ -862,6 +869,10 @@ static int qcom_ethqos_resume(struct device *dev)
 	int ret;
 
 	ETHQOSDBG("Resume Enter\n");
+#ifdef CONFIG_MSM_GVM_BOOT_TIME_MARKER
+	update_marker("M - Ethernet Resume start");
+#endif
+
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded"))
 		return 0;
 
@@ -879,6 +890,10 @@ static int qcom_ethqos_resume(struct device *dev)
 
 	ret = emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,
 					     (void *)ethqos);
+
+#ifdef CONFIG_MSM_GVM_BOOT_TIME_MARKER
+	update_marker("M - Ethernet Resume End");
+#endif
 	ETHQOSDBG("emac_ctrl_fe_register_ready_cb return %d\n", ret);
 
 	ETHQOSINFO("Waiting for HW_UP event to resume driver\n");
