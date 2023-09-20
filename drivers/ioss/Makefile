@@ -11,13 +11,14 @@ ioss-y := \
 	ioss_bus.o \
 	ioss_pci.o \
 	ioss_net.o \
-	ioss_debugfs.o \
 	ioss_of.o \
 	ioss_ipa.o \
 	ioss_ipa_hal.o \
 	ioss_mem.o \
 	ioss_utils.o \
 	ioss_platform.o
+
+ioss-$(CONFIG_DEBUG_FS) += ioss_debugfs.o
 
 KBUILD_OPTIONS+=KBUILD_DTC_INCLUDE=$(KP_MODULE_ROOT)
 KBUILD_OPTIONS+=CONFIG_IOSS=m

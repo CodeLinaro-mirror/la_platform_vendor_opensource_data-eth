@@ -7,7 +7,6 @@
 
 #include "ioss_i.h"
 
-#if IS_ENABLED(CONFIG_DEBUG_FS)
 static struct dentry *root_dir;
 static struct dentry *devices_dir;
 
@@ -43,7 +42,6 @@ void ioss_debugfs_exit(void)
 	root_dir = NULL;
 	devices_dir = NULL;
 }
-#endif
 
 static int get_idev_statistics(struct ioss_device *idev,
 		struct ioss_device_stats *stats)
@@ -418,7 +416,6 @@ static const struct file_operations fops_ch_stat = {
 	.llseek = default_llseek,
 };
 
-#if IS_ENABLED(CONFIG_DEBUG_FS)
 int ioss_debugfs_add_idev(struct ioss_device *idev)
 {
 	struct dentry *statistics;
@@ -512,5 +509,4 @@ void ioss_debugfs_remove_channel(struct ioss_channel *ch)
 	debugfs_remove_recursive(ch->debugfs);
 	ch->debugfs = NULL;
 }
-#endif
 
