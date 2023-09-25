@@ -685,9 +685,16 @@ EXPORT_SYMBOL(rtl8125_rss_reset);
 
 struct net_device *rtl8125_get_netdev(struct device *dev)
 {
-        struct pci_dev *pdev = to_pci_dev(dev);
+        struct pci_dev *pdev = NULL;
 
-        /* Get device private data from @dev */
+	if(!dev)
+		return -EINVAL;
+
+	pdev = to_pci_dev(dev);
+	if (!pdev)
+		return -EINVAL;
+
+	/* Get device private data from @dev */
         /* Retrieve struct net_device * from device private data */
 
         return pci_get_drvdata(pdev);
