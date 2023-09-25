@@ -60,7 +60,6 @@ extern unsigned long ioss_api_ver;
 
 #ifdef LLCC_ENABLE
 extern struct ioss_mem_allocator ioss_llcc_alctr;
-bool ioss_of_parse_llcc(struct ioss_device *idev);
 #endif
 
 int ioss_pci_start(struct ioss *ioss);
