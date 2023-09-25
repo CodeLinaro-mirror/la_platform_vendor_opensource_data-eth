@@ -48,7 +48,11 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	si->is_transfer_ring_valid = true;
 	si->transfer_ring_base = desc_mem->daddr;
 	si->transfer_ring_sgt = &desc_mem->sgt;
-	si->transfer_ring_size = desc_mem->size;
+
+	if (ch->multi_rx_queues)
+		si->transfer_ring_size = desc_mem->size*2;
+	else
+		si->transfer_ring_size = desc_mem->size;
 
 	si->data_buff_list_size = ch->config.ring_size;
 	si->data_buff_list = sm = kcalloc(si->data_buff_list_size,

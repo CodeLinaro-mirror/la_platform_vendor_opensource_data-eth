@@ -319,6 +319,7 @@ struct ioss_channel {
 	bool enabled;
 
 	void *ioss_priv;
+	int multi_rx_queues;
 };
 
 struct ioss_device {
@@ -498,6 +499,9 @@ static inline int ioss_channel_add_mem(
 	imem->addr = addr;
 	imem->daddr = daddr;
 	imem->size = size;
+
+	if (ch->multi_rx_queues)
+		size *=2;
 
 	if (dma_get_sgtable(real_dev, &imem->sgt, addr, daddr, size)) {
 		kfree(imem);
