@@ -3021,6 +3021,8 @@ int stmmac_resume(struct device *dev)
 
 	stmmac_reset_queues_param(priv);
 
+	dma_free_tx_skbufs(priv);
+
 	stmmac_clear_descriptors(priv);
 
 	stmmac_hw_setup(ndev);
