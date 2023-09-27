@@ -141,8 +141,8 @@ const char *ioss_if_state_name(enum ioss_interface_state state)
 }
 
 static const char * const ioss_ch_dirs[IOSS_CH_DIR_MAX] = {
-	[IOSS_CH_DIR_RX] = "`RX`",
-	[IOSS_CH_DIR_TX] = "`TX`",
+	[IOSS_CH_DIR_RX] = "RX",
+	[IOSS_CH_DIR_TX] = "TX",
 };
 
 const char *ioss_ch_dir_name(enum ioss_channel_dir dir)
