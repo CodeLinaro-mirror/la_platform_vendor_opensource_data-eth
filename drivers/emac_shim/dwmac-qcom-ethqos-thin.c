@@ -194,6 +194,10 @@ static void emac_fe_ev_wq(struct work_struct *work)
 				    !stmmac_resume(priv->device))
 					ETHQOSINFO("resume on HW up\n");
 				ethqos->suspended = false;
+				if (priv->prio) {
+					priv->filter_type = PRIORITY_FILTER;
+					priv->add_filter(priv->dev);
+				}
 			} else if (priv->dev_opened &&
 				   !priv->dev_inited) {
 				ETHQOSINFO("init driver on HW up\n");
