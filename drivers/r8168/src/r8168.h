@@ -1164,6 +1164,8 @@ enum RTL8168_registers {
         RSS_KEY_8168    = 0x90,
         RSS_CTRL_8168   = 0xB8,
         Q_NUM_CTRL_8168 = 0xC0,
+	/* MAC OCP */
+	EEE_TXIDLE_TIMER_8168   = 0xe048,
 };
 
 enum RTL8168_register_content {

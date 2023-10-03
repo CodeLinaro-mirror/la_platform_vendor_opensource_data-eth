@@ -6801,6 +6801,24 @@ static int _kc_ethtool_op_set_sg(struct net_device *dev, u32 data)
 }
 #endif
 
+static void
+rtl8168_set_eee_lpi_timer(struct rtl8168_private *tp)
+{
+        u16 dev_lpi_timer;
+
+        dev_lpi_timer = tp->eee.tx_lpi_timer;
+
+        switch (tp->mcfg) {
+        case CFG_METHOD_29:
+        case CFG_METHOD_30:
+        case CFG_METHOD_35:
+                rtl8168_mac_ocp_write(tp, EEE_TXIDLE_TIMER_8168, dev_lpi_timer);
+                break;
+        default:
+                break;
+        }
+}
+
 static int rtl8168_enable_eee(struct rtl8168_private *tp)
 {
         int ret;
@@ -7358,21 +7376,19 @@ rtl8168_support_eee(struct rtl8168_private *tp)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
 static u32
-rtl8168_tx_lpi_timer_to_us(struct rtl8168_private *tp , u32 tx_lpi_timer)
+rtl8168_device_lpi_t_to_ethtool_lpi_t(struct rtl8168_private *tp , u32 lpi_timer)
 {
         u32 to_us;
         u8 status;
 
-        //Giga: tx_lpi_timer * 8ns
-        //100M : tx_lpi_timer * 80ns
         to_us = 0;
         status = RTL_R8(tp, PHYstatus);
         if (status & LinkStatus) {
                 /*link on*/
                 if (status & _1000bpsF)
-                        to_us = tx_lpi_timer * 8;
+                        to_us = lpi_timer * 8;
                 else if (status & _100bps)
-                        to_us = tx_lpi_timer * 80;
+                        to_us = lpi_timer * 80;
         }
 
         //ns to us
@@ -7402,16 +7418,15 @@ rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
         supported = eee->supported;
 
         /* Get advertisement EEE */
-        rtl8168_mdio_write(tp, 0x1F, 0x0A5D);
-        val = rtl8168_mdio_read(tp, 0x10);
-        adv = mmd_eee_adv_to_ethtool_adv_t(val);
+        adv = eee->advertised;
 
         /* Get LP advertisement EEE */
+        rtl8168_mdio_write(tp, 0x1F, 0x0A5D);
         val = rtl8168_mdio_read(tp, 0x11);
         lp = mmd_eee_adv_to_ethtool_adv_t(val);
 
         /* Get EEE Tx LPI timer*/
-        tx_lpi_timer = rtl8168_eri_read(tp, 0x1B8, 2, ERIAR_ExGMAC);
+        tx_lpi_timer = rtl8168_device_lpi_t_to_ethtool_lpi_t(tp, eee->tx_lpi_timer);
 
         val = rtl8168_eri_read(tp, 0x1B0, 2, ERIAR_ExGMAC);
         val &= BIT_1 | BIT_0;
@@ -7424,7 +7439,7 @@ rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
         edata->advertised = adv;
         edata->lp_advertised = lp;
         edata->tx_lpi_enabled = edata->eee_enabled;
-        edata->tx_lpi_timer = rtl8168_tx_lpi_timer_to_us(tp, tx_lpi_timer);
+        edata->tx_lpi_timer = tx_lpi_timer;
 
         return 0;
 }
@@ -7456,15 +7471,6 @@ rtl_ethtool_set_eee(struct net_device *net, struct ethtool_eee *edata)
                 goto out;
         }
 
-        if (edata->tx_lpi_enabled) {
-                if (edata->tx_lpi_timer && (edata->tx_lpi_timer > tp->max_jumbo_frame_size ||
-                                            edata->tx_lpi_timer < ETH_MIN_MTU)) {
-                        dev_printk(KERN_WARNING, tp_to_dev(tp), "Valid LPI timer range is %d to %d. \n",
-                                   ETH_MIN_MTU, tp->max_jumbo_frame_size);
-                        rc = -EINVAL;
-                        goto out;
-                }
-        }
 
         advertising = tp->advertising;
         if (!edata->advertised) {
@@ -7483,12 +7489,8 @@ rtl_ethtool_set_eee(struct net_device *net, struct ethtool_eee *edata)
                 goto out;
         }
 
-        //tp->eee.eee_enabled = edata->eee_enabled;
-        //tp->eee_adv_t = ethtool_adv_to_mmd_eee_adv_t(edata->advertised);
 
         eee->advertised = edata->advertised;
-        eee->tx_lpi_enabled = edata->tx_lpi_enabled;
-        eee->tx_lpi_timer = edata->tx_lpi_timer;
         eee->eee_enabled = edata->eee_enabled;
 
         if (eee->eee_enabled)
@@ -26159,7 +26161,8 @@ err1:
                 eee->supported  = SUPPORTED_100baseT_Full |
                                   SUPPORTED_1000baseT_Full;
                 eee->advertised = mmd_eee_adv_to_ethtool_adv_t(MDIO_EEE_1000T | MDIO_EEE_100TX);
-                eee->tx_lpi_timer = 0x600;
+		eee->tx_lpi_enabled = eee_enable;
+                eee->tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
         }
 
 #ifdef ENABLE_FIBER_SUPPORT
@@ -28638,6 +28641,7 @@ rtl8168_hw_config(struct net_device *dev)
                 RTL_W8(tp, 0xF1, RTL_R8(tp, 0xF1) & ~BIT_7);
                 rtl8168_hw_aspm_clkreq_enable(tp, false);
         }
+	rtl8168_set_eee_lpi_timer(tp);
 
         //clear io_rdy_l23
         switch (tp->mcfg) {
@@ -29668,6 +29672,7 @@ rtl8168_change_mtu(struct net_device *dev,
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 
         dev->mtu = new_mtu;
+	tp->eee.tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
 
         if (!netif_running(dev))
                 goto out;
