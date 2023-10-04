@@ -1632,6 +1632,17 @@ enum bits {
         BIT_31 = (1 << 31)
 };
 
+#define RTL8125_CP_NUM 4
+#define RTL8125_MAX_SUPPORT_cp_len 110
+
+enum rtl8125_cp_status {
+        rtl8125_cp_normal = 0,
+        rtl8125_cp_short,
+        rtl8125_cp_open,
+        rtl8125_cp_mismatch,
+        rtl8125_cp_unknown
+};
+
 enum effuse {
         EFUSE_NOT_SUPPORT = 0,
         EFUSE_SUPPORT_V1,
@@ -2306,6 +2317,8 @@ struct rtl8125_private {
 #ifdef ENABLE_R8125_PROCFS
         //Procfs support
         struct proc_dir_entry *proc_dir;
+        struct proc_dir_entry *proc_dir_debug;
+        struct proc_dir_entry *proc_dir_test;
 #endif
         u8 InitRxDescType;
         u16 RxDescLength; //V1 16 Byte V2 32 Bytes
