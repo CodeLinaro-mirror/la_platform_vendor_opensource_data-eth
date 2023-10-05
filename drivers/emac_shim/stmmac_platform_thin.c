@@ -181,12 +181,12 @@ stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
 	if (!plat)
 		return ERR_PTR(-ENOMEM);
 
-	*mac = of_get_mac_address(np);
-	if (IS_ERR(*mac)) {
-		if (PTR_ERR(*mac) == -EPROBE_DEFER)
-			return ERR_CAST(*mac);
+	rc = (char ) of_get_mac_address(np, (u8 *) (*mac));
+	if (rc) {
+			if (rc == -EPROBE_DEFER)
+					return ERR_PTR(rc);
 
-		*mac = NULL;
+			*mac = NULL;
 	}
 
 	of_property_read_u32(np, "tx-fifo-depth", &plat->tx_fifo_size);

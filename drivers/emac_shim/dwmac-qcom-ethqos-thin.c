@@ -13,7 +13,6 @@
 
 #include <linux/slab.h>
 #include <linux/poll.h>
-#include <linux/dma-iommu.h>
 #include <linux/iommu.h>
 
 #include <linux/etherdevice.h>
