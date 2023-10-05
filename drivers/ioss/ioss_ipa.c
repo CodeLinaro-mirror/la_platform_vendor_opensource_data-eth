@@ -98,6 +98,11 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	return 0;
 }
 
+static void ioss_ipa_clear_pipe_info(struct ipa_eth_client_pipe_info *pi) {
+	struct ipa_eth_pipe_setup_info *si = &pi->info;
+	kfree(si->data_buff_list);
+}
+
 #if IPA_ETH_API_VER < 2
 static void ioss_ipa_fill_eth_hdrs(struct ioss_interface *iface)
 {
@@ -393,6 +398,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 
 		ch->event.paddr = 0;
 		ch->event.data = 0;
+		ioss_ipa_clear_pipe_info(&cp->ipa_pi);
 
 		memset(&cp->ipa_pi, 0, sizeof(cp->ipa_pi));
 	}
