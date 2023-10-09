@@ -10871,7 +10871,7 @@ rtl8125_hw_config(struct net_device *dev)
         struct pci_dev *pdev = tp->pci_dev;
         u16 mac_ocp_data;
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8125_disable_rx_packet_filter(tp);
 
         rtl8125_hw_reset(dev);
 
