@@ -24,13 +24,13 @@ static int ioss_parse_dt(struct ioss *ioss)
 		return -EFAULT;
 
 	rc  = of_property_read_u32(node,
-			"qcom,max-ddr-bandwidth", &ioss->max_ddr_bandwidth);
+			"qcom,line_rate_for_llcc", &ioss->line_rate_for_llcc);
 	if (rc)
 		ioss_log_dbg(NULL, "No DDR bandwidth limit specified in DT");
 
-	if (ioss->max_ddr_bandwidth)
+	if (ioss->line_rate_for_llcc)
 		ioss_log_dbg(NULL, "DDR bandwidth limit set to %u",
-				ioss->max_ddr_bandwidth);
+				ioss->line_rate_for_llcc);
 
 	return 0;
 }

@@ -148,7 +148,7 @@ extern struct device_type ioss_iface_type;
 
 /* IOSS platform node */
 struct ioss {
-	u32 max_ddr_bandwidth;
+	u32 line_rate_for_llcc;
 	struct workqueue_struct *wq;
 	struct platform_device *pdev;
 
@@ -243,8 +243,8 @@ struct ioss_mem_allocator {
 			void *addr, dma_addr_t daddr,
 			struct ioss_mem_allocator *alctr);
 
-	size_t (*get)(size_t size);
-	void (*put)(size_t size);
+	size_t (*get)(void);
+	void (*put)(void);
 
 	/* IOSS internal */
 	struct ioss *iroot;
@@ -332,6 +332,7 @@ struct ioss_device {
 	void *private;
 
 	bool unbinding;
+	bool llcc_enabled;
 
 	struct {
 		u64 apps_suspend;
