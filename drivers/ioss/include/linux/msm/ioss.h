@@ -186,6 +186,7 @@ struct ioss_interface {
 	struct net_device_ops netdev_ops;
 	const struct net_device_ops *netdev_ops_real;
 	bool auto_resume_disabled;
+	bool is_pci_device;
 };
 
 #define to_ioss_interface(device) \

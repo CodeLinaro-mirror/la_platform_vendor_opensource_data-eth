@@ -136,6 +136,9 @@ static int ioss_of_parse_v2(struct ioss_device *idev, struct device_node *np)
 		}
 	}
 
+	if(of_property_read_bool(np, "pci_device"))
+		iface->is_pci_device = true;
+
 	if (!!of_find_property(np, "qcom,ioss-wol-phy", NULL))
 		idev->wol.wolopts |= WAKE_PHY;
 
