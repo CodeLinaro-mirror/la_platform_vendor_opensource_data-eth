@@ -77,6 +77,11 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 		goto err;
 	}
 
+	if (of_find_property(np, "qcom,multi_rx_queues", NULL))
+		ch->multi_rx_queues = 1;
+	else
+		ch->multi_rx_queues = 0;
+
 	if (!!of_find_property(np, "qcom,rx-filter-be", NULL))
 		ch->filter_types |= IOSS_RXF_F_BE;
 
