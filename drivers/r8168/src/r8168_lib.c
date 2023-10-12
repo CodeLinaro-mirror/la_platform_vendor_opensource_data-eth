@@ -38,6 +38,9 @@
 #include "r8168.h"
 #include "r8168_lib.h"
 
+void __iomem * db_tx;
+void __iomem * db_rx;
+
 static void
 rtl8168_map_to_asic(struct rtl8168_private *tp,
                     struct rtl8168_ring *ring,
@@ -314,6 +317,8 @@ struct rtl8168_ring *rtl8168_request_ring(struct net_device *ndev,
         struct rtl8168_private *tp = netdev_priv(ndev);
         struct rtl8168_ring * ring = 0;
 
+        rtnl_lock();
+
         if (direction == RTL8168_CH_DIR_TX)
                 ring = rtl8168_get_tx_ring(tp);
         else if (direction == RTL8168_CH_DIR_RX)
@@ -331,8 +336,6 @@ struct rtl8168_ring *rtl8168_request_ring(struct net_device *ndev,
                 goto error_put_ring;
 
         /* initialize descriptors to point to buffers allocated */
-        rtnl_lock();
-
         if (direction == RTL8168_CH_DIR_TX)
                 rtl8168_init_tx_ring(ring);
         else if (direction == RTL8168_CH_DIR_RX)
@@ -345,32 +348,10 @@ struct rtl8168_ring *rtl8168_request_ring(struct net_device *ndev,
 error_put_ring:
         rtl8168_put_ring(ring);
 error_out:
+        rtnl_unlock();
         return NULL;
 }
 EXPORT_SYMBOL(rtl8168_request_ring);
-
-static int rtl8168_all_ring_released(struct rtl8168_private *tp)
-{
-        int i;
-        int released = 0;
-
-        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_tx_ring[i];
-                if (ring->allocated)
-                        goto exit;
-        }
-
-        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_rx_ring[i];
-                if (ring->allocated)
-                        goto exit;
-        }
-
-        released = 1;
-
-exit:
-        return released;
-}
 
 void rtl8168_release_ring(struct rtl8168_ring *ring)
 {
@@ -381,20 +362,20 @@ void rtl8168_release_ring(struct rtl8168_ring *ring)
 
         tp = ring->private;
 
+        rtnl_lock();
+
         rtl8168_free_ring_mem(ring);
         rtl8168_put_ring(ring);
-        if (rtl8168_all_ring_released(tp)) {
+        if (rtl8168_lib_all_ring_released(tp)) {
                 struct net_device *dev = tp->dev;
-
-                rtnl_lock();
 
                 if (netif_running(dev)) {
                         rtl8168_close(dev);
                         rtl8168_open(dev);
                 }
-
-                rtnl_unlock();
         }
+
+        rtnl_unlock();
 }
 EXPORT_SYMBOL(rtl8168_release_ring);
 
@@ -476,8 +457,9 @@ void rtl8168_disable_ring(struct rtl8168_ring *ring)
 EXPORT_SYMBOL(rtl8168_disable_ring);
 
 int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
-                          dma_addr_t addr, u64 data)
+                          dma_addr_t addr, u64 data, phys_addr_t paddr)
 {
+        void __iomem *doorbell;
         struct rtl8168_private *tp;
         struct pci_dev *pdev;
         u32 message_id;
@@ -485,17 +467,30 @@ int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
         if (!ring)
                 return -EINVAL;
 
+        if (!(ring->direction == RTL8168_CH_DIR_TX ||
+              ring->direction == RTL8168_CH_DIR_RX))
+                return -EINVAL;
+
         if (ring->event.allocated)
                 return -EEXIST;
 
+        /* map doorbell address */
+        doorbell = ioremap(paddr, sizeof(data));
+        if (!doorbell)
+                return -EIO ;
+
         if (ring->direction == RTL8168_CH_DIR_TX) {
+                db_tx = doorbell;
+
                 /*
-                 * IPA tx interrupt is handled by sw path. But if driver
-                 * return non-zero here, IPA will fail to init.
-                 */
+                * IPA tx interrupt is handled by sw path. But if driver
+                * return non-zero here, IPA will fail to init.
+                */
                 message_id = 0;
+
                 goto out;
-        }
+        } else
+                db_rx = doorbell;
 
         message_id = ring->queue_num;
 
@@ -533,6 +528,7 @@ EXPORT_SYMBOL(rtl8168_request_event);
 void rtl8168_release_event(struct rtl8168_ring *ring)
 {
         struct rtl8168_private *tp;
+        void __iomem *doorbell;
         dma_addr_t addr;
         u64 data;
         u16 reg;
@@ -548,6 +544,24 @@ void rtl8168_release_event(struct rtl8168_ring *ring)
         if (!ring->event.allocated)
                 return;
 
+        /* unmap doorbell address */
+        if (ring->direction == RTL8168_CH_DIR_TX)
+                doorbell = db_tx;
+        else
+                doorbell = db_rx;
+
+        if (doorbell)
+                iounmap(doorbell);
+
+        if (ring->direction == RTL8168_CH_DIR_TX)
+                db_tx = NULL;
+        else
+                db_rx = NULL;
+
+        /*
+        * IPA tx interrupt is handled by sw path.
+        * Driver does not need to restore msix table.
+        */
         if (ring->direction == RTL8168_CH_DIR_TX)
                 goto out;
 
@@ -692,7 +706,7 @@ int rtl8168_register_notifier(struct net_device *net_dev,
 {
         struct rtl8168_private *tp = netdev_priv(net_dev);
 
-        return atomic_notifier_chain_register(&tp->lib_nh, nb);
+        return blocking_notifier_chain_register(&tp->lib_nh, nb);
 }
 EXPORT_SYMBOL(rtl8168_register_notifier);
 
@@ -701,21 +715,21 @@ int rtl8168_unregister_notifier(struct net_device *net_dev,
 {
         struct rtl8168_private *tp = netdev_priv(net_dev);
 
-        return atomic_notifier_chain_unregister(&tp->lib_nh, nb);
+        return blocking_notifier_chain_unregister(&tp->lib_nh, nb);
 }
 EXPORT_SYMBOL(rtl8168_unregister_notifier);
 
 void rtl8168_lib_reset_prepare(struct rtl8168_private *tp)
 {
-        atomic_notifier_call_chain(&tp->lib_nh,
-                                   RTL8168_NOTIFY_RESET_PREPARE, NULL);
+        blocking_notifier_call_chain(&tp->lib_nh,
+                                     RTL8168_NOTIFY_RESET_PREPARE, NULL);
 }
 EXPORT_SYMBOL(rtl8168_lib_reset_prepare);
 
 void rtl8168_lib_reset_complete(struct rtl8168_private *tp)
 {
-        atomic_notifier_call_chain(&tp->lib_nh,
-                                   RTL8168_NOTIFY_RESET_COMPLETE, NULL);
+        blocking_notifier_call_chain(&tp->lib_nh,
+                                     RTL8168_NOTIFY_RESET_COMPLETE, NULL);
 }
 EXPORT_SYMBOL(rtl8168_lib_reset_complete);
 
@@ -843,8 +857,22 @@ void rtl8168_init_lib_ring(struct rtl8168_private *tp)
 
 void rtl8168_lib_tx_interrupt(struct rtl8168_private *tp)
 {
-        if(!tp->lib_tx_ring[1].enabled)
+        if (!tp->lib_tx_ring[1].enabled)
                 return;
+
+	if (db_tx) {
+        	writel_relaxed(1, db_tx);
+	}
+}
+
+void rtl8168_lib_rx_interrupt(struct rtl8168_private *tp)
+{
+        if (!tp->lib_rx_ring[1].enabled)
+                return;
+
+	if (db_rx) {
+	        writel_relaxed(1, db_rx);
+	}
 }
 
 /*

@@ -193,193 +193,193 @@ static const struct {
 
         _R("RTL8168C/8111C",
         CFG_METHOD_4,
-        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168C/8111C",
         CFG_METHOD_5,
-        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168C/8111C",
         CFG_METHOD_6,
-        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168CP/8111CP",
         CFG_METHOD_7,
-        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168CP/8111CP",
         CFG_METHOD_8,
-        RxCfg_128_int_en | RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
+        RxCfg_fet_multi_en | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_6k),
 
         _R("RTL8168D/8111D",
         CFG_METHOD_9,
-        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
+        (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168D/8111D",
         CFG_METHOD_10,
-        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
+        (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168DP/8111DP",
         CFG_METHOD_11,
-        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
+        (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168DP/8111DP",
         CFG_METHOD_12,
-        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
+        (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168DP/8111DP",
         CFG_METHOD_13,
-        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
+        (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168E/8111E",
         CFG_METHOD_14,
-        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
+        (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168E/8111E",
         CFG_METHOD_15,
-        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
+        (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168E-VL/8111E-VL",
         CFG_METHOD_16,
-        RxCfg_128_int_en | RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e0080,
         Jumbo_Frame_9k),
 
         _R("RTL8168E-VL/8111E-VL",
         CFG_METHOD_17,
-        RxCfg_128_int_en | RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168F/8111F",
         CFG_METHOD_18,
-        RxCfg_128_int_en | RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168F/8111F",
         CFG_METHOD_19,
-        RxCfg_128_int_en | RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V1 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8411",
         CFG_METHOD_20,
-        RxCfg_128_int_en | (RX_DMA_BURST << RxCfgDMAShift),
+        (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e1880,
         Jumbo_Frame_9k),
 
         _R("RTL8168G/8111G",
         CFG_METHOD_21,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168G/8111G",
         CFG_METHOD_22,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168EP/8111EP",
         CFG_METHOD_23,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168GU/8111GU",
         CFG_METHOD_24,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168GU/8111GU",
         CFG_METHOD_25,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("8411B",
         CFG_METHOD_26,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168EP/8111EP",
         CFG_METHOD_27,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168EP/8111EP",
         CFG_METHOD_28,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168H/8111H",
         CFG_METHOD_29,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168H/8111H",
         CFG_METHOD_30,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168FP/8111FP",
         CFG_METHOD_31,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168FP/8111FP",
         CFG_METHOD_32,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168FP/8111FP",
         CFG_METHOD_33,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168FP/8111FP",
         CFG_METHOD_34,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
         _R("RTL8168H/8111H",
         CFG_METHOD_35,
-        Rx_Fetch_Number_8 | RxCfg_128_int_en | RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
+        RxEarly_off_V2 | (RX_DMA_BURST << RxCfgDMAShift),
         0xff7e5880,
         Jumbo_Frame_9k),
 
@@ -458,6 +458,11 @@ static int s0_magic_packet = 1;
 #else
 static int s0_magic_packet = 0;
 #endif
+#ifdef DISABLE_WOL_SUPPORT
+static int disable_wol_support = 1;
+#else
+static int disable_wol_support = 0;
+#endif
 
 MODULE_AUTHOR("Realtek and the Linux r8168 crew <netdev@vger.kernel.org>");
 MODULE_DESCRIPTION("RealTek RTL-8168 Gigabit Ethernet driver");
@@ -500,6 +505,9 @@ MODULE_PARM_DESC(hwoptimize, "Enable HW optimization function.");
 
 module_param(s0_magic_packet, int, 0);
 MODULE_PARM_DESC(s0_magic_packet, "Enable S0 Magic Packet.");
+
+module_param(disable_wol_support, int, 0);
+MODULE_PARM_DESC(disable_wol_support, "Disable WOL support.");
 
 module_param(dynamic_aspm_packet_threshold, int, 0);
 MODULE_PARM_DESC(dynamic_aspm_packet_threshold, "Dynamic ASPM packet threshold.");
@@ -569,11 +577,11 @@ static int rtl8168_rx_interrupt(struct net_device *, struct rtl8168_private *, s
 #ifdef CONFIG_R8168_NAPI
 static int rtl8168_poll_msix_ring(napi_ptr napi, napi_budget budget);
 static int rtl8168_poll_msix_rx(napi_ptr napi, napi_budget budget);
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,19)
 static irqreturn_t rtl8168_interrupt_msix(int irq, void *dev_instance, struct pt_regs *regs);
 #else
 static irqreturn_t rtl8168_interrupt_msix(int irq, void *dev_instance);
-#endif
 #endif
 static void rtl8168_wait_for_quiescence(struct net_device *dev);
 static int rtl8168_change_mtu(struct net_device *dev, int new_mtu);
@@ -983,17 +991,24 @@ static int proc_get_driver_variable(struct seq_file *m, void *v)
         seq_printf(m, "num_rx_desc\t0x%x\n", tp->num_rx_desc);
         seq_printf(m, "cur_rx0\t0x%x\n", tp->rx_ring[0].cur_rx);
         seq_printf(m, "dirty_rx0\t0x%x\n", tp->rx_ring[0].dirty_rx);
+        seq_printf(m, "rdu0\t0x%x\n", tp->rx_ring[0].rdu);
         seq_printf(m, "cur_rx1\t0x%x\n", tp->rx_ring[1].cur_rx);
         seq_printf(m, "dirty_rx1\t0x%x\n", tp->rx_ring[1].dirty_rx);
+        seq_printf(m, "rdu1\t0x%x\n", tp->rx_ring[1].rdu);
         seq_printf(m, "cur_rx2\t0x%x\n", tp->rx_ring[2].cur_rx);
         seq_printf(m, "dirty_rx2\t0x%x\n", tp->rx_ring[2].dirty_rx);
+        seq_printf(m, "rdu2\t0x%x\n", tp->rx_ring[2].rdu);
         seq_printf(m, "cur_rx3\t0x%x\n", tp->rx_ring[3].cur_rx);
         seq_printf(m, "dirty_rx3\t0x%x\n", tp->rx_ring[3].dirty_rx);
+        seq_printf(m, "rdu3\t0x%x\n", tp->rx_ring[3].rdu);
+        seq_printf(m, "rx_fifo_of\t0x%x\n", tp->rx_fifo_of);
         seq_printf(m, "num_tx_desc\t0x%x\n", tp->tx_ring[0].num_tx_desc);
         seq_printf(m, "cur_tx0\t0x%x\n", tp->tx_ring[0].cur_tx);
         seq_printf(m, "dirty_tx0\t0x%x\n", tp->tx_ring[0].dirty_tx);
+        seq_printf(m, "tdu0\t0x%x\n", tp->tx_ring[0].tdu);
         seq_printf(m, "cur_tx1\t0x%x\n", tp->tx_ring[1].cur_tx);
         seq_printf(m, "dirty_tx1\t0x%x\n", tp->tx_ring[1].dirty_tx);
+        seq_printf(m, "tdu1\t0x%x\n", tp->tx_ring[1].tdu);
         seq_printf(m, "rx_buf_sz\t0x%x\n", tp->rx_buf_sz);
         seq_printf(m, "esd_flag\t0x%x\n", tp->esd_flag);
         seq_printf(m, "pci_cfg_is_read\t0x%x\n", tp->pci_cfg_is_read);
@@ -1050,10 +1065,11 @@ static int proc_get_driver_variable(struct seq_file *m, void *v)
         seq_printf(m, "aspm\t0x%x\n", aspm);
         seq_printf(m, "s5wol\t0x%x\n", s5wol);
         seq_printf(m, "s5_keep_curr_mac\t0x%x\n", s5_keep_curr_mac);
-        seq_printf(m, "eee_enable\t0x%x\n", tp->eee_enabled);
+        seq_printf(m, "eee_enable\t0x%x\n", tp->eee.eee_enabled);
         seq_printf(m, "hwoptimize\t0x%lx\n", hwoptimize);
         seq_printf(m, "proc_init_num\t0x%x\n", proc_init_num);
         seq_printf(m, "s0_magic_packet\t0x%x\n", s0_magic_packet);
+        seq_printf(m, "disable_wol_support\t0x%x\n", disable_wol_support);
         seq_printf(m, "HwSuppMagicPktVer\t0x%x\n", tp->HwSuppMagicPktVer);
         seq_printf(m, "HwSuppUpsVer\t0x%x\n", tp->HwSuppUpsVer);
         seq_printf(m, "HwSuppEsdVer\t0x%x\n", tp->HwSuppEsdVer);
@@ -1465,17 +1481,24 @@ static int proc_get_driver_variable(char *page, char **start,
                         "num_rx_desc\t0x%x\n"
                         "cur_rx0\t0x%x\n"
                         "dirty_rx0\t0x%x\n"
+                        "rdu0\t0x%x\n"
                         "cur_rx1\t0x%x\n"
                         "dirty_rx1\t0x%x\n"
+                        "rdu1\t0x%x\n"
                         "cur_rx2\t0x%x\n"
                         "dirty_rx2\t0x%x\n"
+                        "rdu2\t0x%x\n"
                         "cur_rx3\t0x%x\n"
                         "dirty_rx3\t0x%x\n"
+                        "rdu3\t0x%x\n"
+                        "rx_fifo_of\t0x%x\n"
                         "num_tx_desc\t0x%x\n"
                         "cur_tx0\t0x%x\n"
                         "dirty_tx0\t0x%x\n"
+                        "tdu0\t0x%x\n"
                         "cur_tx1\t0x%x\n"
                         "dirty_tx1\t0x%x\n"
+                        "tdu0\t1x%x\n"
                         "rx_buf_sz\t0x%x\n"
                         "esd_flag\t0x%x\n"
                         "pci_cfg_is_read\t0x%x\n"
@@ -1536,6 +1559,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         "hwoptimize\t0x%lx\n"
                         "proc_init_num\t0x%x\n"
                         "s0_magic_packet\t0x%x\n"
+                        "disable_wol_support\t0x%x\n"
                         "HwSuppMagicPktVer\t0x%x\n"
                         "HwSuppUpsVer\t0x%x\n"
                         "HwSuppEsdVer\t0x%x\n"
@@ -1571,17 +1595,24 @@ static int proc_get_driver_variable(char *page, char **start,
                         tp->num_rx_desc,
                         tp->rx_ring[0].cur_rx,
                         tp->rx_ring[0].dirty_rx,
+                        tp->rx_ring[0].rdu,
                         tp->rx_ring[1].cur_rx,
                         tp->rx_ring[1].dirty_rx,
+                        tp->rx_ring[1].rdu,
                         tp->rx_ring[2].cur_rx,
                         tp->rx_ring[2].dirty_rx,
+                        tp->rx_ring[2].rdu,
                         tp->rx_ring[3].cur_rx,
                         tp->rx_ring[3].dirty_rx,
+                        tp->rx_ring[3].rdu,
+                        tp->rx_fifo_of,
                         tp->tx_ring[0].num_tx_desc,
                         tp->tx_ring[0].cur_tx,
                         tp->tx_ring[0].dirty_tx,
+                        tp->tx_ring[0].tdu,
                         tp->tx_ring[1].cur_tx,
                         tp->tx_ring[1].dirty_tx,
+                        tp->tx_ring[1].tdu,
                         tp->rx_buf_sz,
                         tp->esd_flag,
                         tp->pci_cfg_is_read,
@@ -1638,10 +1669,11 @@ static int proc_get_driver_variable(char *page, char **start,
                         aspm,
                         s5wol,
                         s5_keep_curr_mac,
-                        tp->eee_enabled,
+                        tp->eee.eee_enabled,
                         hwoptimize,
                         proc_init_num,
                         s0_magic_packet,
+                        disable_wol_support,
                         tp->HwSuppMagicPktVer,
                         tp->HwSuppUpsVer,
                         tp->HwSuppEsdVer,
@@ -3924,10 +3956,19 @@ static inline void rtl8168_clear_isr_by_vector(struct rtl8168_private *tp,
         if (message_id >= R8168_MAX_MSIX_VEC)
                 return;
 
-        if (message_id == 0)
+        if (message_id == 0) {
                 RTL_W16(tp, tp->isr_reg[0], val);
-        else
+
+                if (val & RxDescUnavail)
+                        tp->rx_ring[message_id].rdu++;
+                if (val & TxDescUnavail)
+                        tp->tx_ring[message_id].tdu++;
+        } else {
                 RTL_W8(tp, tp->isr_reg[message_id], val);
+
+                if (val & RxDU1)
+                        tp->rx_ring[message_id].rdu++;
+        }
 }
 
 static inline void rtl8168_self_clear_isr_by_vector(struct rtl8168_private *tp,
@@ -3939,6 +3980,9 @@ static inline void rtl8168_self_clear_isr_by_vector(struct rtl8168_private *tp,
                 return;
 
         val = rtl8168_get_isr_by_vector(tp, message_id);
+        if ((message_id == 0) && (val & RxFIFOOver))
+                tp->rx_fifo_of++;
+
         switch (tp->mcfg) {
         case CFG_METHOD_9:
         case CFG_METHOD_10:
@@ -4011,11 +4055,29 @@ rtl8168_enable_interrupt(struct rtl8168_private *tp)
 }
 
 static inline void
+rtl8168_enable_lib_interrupt(struct rtl8168_private *tp)
+{
+        int i;
+
+        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
+                rtl8168_enable_interrupt_by_vector(tp, i);
+}
+
+static inline void
 rtl8168_disable_interrupt(struct rtl8168_private *tp)
 {
         int i;
 
         for (i=0; i<tp->num_rx_rings; i++)
+                rtl8168_disable_interrupt_by_vector(tp, i);
+}
+
+static inline void
+rtl8168_disable_lib_interrupt(struct rtl8168_private *tp)
+{
+        int i;
+
+        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
                 rtl8168_disable_interrupt_by_vector(tp, i);
 }
 
@@ -4034,6 +4096,8 @@ rtl8168_switch_to_hw_interrupt(struct rtl8168_private *tp)
         RTL_W32(tp, TimeInt0, 0x0000);
 
         rtl8168_enable_interrupt(tp);
+
+        rtl8168_enable_lib_interrupt(tp);
 }
 
 static inline void
@@ -4227,6 +4291,8 @@ rtl8168_hw_reset(struct net_device *dev)
 {
         struct rtl8168_private *tp = netdev_priv(dev);
 
+        rtl8168_lib_reset_prepare(tp);
+
         /* Disable interrupts */
         rtl8168_irq_mask_and_ack(tp);
 
@@ -4239,8 +4305,8 @@ static void rtl8168_doorbell(struct rtl8168_tx_ring *ring)
 {
         struct rtl8168_private *tp = ring->priv;
 
-        if (R8168_MULTI_TX_Q(tp))
-                RTL_W8(tp, TxPoll, NPQ | HPQ);
+        if (ring->index > 0)
+                RTL_W8(tp, TxPoll, HPQ);
         else
                 RTL_W8(tp, TxPoll, NPQ);
 }
@@ -4431,7 +4497,7 @@ void rtl8168_init_ring_indexes(struct rtl8168_private *tp)
 
         for (i = 0; i < tp->HwSuppNumRxQueues; i++) {
                 struct rtl8168_rx_ring *ring = &tp->rx_ring[i];
-                ring->dirty_rx = tp->rx_ring[i].cur_rx = 0;
+                ring->dirty_rx = ring->cur_rx = 0;
                 ring->index = i;
                 ring->priv = tp;
         }
@@ -4636,7 +4702,7 @@ rtl8168_check_link_status(struct net_device *dev)
                                                 rtl8168_eri_write(tp, 0x1dc, 4, 0x0000003f, ERIAR_ExGMAC);
                                         }
                                 }
-                        } else if ((tp->mcfg == CFG_METHOD_14 || tp->mcfg == CFG_METHOD_15) && tp->eee_enabled == 1) {
+                        } else if ((tp->mcfg == CFG_METHOD_14 || tp->mcfg == CFG_METHOD_15) && tp->eee.eee_enabled == 1) {
                                 /*Full -Duplex  mode*/
                                 if (RTL_R8(tp, PHYstatus)&FullDup) {
                                         rtl8168_mdio_write(tp, 0x1F, 0x0006);
@@ -5419,6 +5485,9 @@ rtl8168_get_hw_wol(struct net_device *dev)
         u8 options;
         u32 csi_tmp;
 
+        if (disable_wol_support)
+                goto out;
+
         tp->wol_opts = 0;
         options = RTL_R8(tp, Config1);
         if (!(options & PMEnable))
@@ -5785,14 +5854,12 @@ rtl8168_get_wol(struct net_device *dev,
         struct rtl8168_private *tp = netdev_priv(dev);
         u8 options;
 
-        wol->wolopts = 0;
+        wol->wolopts = wol->supported = 0;
 
-        if (tp->mcfg == CFG_METHOD_DEFAULT) {
-                wol->supported = 0;
+        if (disable_wol_support)
                 return;
-        } else {
-                wol->supported = WAKE_ANY;
-        }
+
+        wol->supported = WAKE_ANY;
 
         options = RTL_R8(tp, Config1);
         if (!(options & PMEnable))
@@ -5807,7 +5874,7 @@ rtl8168_set_wol(struct net_device *dev,
 {
         struct rtl8168_private *tp = netdev_priv(dev);
 
-        if (tp->mcfg == CFG_METHOD_DEFAULT)
+        if (disable_wol_support)
                 return -EOPNOTSUPP;
 
         tp->wol_opts = wol->wolopts;
@@ -5911,7 +5978,6 @@ rtl8168_set_speed_xmii(struct net_device *dev,
                                 auto_nego |= ADVERTISE_PAUSE_CAP|ADVERTISE_PAUSE_ASYM;
                         break;
                 }
-
 
                 tp->phy_auto_nego_reg = auto_nego;
                 tp->phy_1000_ctrl_reg = giga_ctrl;
@@ -6208,7 +6274,7 @@ static int rtl8168_hw_set_features(struct net_device *dev,
         else
                 tp->cp_cmd &= ~RxChkSum;
 
-        if (dev->features & NETIF_F_HW_VLAN_RX)
+        if (features & NETIF_F_HW_VLAN_RX)
                 tp->cp_cmd |= RxVlan;
         else
                 tp->cp_cmd &= ~RxVlan;
@@ -6735,11 +6801,31 @@ static int _kc_ethtool_op_set_sg(struct net_device *dev, u32 data)
 }
 #endif
 
-static int rtl8168_enable_EEE(struct rtl8168_private *tp)
+static void
+rtl8168_set_eee_lpi_timer(struct rtl8168_private *tp)
+{
+        u16 dev_lpi_timer;
+
+        dev_lpi_timer = tp->eee.tx_lpi_timer;
+
+        switch (tp->mcfg) {
+        case CFG_METHOD_29:
+        case CFG_METHOD_30:
+        case CFG_METHOD_35:
+                rtl8168_mac_ocp_write(tp, EEE_TXIDLE_TIMER_8168, dev_lpi_timer);
+                break;
+        default:
+                break;
+        }
+}
+
+static int rtl8168_enable_eee(struct rtl8168_private *tp)
 {
         int ret;
         u16 data;
         u32 csi_tmp;
+        struct ethtool_eee *eee = &tp->eee;
+        u16 eee_adv_t = ethtool_adv_to_mmd_eee_adv_t(eee->advertised);
 
         ret = 0;
         switch (tp->mcfg) {
@@ -6834,6 +6920,8 @@ static int rtl8168_enable_EEE(struct rtl8168_private *tp)
         case CFG_METHOD_33:
         case CFG_METHOD_34:
         case CFG_METHOD_35:
+                rtl8168_eri_write(tp, 0x1B8, 2, eee->tx_lpi_timer, ERIAR_ExGMAC);
+
                 csi_tmp = rtl8168_eri_read(tp, 0x1B0, 4, ERIAR_ExGMAC);
                 csi_tmp |= BIT_1 | BIT_0;
                 rtl8168_eri_write(tp, 0x1B0, 4, csi_tmp, ERIAR_ExGMAC);
@@ -6841,7 +6929,7 @@ static int rtl8168_enable_EEE(struct rtl8168_private *tp)
                 data = rtl8168_mdio_read(tp, 0x11);
                 rtl8168_mdio_write(tp, 0x11, data | BIT_4);
                 rtl8168_mdio_write(tp, 0x1F, 0x0A5D);
-                rtl8168_mdio_write(tp, 0x10, tp->eee_adv_t);
+                rtl8168_mdio_write(tp, 0x10, eee_adv_t);
                 rtl8168_mdio_write(tp, 0x1F, 0x0000);
                 break;
 
@@ -7017,7 +7105,7 @@ static int rtl8168_enable_EEE(struct rtl8168_private *tp)
         return ret;
 }
 
-static int rtl8168_disable_EEE(struct rtl8168_private *tp)
+static int rtl8168_disable_eee(struct rtl8168_private *tp)
 {
         int ret;
         u16 data;
@@ -7275,81 +7363,148 @@ static int rtl_nway_reset(struct net_device *dev)
 
         return ret;
 }
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
-static int
-rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *eee)
+static bool
+rtl8168_support_eee(struct rtl8168_private *tp)
 {
-        struct rtl8168_private *tp = netdev_priv(net);
-        u32 lp, adv, supported = 0;
-        u16 val;
-
         switch (tp->mcfg) {
         case CFG_METHOD_21 ... CFG_METHOD_35:
-                break;
+                return 1;
         default:
-                return -EOPNOTSUPP;
+                return 0;
         }
+}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
+static u32
+rtl8168_device_lpi_t_to_ethtool_lpi_t(struct rtl8168_private *tp , u32 lpi_timer)
+{
+        u32 to_us;
+        u8 status;
+
+        to_us = 0;
+        status = RTL_R8(tp, PHYstatus);
+        if (status & LinkStatus) {
+                /*link on*/
+                if (status & _1000bpsF)
+                        to_us = lpi_timer * 8;
+                else if (status & _100bps)
+                        to_us = lpi_timer * 80;
+        }
+
+        //ns to us
+        to_us /= 1000;
+
+        return to_us;
+}
+
+static int
+rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
+{
+        struct rtl8168_private *tp = netdev_priv(net);
+        struct ethtool_eee *eee = &tp->eee;
+        u32 lp, adv, tx_lpi_timer, supported = 0;
+        u16 val;
+
+        if (!rtl8168_support_eee(tp))
+                return -EOPNOTSUPP;
 
         if (unlikely(tp->rtk_enable_diag))
                 return -EBUSY;
 
-        rtl8168_mdio_write(tp, 0x1F, 0x0A5C);
-        val = rtl8168_mdio_read(tp, 0x12);
-        supported = mmd_eee_cap_to_ethtool_sup_t(val);
+        /* Get Supported EEE */
+        //rtl8168_mdio_write(tp, 0x1F, 0x0A5C);
+        //val = rtl8168_mdio_read(tp, 0x12);
+        //supported = mmd_eee_cap_to_ethtool_sup_t(val);
+        supported = eee->supported;
 
+        /* Get advertisement EEE */
+        adv = eee->advertised;
+
+        /* Get LP advertisement EEE */
         rtl8168_mdio_write(tp, 0x1F, 0x0A5D);
-        val = rtl8168_mdio_read(tp, 0x10);
-        adv = mmd_eee_adv_to_ethtool_adv_t(val);
-
         val = rtl8168_mdio_read(tp, 0x11);
         lp = mmd_eee_adv_to_ethtool_adv_t(val);
+
+        /* Get EEE Tx LPI timer*/
+        tx_lpi_timer = rtl8168_device_lpi_t_to_ethtool_lpi_t(tp, eee->tx_lpi_timer);
 
         val = rtl8168_eri_read(tp, 0x1B0, 2, ERIAR_ExGMAC);
         val &= BIT_1 | BIT_0;
 
         rtl8168_mdio_write(tp, 0x1F, 0x0000);
 
-        eee->eee_enabled = !!val;
-        eee->eee_active = !!(supported & adv & lp);
-        eee->supported = supported;
-        eee->advertised = adv;
-        eee->lp_advertised = lp;
+        edata->eee_enabled = !!val;
+        edata->eee_active = !!(supported & adv & lp);
+        edata->supported = supported;
+        edata->advertised = adv;
+        edata->lp_advertised = lp;
+        edata->tx_lpi_enabled = edata->eee_enabled;
+        edata->tx_lpi_timer = tx_lpi_timer;
 
         return 0;
 }
 
 static int
-rtl_ethtool_set_eee(struct net_device *net, struct ethtool_eee *eee)
+rtl_ethtool_set_eee(struct net_device *net, struct ethtool_eee *edata)
 {
         struct rtl8168_private *tp = netdev_priv(net);
+        struct ethtool_eee *eee = &tp->eee;
+        u32 advertising;
+        int rc = 0;
 
-        switch (tp->mcfg) {
-        case CFG_METHOD_21 ... CFG_METHOD_35:
-                break;
-        default:
+        if (!rtl8168_support_eee(tp))
                 return -EOPNOTSUPP;
-        }
 
-        if (HW_SUPP_SERDES_PHY(tp) ||
-            !HW_HAS_WRITE_PHY_MCU_RAM_CODE(tp) ||
+        if (!HW_HAS_WRITE_PHY_MCU_RAM_CODE(tp) ||
             tp->DASH)
                 return -EOPNOTSUPP;
 
-        if (unlikely(tp->rtk_enable_diag))
-                return -EBUSY;
+        if (unlikely(tp->rtk_enable_diag)) {
+                dev_printk(KERN_WARNING, tp_to_dev(tp), "Diag Enabled\n");
+                rc = -EBUSY;
+                goto out;
+        }
 
-        tp->eee_enabled = eee->eee_enabled;
-        tp->eee_adv_t = ethtool_adv_to_mmd_eee_adv_t(eee->advertised);
+        if (tp->autoneg != AUTONEG_ENABLE) {
+                dev_printk(KERN_WARNING, tp_to_dev(tp), "EEE requires autoneg\n");
+                rc = -EINVAL;
+                goto out;
+        }
 
-        if (tp->eee_enabled)
-                rtl8168_enable_EEE(tp);
+
+        advertising = tp->advertising;
+        if (!edata->advertised) {
+                edata->advertised = advertising & eee->supported;
+        } else if (edata->advertised & ~advertising) {
+                dev_printk(KERN_WARNING, tp_to_dev(tp), "EEE advertised %x must be a subset of autoneg advertised speeds %x\n",
+                           edata->advertised, advertising);
+                rc = -EINVAL;
+                goto out;
+        }
+
+        if (edata->advertised & ~eee->supported) {
+                dev_printk(KERN_WARNING, tp_to_dev(tp), "EEE advertised %x must be a subset of support %x\n",
+                           edata->advertised, eee->supported);
+                rc = -EINVAL;
+                goto out;
+        }
+
+
+        eee->advertised = edata->advertised;
+        eee->eee_enabled = edata->eee_enabled;
+
+        if (eee->eee_enabled)
+                rtl8168_enable_eee(tp);
         else
-                rtl8168_disable_EEE(tp);
+                rtl8168_disable_eee(tp);
 
         rtl_nway_reset(net);
 
-        return 0;
+        return rc;
+
+out:
+
+        return rc;
 }
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0) */
 
@@ -25145,10 +25300,10 @@ rtl8168_hw_phy_config(struct net_device *dev)
         rtl8168_mdio_write(tp, 0x1F, 0x0000);
 
         if (HW_HAS_WRITE_PHY_MCU_RAM_CODE(tp)) {
-                if (tp->eee_enabled)
-                        rtl8168_enable_EEE(tp);
+                if (tp->eee.eee_enabled)
+                        rtl8168_enable_eee(tp);
                 else
-                        rtl8168_disable_EEE(tp);
+                        rtl8168_disable_eee(tp);
         }
 }
 
@@ -25323,6 +25478,9 @@ rtl8168_init_software_variable(struct net_device *dev)
 #ifdef ENABLE_LIB_SUPPORT
         tp->ring_lib_enabled = 1;
 #endif
+
+        if (tp->mcfg == CFG_METHOD_DEFAULT)
+                disable_wol_support = 1;
 
         switch (tp->mcfg) {
         case CFG_METHOD_11:
@@ -25959,10 +26117,11 @@ err1:
         if (!tp->EnableRss || tp->num_rx_rings < 1)
                 tp->num_rx_rings = 1;
 
-        tp->num_hw_tot_en_rx_rings = 1;
-#ifdef ENABLE_RSS_SUPPORT
-        tp->num_hw_tot_en_rx_rings = tp->HwSuppNumRxQueues;
-#endif //ENABLE_RSS_SUPPORT
+#ifdef ENABLE_LIB_SUPPORT
+        tp->num_hw_tot_en_rx_rings = 2;
+#else
+        tp->num_hw_tot_en_rx_rings = tp->num_rx_rings;
+#endif //ENABLE_LIB_SUPPORT
 
         rtl8168_setup_mqs_reg(tp);
 
@@ -25994,8 +26153,17 @@ err1:
         dev->min_mtu = ETH_MIN_MTU;
         dev->max_mtu = tp->max_jumbo_frame_size;
 #endif //LINUX_VERSION_CODE >= KERNEL_VERSION(4,10,0)
-        tp->eee_enabled = eee_enable;
-        tp->eee_adv_t = MDIO_EEE_1000T | MDIO_EEE_100TX;
+
+        if (rtl8168_support_eee(tp)) {
+                struct ethtool_eee *eee = &tp->eee;
+
+                eee->eee_enabled = eee_enable;
+                eee->supported  = SUPPORTED_100baseT_Full |
+                                  SUPPORTED_1000baseT_Full;
+                eee->advertised = mmd_eee_adv_to_ethtool_adv_t(MDIO_EEE_1000T | MDIO_EEE_100TX);
+		eee->tx_lpi_enabled = eee_enable;
+                eee->tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
+        }
 
 #ifdef ENABLE_FIBER_SUPPORT
         if (HW_FIBER_MODE_ENABLED(tp))
@@ -27550,19 +27718,13 @@ static int rtl8168_try_msi(struct rtl8168_private *tp)
 
         tp->max_irq_nvecs = 1;
         tp->min_irq_nvecs = 1;
-#ifndef DISABLE_MULTI_MSIX_VECTOR
-#ifdef ENABLE_RSS_SUPPORT
-        switch (tp->mcfg) {
-        case CFG_METHOD_29:
-        case CFG_METHOD_30:
-        case CFG_METHOD_35:
-                tp->max_irq_nvecs = tp->hw_supp_irq_nvecs;
-                tp->min_irq_nvecs = tp->hw_supp_irq_nvecs;
-                break;
-        }
-#endif
-#endif
 
+#ifdef ENABLE_RSS_SUPPORT
+        if (!pci_enable_msi(pdev))
+                msi |= RTL_FEATURE_MSI;
+        else
+                dev_info(&pdev->dev, "Default use INTx.\n");
+#else
         switch (tp->mcfg) {
         case CFG_METHOD_1:
         case CFG_METHOD_2:
@@ -27589,7 +27751,7 @@ static int rtl8168_try_msi(struct rtl8168_private *tp)
 #endif
                 break;
         }
-
+#endif //ENABLE_RSS_SUPPORT
         if (!(msi & (RTL_FEATURE_MSI | RTL_FEATURE_MSIX)))
                 dev_info(&pdev->dev, "no MSI. Back to INTx.\n");
 
@@ -27791,7 +27953,10 @@ rtl8168_init_one(struct pci_dev *pdev,
 
 #ifdef CONFIG_R8168_VLAN
         if (tp->mcfg != CFG_METHOD_DEFAULT) {
-                dev->features |= NETIF_F_HW_VLAN_TX | NETIF_F_HW_VLAN_RX;
+                dev->features |= NETIF_F_HW_VLAN_TX;
+#ifndef ENABLE_LIB_SUPPORT
+                dev->features |= NETIF_F_HW_VLAN_RX;
+#endif //!ENABLE_LIB_SUPPORT
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
                 dev->vlan_rx_kill_vid = rtl8168_vlan_rx_kill_vid;
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(2,6,22)
@@ -27876,7 +28041,7 @@ rtl8168_init_one(struct pci_dev *pdev,
 #endif
 
 #ifdef ENABLE_LIB_SUPPORT
-        ATOMIC_INIT_NOTIFIER_HEAD(&tp->lib_nh);
+        BLOCKING_INIT_NOTIFIER_HEAD(&tp->lib_nh);
 #endif
         rtl8168_init_all_schedule_work(tp);
 
@@ -28046,7 +28211,8 @@ static int rtl8168_alloc_irq(struct rtl8168_private *tp)
 #else
         unsigned long irq_flags = 0;
 #ifdef ENABLE_LIB_SUPPORT
-        irq_flags |= IRQF_NO_SUSPEND;
+        if (tp->features & (RTL_FEATURE_MSI | RTL_FEATURE_MSIX))
+                irq_flags |= IRQF_NO_SUSPEND;
 #endif
         if (tp->features & RTL_FEATURE_MSIX) {
                 for (i=0; i<tp->irq_nvecs; i++) {
@@ -28066,8 +28232,7 @@ static int rtl8168_alloc_irq(struct rtl8168_private *tp)
                 irq->handler = rtl8168_interrupt;
                 r8168napi = &tp->r8168napi[0];
                 snprintf(irq->name, len, "%s-0", dev->name);
-                if (!(tp->features & RTL_FEATURE_MSIX))
-                        irq->vector = dev->irq;
+                irq->vector = dev->irq;
                 irq_flags |= (tp->features & (RTL_FEATURE_MSI | RTL_FEATURE_MSIX)) ? 0 : SA_SHIRQ;
                 rc = request_irq(irq->vector, irq->handler, irq_flags, irq->name, r8168napi);
 
@@ -28425,6 +28590,16 @@ rtl8168_hw_set_rx_packet_filter(struct net_device *dev)
         mc_filter[1] = swab32(tmp);
 
         tp->rtl8168_rx_config = rtl_chip_info[tp->chipset].RCR_Cfg;
+        switch (tp->mcfg) {
+        case CFG_METHOD_21 ... CFG_METHOD_35:
+                if (tp->EnableRss)
+                        tp->rtl8168_rx_config &= ~Rx_Single_fetch_V2;
+                else
+                        tp->rtl8168_rx_config |= Rx_Single_fetch_V2;
+                break;
+        default:
+                break;
+        }
         if (tp->InitRxDescType == RX_DESC_RING_TYPE_2)
                 tp->rtl8168_rx_config |= RxCfg_rx_desc_v2_en;
         tmp = tp->rtl8168_rx_config | rx_mode | (RTL_R32(tp, RxConfig) & rtl_chip_info[tp->chipset].RxConfigMask);
@@ -28466,6 +28641,7 @@ rtl8168_hw_config(struct net_device *dev)
                 RTL_W8(tp, 0xF1, RTL_R8(tp, 0xF1) & ~BIT_7);
                 rtl8168_hw_aspm_clkreq_enable(tp, false);
         }
+	rtl8168_set_eee_lpi_timer(tp);
 
         //clear io_rdy_l23
         switch (tp->mcfg) {
@@ -28910,8 +29086,8 @@ rtl8168_hw_config(struct net_device *dev)
                         set_offset711(tp, 0x04);
 
                 rtl8168_eri_write(tp, 0xC8, 4, 0x00080002, ERIAR_ExGMAC);
-                rtl8168_eri_write(tp, 0xCC, 1, 0x38, ERIAR_ExGMAC);
-                rtl8168_eri_write(tp, 0xD0, 1, 0x48, ERIAR_ExGMAC);
+                rtl8168_eri_write(tp, 0xCC, 1, 0x60, ERIAR_ExGMAC);
+                rtl8168_eri_write(tp, 0xD0, 1, 0x70, ERIAR_ExGMAC);
                 rtl8168_eri_write(tp, 0xE8, 4, 0x00100006, ERIAR_ExGMAC);
 
                 RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | BIT_7);
@@ -29477,6 +29653,8 @@ rtl8168_hw_start(struct net_device *dev)
         RTL_W8(tp, ChipCmd, CmdTxEnb | CmdRxEnb);
 
         rtl8168_enable_interrupt(tp);
+
+        rtl8168_lib_reset_complete(tp);
 }
 
 static int
@@ -29494,6 +29672,7 @@ rtl8168_change_mtu(struct net_device *dev,
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 
         dev->mtu = new_mtu;
+	tp->eee.tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
 
         if (!netif_running(dev))
                 goto out;
@@ -29695,6 +29874,22 @@ rtl8168_desc_addr_fill(struct rtl8168_private *tp)
                 RTL_W32(tp, ring->tdsar_reg + 4, ((u64)ring->TxPhyAddr >> 32));
         }
 
+#ifdef ENABLE_LIB_SUPPORT
+        /*
+         * The lib tx q1 polling may be set after tx is disabled. If lib tx q1
+         * is released, after enable tx, device will try to access invalid tx q1
+         * desc base address. Set tx q1 desc base address to tx q0 desc base
+         * address to let device to access the valid address and clear tx q1
+         * polling bit after enable tx.
+         */
+        if (rtl8168_lib_tx_ring_released(tp)) {
+                struct rtl8168_tx_ring *ring = &tp->tx_ring[0];
+                u16 tdsar_reg = TxHDescStartAddrLow;
+                RTL_W32(tp, tdsar_reg, ((u64)ring->TxPhyAddr & DMA_BIT_MASK(32)));
+                RTL_W32(tp, tdsar_reg + 4, ((u64)ring->TxPhyAddr >> 32));
+        }
+#endif
+
         RTL_W32(tp, RxDescAddrLow, ((u64) tp->RxPhyAddr & DMA_BIT_MASK(32)));
         RTL_W32(tp, RxDescAddrLow + 4, ((u64) tp->RxPhyAddr >> 32));
 }
@@ -29739,8 +29934,13 @@ rtl8168_rx_desc_offset0_init(struct rtl8168_private *tp, int own)
 static void
 rtl8168_rx_desc_init(struct rtl8168_private *tp)
 {
-        if (tp->RxDescArray)
-                memset(tp->RxDescArray, 0x0, tp->RxDescAllocSize);
+        if (!tp->RxDescArray)
+                return;
+
+        if (rtl8168_num_lib_rx_rings(tp) > 0)
+                return;
+
+        memset(tp->RxDescArray, 0x0, tp->RxDescAllocSize);
 }
 
 int
@@ -30573,7 +30773,7 @@ rtl8168_tx_interrupt(struct rtl8168_tx_ring *ring)
 
 #ifdef ENABLE_LIB_SUPPORT
         if (ring->index > 0) {
-                rtl8168_lib_tx_interrupt(tp);
+		rtl8168_lib_tx_interrupt(tp);
                 return;
         }
 #endif
@@ -30744,6 +30944,12 @@ rtl8168_rx_interrupt(struct net_device *dev,
         if (!tp->RxDescArray)
                 goto rx_out;
 
+#ifdef ENABLE_LIB_SUPPORT
+        if (ring->index > 0) {
+		rtl8168_lib_rx_interrupt(tp);
+                goto rx_out;
+        }
+#endif
         rx_quota = RTL_RX_QUOTA(budget);
         cur_rx = ring->cur_rx;
         rx_left = tp->num_rx_desc + ring->dirty_rx - cur_rx;
@@ -30870,14 +31076,13 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
         u8 other_q_status = 0;
         int handled = 0;
         int status;
+        int i;
 
         do {
                 status = RTL_R16(tp, tp->isr_reg[0]);
 #ifdef ENABLE_RSS_SUPPORT
                 if (R8168_MULTI_RX_Q(tp)) {
-                        int i;
-
-                        for (i=1; i<tp->num_rx_rings; i++)
+                        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
                                 other_q_status |= RTL_R8(tp, tp->isr_reg[i]);
                 }
 #endif
@@ -30894,6 +31099,7 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
                 handled = 1;
 
                 rtl8168_disable_interrupt(tp);
+                rtl8168_disable_lib_interrupt(tp);
 
                 switch (tp->mcfg) {
                 case CFG_METHOD_9:
@@ -30944,12 +31150,11 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
                                 rtl8168_hw_start(dev);
                                 netif_tx_wake_all_queues(dev);
                         }
+                        tp->rx_fifo_of++;
                 }
 
                 if (other_q_status) {
-                        int i;
-
-                        for (i=1; i<tp->num_rx_rings; i++)
+                        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
                                 rtl8168_clear_isr_by_vector(tp, i, other_q_status);
                 }
 
@@ -31010,9 +31215,8 @@ static irqreturn_t rtl8168_interrupt(int irq, void *dev_instance)
                     tp->keep_intr_cnt-- > 0) {
                         u32 const max_rx_queue =
                                 (other_q_status & other_q_intr_mask) > 0 ?
-                                tp->num_rx_rings : 1;
+                                rtl8168_tot_rx_rings(tp) : 1;
                         u32 budget = ~(u32)0;
-                        int i;
 
                         if ((status & tp->intr_mask) ||
                             (other_q_status & other_q_intr_mask))
@@ -31341,11 +31545,17 @@ net_device_stats *rtl8168_get_stats(struct net_device *dev)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,11)
 static int
 rtl8168_suspend(struct pci_dev *pdev, u32 state)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
+static int
+rtl8168_suspend(struct device *device)
 #else
 static int
 rtl8168_suspend(struct pci_dev *pdev, pm_message_t state)
 #endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
+        struct pci_dev *pdev = to_pci_dev(device);
+#endif
         struct net_device *dev = pci_get_drvdata(pdev);
         struct rtl8168_private *tp = netdev_priv(dev);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
@@ -31392,29 +31602,47 @@ out:
         if (HW_DASH_SUPPORT_DASH(tp))
                 rtl8168_driver_stop(tp);
 
+        pci_disable_device(pdev);
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
         pci_save_state(pdev, &pci_pm_state);
 #else
         pci_save_state(pdev);
 #endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
         pci_enable_wake(pdev, pci_choose_state(pdev, state), tp->wol_enabled);
-//  pci_set_power_state(pdev, pci_choose_state(pdev, state));
+#endif
+
+        pci_prepare_to_sleep(pdev);
 
         return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
 static int
 rtl8168_resume(struct pci_dev *pdev)
+#else
+static int
+rtl8168_resume(struct device *device)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
+        struct pci_dev *pdev = to_pci_dev(device);
+#endif 
         struct net_device *dev = pci_get_drvdata(pdev);
         struct rtl8168_private *tp = netdev_priv(dev);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
         u32 pci_pm_state = PCI_D0;
 #endif
+        int err;
 
         rtnl_lock();
 
-        pci_set_power_state(pdev, PCI_D0);
+        err = pci_enable_device(pdev);
+        if (err) {
+                dev_err(&pdev->dev, "Cannot enable PCI device from suspend\n");
+                goto out_unlock;
+        }
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
         pci_restore_state(pdev, &pci_pm_state);
 #else
@@ -31463,33 +31691,29 @@ out_unlock:
 
         rtnl_unlock();
 
-        return 0;
+        return err;
 }
 
-#endif /* CONFIG_PM */
-
-static int
-rtl8168_suspend_temp(struct device *dev)
-{
-       return 0;
-}
-
-static int
-rtl8168_resume_temp(struct device *dev)
-{
-       return 0;
-}
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
 
 static struct dev_pm_ops rtl8168_pm_ops = {
-       .suspend = rtl8168_suspend_temp,
-       .resume = rtl8168_resume_temp,
-       .freeze = rtl8168_suspend_temp,
-       .thaw = rtl8168_resume_temp,
-       .poweroff = rtl8168_suspend_temp,
-       .restore = rtl8168_resume_temp,
+        .suspend = rtl8168_suspend,
+        .resume = rtl8168_resume,
+        .freeze = rtl8168_suspend,
+        .thaw = rtl8168_resume,
+        .poweroff = rtl8168_suspend,
+        .restore = rtl8168_resume,
 };
 
 #define RTL8168_PM_OPS       (&rtl8168_pm_ops)
+
+#endif
+
+#else /* !CONFIG_PM */
+
+#define RTL8168_PM_OPS	NULL
+
+#endif /* CONFIG_PM */
 
 static struct pci_driver rtl8168_pci_driver = {
         .name       = MODULENAME,
@@ -31500,10 +31724,13 @@ static struct pci_driver rtl8168_pci_driver = {
         .shutdown   = rtl8168_shutdown,
 #endif
 #ifdef CONFIG_PM
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
         .suspend    = rtl8168_suspend,
         .resume     = rtl8168_resume,
+#else
+        .driver.pm = RTL8168_PM_OPS,
 #endif
-	.driver.pm = RTL8168_PM_OPS,
+#endif
 };
 
 static int __init
