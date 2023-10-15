@@ -48,6 +48,7 @@ EXPORT_SYMBOL(ioss_get_ipclog_buf_prio);
 #define IOSS_IPCLOG_NAME IOSS_SUBSYS
 #define IOSS_IPCLOG_PRIO_NAME (IOSS_SUBSYS "_prio")
 
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 int ioss_log_init(void)
 {
 	if (ioss_ipclog_buf_norm)
@@ -89,6 +90,7 @@ void ioss_log_deinit(void)
 		ioss_ipclog_buf_prio = NULL;
 	}
 }
+#endif
 
 /* List operation helpers */
 

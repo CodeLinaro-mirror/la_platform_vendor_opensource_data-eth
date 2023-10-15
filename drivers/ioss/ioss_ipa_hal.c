@@ -148,10 +148,11 @@ static int fill_stmmac_si(enum ipa_eth_client_type ctype, struct ioss_channel *c
 	}
 
 	stm_ipa->bar_addr = resource->start;
-	ioss_dev_log(idev, "stm_ipa: base=%pap, q=%u\n",
-		&resource->start, ch->id);
-
 	stm_ipa->tail_ptr_offs = ch->tail_ptr_addr;
+	stm_ipa->ioc_mod_threshold = ch->event.mod_count_min;
+
+	ioss_dev_log(idev, "stm_ipa: bar=%pap, q=%u, ioc_threshold=%d\n",
+		     &stm_ipa->bar_addr, ch->id, stm_ipa->ioc_mod_threshold);
 
 	return 0;
 }
