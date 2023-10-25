@@ -4767,7 +4767,7 @@ rtl8125_get_drvinfo(struct net_device *dev,
 
         strscpy(info->driver, MODULENAME, sizeof(info->driver));
         strscpy(info->version, RTL8125_VERSION, sizeof(info->version));
-        strcpy(info->bus_info, pci_name(tp->pci_dev));
+        strscpy(info->bus_info, pci_name(tp->pci_dev), sizeof(info->bus_info));
         info->regdump_len = R8125_REGS_DUMP_SIZE;
         info->eedump_len = tp->eeprom_len;
         BUILD_BUG_ON(sizeof(info->fw_version) < sizeof(rtl_fw->version));
