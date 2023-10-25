@@ -10130,7 +10130,7 @@ static void rtl8125_del_napi(struct rtl8125_private *tp)
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,0)
         int i;
 
-        for (i = 0; i < tp->irq_nvecs; i++)
+        for (i = 0; i < tp->irq_nvecs && i < R8125_MAX_MSIX_VEC; i++)
                 RTL_NAPI_DEL((&tp->r8125napi[i]));
 #endif
 }
@@ -11375,7 +11375,7 @@ _rtl8125_rx_clear(struct rtl8125_private *tp, struct rtl8125_rx_ring *ring)
 {
         int i;
 
-        for (i = 0; i < ring->num_rx_desc; i++) {
+        for (i = 0; i < ring->num_rx_desc && i < MAX_NUM_RX_DESC; i++) {
                 if (ring->Rx_skbuff[i]) {
                         rtl8125_free_rx_skb(tp,
                                             ring,
@@ -11392,7 +11392,7 @@ rtl8125_rx_clear(struct rtl8125_private *tp)
 {
         int i;
 
-        for (i = 0; i < tp->num_rx_rings; i++)
+        for (i = 0; i < tp->num_rx_rings && i < R8125_MAX_RX_QUEUES ; i++)
                 _rtl8125_rx_clear(tp, &tp->rx_ring[i]);
 }
 
@@ -11720,7 +11720,7 @@ rtl8125_wait_for_quiescence(struct net_device *dev)
 static int rtl8125_rx_nostuck(struct rtl8125_private *tp)
 {
         int i, ret = 1;
-        for (i = 0; i < tp->num_rx_rings; i++)
+        for (i = 0; i < tp->num_rx_rings && i < R8125_MAX_RX_QUEUES ; i++)
                 ret &= (tp->rx_ring[i].dirty_rx == tp->rx_ring[i].cur_rx);
         return ret;
 }
