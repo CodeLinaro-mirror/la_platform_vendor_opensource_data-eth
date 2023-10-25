@@ -607,10 +607,18 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		goto err_enable_channels;
 	}
 
+	if(iface->is_pci_device){
+		rc = ioss_pci_disable_pc(idev);
+		if (rc) {
+			ioss_dev_err(idev, "Failed to disable PCI power collapse");
+			goto err_disable_pc;
+		}
+	}
 	iface->state = IOSS_IF_ST_ONLINE;
 
 	return;
-
+err_disable_pc:
+	ioss_net_disable_channels(iface);
 err_enable_channels:
 	ioss_net_teardown_events(iface);
 err_setup_events:
@@ -640,6 +648,13 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 
 	iface->state = IOSS_IF_ST_OFFLINE;
 
+	if(iface->is_pci_device){
+		rc = ioss_pci_enable_pc(idev);
+		if (rc) {
+			ioss_dev_err(idev, "Failed to enable PCI power collapse");
+			iface->state = IOSS_IF_ST_ERROR;
+		}
+	}
 	rc = ioss_net_disable_channels(iface);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to disable channels");
