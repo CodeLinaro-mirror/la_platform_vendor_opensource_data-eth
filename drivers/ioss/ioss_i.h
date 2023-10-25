@@ -60,7 +60,6 @@ extern unsigned long ioss_api_ver;
 
 #ifdef LLCC_ENABLE
 extern struct ioss_mem_allocator ioss_llcc_alctr;
-bool ioss_of_parse_llcc(struct ioss_device *idev);
 #endif
 
 int ioss_pci_start(struct ioss *ioss);
@@ -101,8 +100,18 @@ int ioss_net_watch_device(struct ioss_device *idev);
 int ioss_net_unwatch_device(struct ioss_device *idev);
 int ioss_net_link_device(struct ioss_device *idev);
 
+#if IS_ENABLED(CONFIG_IPC_LOGGING)
 int ioss_log_init(void);
 void ioss_log_deinit(void);
+#else
+static inline int ioss_log_init(void)
+{
+	return 0;
+}
+static inline void ioss_log_deinit(void)
+{
+}
+#endif
 
 int ioss_list_iter_action(struct list_head *head,
 	int (*action)(struct list_head *node),
@@ -115,11 +124,35 @@ const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
 
 void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush);
 
+#if IS_ENABLED(CONFIG_DEBUG_FS)
 int ioss_debugfs_init(void);
 void ioss_debugfs_exit(void);
 int ioss_debugfs_add_idev(struct ioss_device *idev);
 void ioss_debugfs_remove_idev(struct ioss_device *idev);
 int ioss_debugfs_add_channel(struct ioss_channel *ch);
 void ioss_debugfs_remove_channel(struct ioss_channel *ch);
+#else
+static inline int ioss_debugfs_init(void)
+{
+	return 0;
+}
+static inline void ioss_debugfs_exit(void)
+{
+}
+static inline int ioss_debugfs_add_idev(struct ioss_device *idev)
+{
+	return 0;
+}
+static inline void ioss_debugfs_remove_idev(struct ioss_device *idev)
+{
+}
+static inline int ioss_debugfs_add_channel(struct ioss_channel *ch)
+{
+	return 0;
+}
+static inline void ioss_debugfs_remove_channel(struct ioss_channel *ch)
+{
+}
+#endif
 
 #endif /* _IOSS_I_H_ */

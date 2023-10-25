@@ -227,29 +227,16 @@ static int ioss_net_device_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static bool disable_tcm;
-module_param(disable_tcm, bool, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-MODULE_PARM_DESC(disable_tcm, "Disable use of LLCC TCM memory allocator");
-
 #ifdef LLCC_ENABLE
 static int ioss_net_select_llcc_config(struct ioss_channel *ch)
 {
 	u32 ring_size;
 	size_t mem_size;
-	size_t mem_need = ch->config.ring_size * ch->config.buff_size;
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
-	if (disable_tcm) {
-		ioss_dev_cfg(idev,
-			"Not allocating TCM since it is disabled in IOSS");
-		return -ENOMEM;
-	}
+	mem_size = ioss_llcc_alctr.get();
 
-	mem_size = ioss_llcc_alctr.get(mem_need);
-
-	ioss_dev_cfg(idev,
-		"Requested %lu bytes of LLCC, received %lu bytes",
-		mem_need, mem_size);
+	ioss_dev_cfg(idev, "Received %lu bytes for LLCC", mem_size);
 
 	if (!mem_size)
 		return -ENOMEM;
@@ -272,17 +259,13 @@ static void ioss_net_select_channel_config(struct ioss_channel *ch)
 #ifdef LLCC_ENABLE
 	struct ioss_device *idev = ioss_ch_dev(ch);
 	u32 link_speed = ch->iface->link_speed;
-	u32 max_ddr_bw = idev->root->max_ddr_bandwidth;
-	bool llcc_allowed;
+	u32 line_rate_for_llcc = idev->root->line_rate_for_llcc;
 #endif
 
 	ch->config = ch->default_config;
 
 #ifdef LLCC_ENABLE
-
-	llcc_allowed = ioss_of_parse_llcc(idev);
-
-	if (ch->direction == IOSS_CH_DIR_TX && link_speed > max_ddr_bw && llcc_allowed)
+	if (idev->llcc_enabled && ch->direction == IOSS_CH_DIR_TX && link_speed >= line_rate_for_llcc)
 		ioss_net_select_llcc_config(ch);
 #endif
 }
@@ -291,8 +274,7 @@ static void ioss_net_deselect_channel_config(struct ioss_channel *ch)
 {
 #ifdef LLCC_ENABLE
 	if (ch->config.buff_alctr == &ioss_llcc_alctr)
-		ioss_llcc_alctr.put(
-			ch->config.ring_size * ch->config.buff_size);
+		ioss_llcc_alctr.put();
 #endif
 	ch->config = ch->default_config;
 }
