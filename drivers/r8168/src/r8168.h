@@ -360,7 +360,7 @@ do { \
 #define RSS_SUFFIX ""
 #endif
 
-#define RTL8168_VERSION "8.051.02-b22_cdt" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
+#define RTL8168_VERSION "8.051.02-b22_cdt_status" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
 #define MODULENAME "r8168"
 #define PFX MODULENAME ": "
 
@@ -1483,7 +1483,7 @@ enum bits {
 };
 
 #define RTL8168_CP_NUM 4
-#define RTL8168_MAX_SUPPORT_cp_len 110
+#define RTL8168_MAX_SUPPORT_CP_LEN 110
 
 enum rtl8168_cp_status {
         rtl8168_cp_normal = 0,
