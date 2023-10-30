@@ -852,8 +852,8 @@ exit:
         rtl8125_mdio_write(tp, 0x1f, 0x0000);
 
         for (i=0; i<RTL8125_CP_NUM; i++)
-                if (cp_len[i] > RTL8125_MAX_SUPPORT_cp_len)
-                        cp_len[i] = RTL8125_MAX_SUPPORT_cp_len;
+                if (cp_len[i] > RTL8125_MAX_SUPPORT_CP_LEN)
+                        cp_len[i] = RTL8125_MAX_SUPPORT_CP_LEN;
 
         return;
 }
@@ -1366,13 +1366,19 @@ static int proc_get_cable_info(struct seq_file *m, void *v)
 
         rtl8125_get_cp_len(tp, cp_len);
 
-        rtl8125_vcd_test(tp);
+        if (tp->link_ok(dev)) {
+                for (i=0; i<RTL8125_CP_NUM; i++)
+                        cp_status[i] = rtl8125_cp_normal;
+        } else {
+                /* cannot do vcd when link is on */
+                rtl8125_vcd_test(tp);
 
-        rtl8125_get_cp_status(tp, cp_status);
+                rtl8125_get_cp_status(tp, cp_status);
+        }
 
         seq_puts(m, "\npair\tlength\tstatus   \tpp\n");
 
-        for (i =0; i<RTL8125_CP_NUM; i++) {
+        for (i=0; i<RTL8125_CP_NUM; i++) {
                 seq_printf(m, "%s\t%d\t%s\t",
                            pair_str[i], cp_len[i],
                            rtl8125_get_cp_status_string(cp_status[i]));
@@ -2183,12 +2189,22 @@ static int proc_get_cable_info(char *page, char **start,
                 len += snprintf(page + len, count - len,
                                 "\nlink status:off");
 
-        rtl8125_get_cp(tp, cp_len, cp_status);
+        rtl8125_get_cp_len(tp, cp_len);
+
+        if (tp->link_ok(dev)) {
+                for (i=0; i<RTL8125_CP_NUM; i++)
+                        cp_status[i] = rtl8125_cp_normal;
+        } else {
+                /* cannot do vcd when link is on */
+                rtl8125_vcd_test(tp);
+
+                rtl8125_get_cp_status(tp, cp_status);
+        }
 
         len += snprintf(page + len, count - len,
                         "\npair\tlength\tstatus   \tpp\n");
 
-        for (i =0; i<RTL8125_CP_NUM; i++) {
+        for (i=0; i<RTL8125_CP_NUM; i++) {
                 len += snprintf(page + len, count - len,
                                 "%s\t%d\t%s\t",
                                 pair_str[i], cp_len[i],
