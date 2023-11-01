@@ -4765,8 +4765,8 @@ rtl8125_get_drvinfo(struct net_device *dev,
         struct rtl8125_private *tp = netdev_priv(dev);
         struct rtl8125_fw *rtl_fw = tp->rtl_fw;
 
-        strcpy(info->driver, MODULENAME);
-        strcpy(info->version, RTL8125_VERSION);
+        strscpy(info->driver, MODULENAME, sizeof(info->driver));
+        strscpy(info->version, RTL8125_VERSION, sizeof(info->version));
         strcpy(info->bus_info, pci_name(tp->pci_dev));
         info->regdump_len = R8125_REGS_DUMP_SIZE;
         info->eedump_len = tp->eeprom_len;
