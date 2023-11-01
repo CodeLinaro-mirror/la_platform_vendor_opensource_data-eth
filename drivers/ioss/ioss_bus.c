@@ -501,7 +501,8 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 
 	idev->root = ioss;
 
-	INIT_LIST_HEAD(&idev->interface.channels);
+	INIT_LIST_HEAD(&idev->interface.valid_channels);
+	INIT_LIST_HEAD(&idev->interface.invalid_channels);
 
 	idev->dev.parent = dev;
 	idev->dev.bus = &ioss_bus;
@@ -517,8 +518,16 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 	struct ioss_interface *iface = &idev->interface;
 
 	/* Free channels */
-	list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
+	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
 		list_del(&ch->node);
+		kfree(ch->ipa_configs);
+		kfree_sensitive(ch->ioss_priv);
+		kfree_sensitive(ch);
+	}
+
+	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
+		list_del(&ch->node);
+		kfree(ch->ipa_configs);
 		kfree_sensitive(ch->ioss_priv);
 		kfree_sensitive(ch);
 	}
