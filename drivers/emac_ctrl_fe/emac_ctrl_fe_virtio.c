@@ -25,12 +25,12 @@ static ATOMIC_NOTIFIER_HEAD(emac_ctrl_fe_notifier_chain);
 static int __maybe_unused emac_ctrl_fe_notify(enum emac_ctrl_fe_gvm_event event)
 {
 	int ret;
-	ct_irq_enter_irqson();
+	/* ct_irq_enter_irqson(); */
 	/* this chain has a RCU read critical section which can be disfunctional
 	 * in cpu idle. Copy RCU_NONIDLE code to let RCU know this.
 	 */
 	ret = atomic_notifier_call_chain(&emac_ctrl_fe_notifier_chain, event, NULL);
-	ct_irq_exit_irqson();
+	/* ct_irq_exit_irqson(); */
 	return notifier_to_errno(ret);
 }
 
@@ -159,7 +159,7 @@ int emac_ctrl_fe_register_ready_cb(void (*emac_ctrl_fe_ready_cb)(void *user_data
 	}
 	return ret;
 }
-EXPORT_SYMBOL(emac_ctrl_fe_register_ready_cb);
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_register_ready_cb);
 
 /*This is to be called at end of probe once basic init is done */
 static inline  void __maybe_unused emac_ctrl_fe_ready_trigger_cb(void)
@@ -185,6 +185,7 @@ void __maybe_unused emac_ctrl_fe_gvm_dma_stopped(void){
 	emac_ctl_fe_xmit(emac_ctrl_fe_ctx);
 	//return;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_gvm_dma_stopped);
 
 /* request filter addition at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_types filter_type,
@@ -248,6 +249,7 @@ int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_type
 	mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_filter_add_request);
 
 /* request filter deletion at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_types filter_type,
@@ -312,6 +314,7 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 	mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_filter_del_request);
 
 /* request mac_addr_chg_req*/
 int __maybe_unused emac_ctrl_fe_mac_addr_chg(struct unicast_mac_addr *new_mac_addr) {
@@ -336,6 +339,7 @@ int __maybe_unused emac_ctrl_fe_mac_addr_chg(struct unicast_mac_addr *new_mac_ad
 	EMAC_CTL_FE_INFO("Sent MAC Addr Update Event Cmd \n");
 	return 0;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_mac_addr_chg);
 
 void emac_ctl_fe_replenish_rxbuf(
 	struct emac_ctrl_fe_virtio_dev *pdev,
@@ -671,5 +675,6 @@ static void __exit emac_ctrl_fe_exit(void)
 module_init(emac_ctrl_fe_init);
 module_exit(emac_ctrl_fe_exit);
 
+MODULE_SOFTDEP("post: stmmac");
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Emac Virt DMA Ctrl FE Driver");
