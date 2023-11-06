@@ -458,6 +458,11 @@ static int s0_magic_packet = 1;
 #else
 static int s0_magic_packet = 0;
 #endif
+#ifdef DISABLE_WOL_SUPPORT
+static int disable_wol_support = 1;
+#else
+static int disable_wol_support = 0;
+#endif
 
 MODULE_AUTHOR("Realtek and the Linux r8168 crew <netdev@vger.kernel.org>");
 MODULE_DESCRIPTION("RealTek RTL-8168 Gigabit Ethernet driver");
@@ -500,6 +505,9 @@ MODULE_PARM_DESC(hwoptimize, "Enable HW optimization function.");
 
 module_param(s0_magic_packet, int, 0);
 MODULE_PARM_DESC(s0_magic_packet, "Enable S0 Magic Packet.");
+
+module_param(disable_wol_support, int, 0);
+MODULE_PARM_DESC(disable_wol_support, "Disable WOL support.");
 
 module_param(dynamic_aspm_packet_threshold, int, 0);
 MODULE_PARM_DESC(dynamic_aspm_packet_threshold, "Dynamic ASPM packet threshold.");
@@ -1061,6 +1069,7 @@ static int proc_get_driver_variable(struct seq_file *m, void *v)
         seq_printf(m, "hwoptimize\t0x%lx\n", hwoptimize);
         seq_printf(m, "proc_init_num\t0x%x\n", proc_init_num);
         seq_printf(m, "s0_magic_packet\t0x%x\n", s0_magic_packet);
+        seq_printf(m, "disable_wol_support\t0x%x\n", disable_wol_support);
         seq_printf(m, "HwSuppMagicPktVer\t0x%x\n", tp->HwSuppMagicPktVer);
         seq_printf(m, "HwSuppUpsVer\t0x%x\n", tp->HwSuppUpsVer);
         seq_printf(m, "HwSuppEsdVer\t0x%x\n", tp->HwSuppEsdVer);
@@ -1550,6 +1559,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         "hwoptimize\t0x%lx\n"
                         "proc_init_num\t0x%x\n"
                         "s0_magic_packet\t0x%x\n"
+                        "disable_wol_support\t0x%x\n"
                         "HwSuppMagicPktVer\t0x%x\n"
                         "HwSuppUpsVer\t0x%x\n"
                         "HwSuppEsdVer\t0x%x\n"
@@ -1663,6 +1673,7 @@ static int proc_get_driver_variable(char *page, char **start,
                         hwoptimize,
                         proc_init_num,
                         s0_magic_packet,
+                        disable_wol_support,
                         tp->HwSuppMagicPktVer,
                         tp->HwSuppUpsVer,
                         tp->HwSuppEsdVer,
@@ -5474,6 +5485,9 @@ rtl8168_get_hw_wol(struct net_device *dev)
         u8 options;
         u32 csi_tmp;
 
+        if (disable_wol_support)
+                goto out;
+
         tp->wol_opts = 0;
         options = RTL_R8(tp, Config1);
         if (!(options & PMEnable))
@@ -5840,14 +5854,12 @@ rtl8168_get_wol(struct net_device *dev,
         struct rtl8168_private *tp = netdev_priv(dev);
         u8 options;
 
-        wol->wolopts = 0;
+        wol->wolopts = wol->supported = 0;
 
-        if (tp->mcfg == CFG_METHOD_DEFAULT) {
-                wol->supported = 0;
+        if (disable_wol_support)
                 return;
-        } else {
-                wol->supported = WAKE_ANY;
-        }
+
+        wol->supported = WAKE_ANY;
 
         options = RTL_R8(tp, Config1);
         if (!(options & PMEnable))
@@ -5862,7 +5874,7 @@ rtl8168_set_wol(struct net_device *dev,
 {
         struct rtl8168_private *tp = netdev_priv(dev);
 
-        if (tp->mcfg == CFG_METHOD_DEFAULT)
+        if (disable_wol_support)
                 return -EOPNOTSUPP;
 
         tp->wol_opts = wol->wolopts;
@@ -6789,6 +6801,24 @@ static int _kc_ethtool_op_set_sg(struct net_device *dev, u32 data)
 }
 #endif
 
+static void
+rtl8168_set_eee_lpi_timer(struct rtl8168_private *tp)
+{
+        u16 dev_lpi_timer;
+
+        dev_lpi_timer = tp->eee.tx_lpi_timer;
+
+        switch (tp->mcfg) {
+        case CFG_METHOD_29:
+        case CFG_METHOD_30:
+        case CFG_METHOD_35:
+                rtl8168_mac_ocp_write(tp, EEE_TXIDLE_TIMER_8168, dev_lpi_timer);
+                break;
+        default:
+                break;
+        }
+}
+
 static int rtl8168_enable_eee(struct rtl8168_private *tp)
 {
         int ret;
@@ -7346,21 +7376,19 @@ rtl8168_support_eee(struct rtl8168_private *tp)
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0)
 static u32
-rtl8168_tx_lpi_timer_to_us(struct rtl8168_private *tp , u32 tx_lpi_timer)
+rtl8168_device_lpi_t_to_ethtool_lpi_t(struct rtl8168_private *tp , u32 lpi_timer)
 {
         u32 to_us;
         u8 status;
 
-        //Giga: tx_lpi_timer * 8ns
-        //100M : tx_lpi_timer * 80ns
         to_us = 0;
         status = RTL_R8(tp, PHYstatus);
         if (status & LinkStatus) {
                 /*link on*/
                 if (status & _1000bpsF)
-                        to_us = tx_lpi_timer * 8;
+                        to_us = lpi_timer * 8;
                 else if (status & _100bps)
-                        to_us = tx_lpi_timer * 80;
+                        to_us = lpi_timer * 80;
         }
 
         //ns to us
@@ -7390,16 +7418,15 @@ rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
         supported = eee->supported;
 
         /* Get advertisement EEE */
-        rtl8168_mdio_write(tp, 0x1F, 0x0A5D);
-        val = rtl8168_mdio_read(tp, 0x10);
-        adv = mmd_eee_adv_to_ethtool_adv_t(val);
+        adv = eee->advertised;
 
         /* Get LP advertisement EEE */
+        rtl8168_mdio_write(tp, 0x1F, 0x0A5D);
         val = rtl8168_mdio_read(tp, 0x11);
         lp = mmd_eee_adv_to_ethtool_adv_t(val);
 
         /* Get EEE Tx LPI timer*/
-        tx_lpi_timer = rtl8168_eri_read(tp, 0x1B8, 2, ERIAR_ExGMAC);
+        tx_lpi_timer = rtl8168_device_lpi_t_to_ethtool_lpi_t(tp, eee->tx_lpi_timer);
 
         val = rtl8168_eri_read(tp, 0x1B0, 2, ERIAR_ExGMAC);
         val &= BIT_1 | BIT_0;
@@ -7412,7 +7439,7 @@ rtl_ethtool_get_eee(struct net_device *net, struct ethtool_eee *edata)
         edata->advertised = adv;
         edata->lp_advertised = lp;
         edata->tx_lpi_enabled = edata->eee_enabled;
-        edata->tx_lpi_timer = rtl8168_tx_lpi_timer_to_us(tp, tx_lpi_timer);
+        edata->tx_lpi_timer = tx_lpi_timer;
 
         return 0;
 }
@@ -7444,15 +7471,6 @@ rtl_ethtool_set_eee(struct net_device *net, struct ethtool_eee *edata)
                 goto out;
         }
 
-        if (edata->tx_lpi_enabled) {
-                if (edata->tx_lpi_timer && (edata->tx_lpi_timer > tp->max_jumbo_frame_size ||
-                                            edata->tx_lpi_timer < ETH_MIN_MTU)) {
-                        dev_printk(KERN_WARNING, tp_to_dev(tp), "Valid LPI timer range is %d to %d. \n",
-                                   ETH_MIN_MTU, tp->max_jumbo_frame_size);
-                        rc = -EINVAL;
-                        goto out;
-                }
-        }
 
         advertising = tp->advertising;
         if (!edata->advertised) {
@@ -7471,12 +7489,8 @@ rtl_ethtool_set_eee(struct net_device *net, struct ethtool_eee *edata)
                 goto out;
         }
 
-        //tp->eee.eee_enabled = edata->eee_enabled;
-        //tp->eee_adv_t = ethtool_adv_to_mmd_eee_adv_t(edata->advertised);
 
         eee->advertised = edata->advertised;
-        eee->tx_lpi_enabled = edata->tx_lpi_enabled;
-        eee->tx_lpi_timer = edata->tx_lpi_timer;
         eee->eee_enabled = edata->eee_enabled;
 
         if (eee->eee_enabled)
@@ -25465,6 +25479,9 @@ rtl8168_init_software_variable(struct net_device *dev)
         tp->ring_lib_enabled = 1;
 #endif
 
+        if (tp->mcfg == CFG_METHOD_DEFAULT)
+                disable_wol_support = 1;
+
         switch (tp->mcfg) {
         case CFG_METHOD_11:
         case CFG_METHOD_12:
@@ -26144,7 +26161,8 @@ err1:
                 eee->supported  = SUPPORTED_100baseT_Full |
                                   SUPPORTED_1000baseT_Full;
                 eee->advertised = mmd_eee_adv_to_ethtool_adv_t(MDIO_EEE_1000T | MDIO_EEE_100TX);
-                eee->tx_lpi_timer = 0x600;
+		eee->tx_lpi_enabled = eee_enable;
+                eee->tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
         }
 
 #ifdef ENABLE_FIBER_SUPPORT
@@ -28623,6 +28641,7 @@ rtl8168_hw_config(struct net_device *dev)
                 RTL_W8(tp, 0xF1, RTL_R8(tp, 0xF1) & ~BIT_7);
                 rtl8168_hw_aspm_clkreq_enable(tp, false);
         }
+	rtl8168_set_eee_lpi_timer(tp);
 
         //clear io_rdy_l23
         switch (tp->mcfg) {
@@ -29067,8 +29086,8 @@ rtl8168_hw_config(struct net_device *dev)
                         set_offset711(tp, 0x04);
 
                 rtl8168_eri_write(tp, 0xC8, 4, 0x00080002, ERIAR_ExGMAC);
-                rtl8168_eri_write(tp, 0xCC, 1, 0x38, ERIAR_ExGMAC);
-                rtl8168_eri_write(tp, 0xD0, 1, 0x48, ERIAR_ExGMAC);
+                rtl8168_eri_write(tp, 0xCC, 1, 0x60, ERIAR_ExGMAC);
+                rtl8168_eri_write(tp, 0xD0, 1, 0x70, ERIAR_ExGMAC);
                 rtl8168_eri_write(tp, 0xE8, 4, 0x00100006, ERIAR_ExGMAC);
 
                 RTL_W32(tp, TxConfig, RTL_R32(tp, TxConfig) | BIT_7);
@@ -29653,6 +29672,7 @@ rtl8168_change_mtu(struct net_device *dev,
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 
         dev->mtu = new_mtu;
+	tp->eee.tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
 
         if (!netif_running(dev))
                 goto out;
@@ -29853,6 +29873,22 @@ rtl8168_desc_addr_fill(struct rtl8168_private *tp)
                 RTL_W32(tp, ring->tdsar_reg, ((u64)ring->TxPhyAddr & DMA_BIT_MASK(32)));
                 RTL_W32(tp, ring->tdsar_reg + 4, ((u64)ring->TxPhyAddr >> 32));
         }
+
+#ifdef ENABLE_LIB_SUPPORT
+        /*
+         * The lib tx q1 polling may be set after tx is disabled. If lib tx q1
+         * is released, after enable tx, device will try to access invalid tx q1
+         * desc base address. Set tx q1 desc base address to tx q0 desc base
+         * address to let device to access the valid address and clear tx q1
+         * polling bit after enable tx.
+         */
+        if (rtl8168_lib_tx_ring_released(tp)) {
+                struct rtl8168_tx_ring *ring = &tp->tx_ring[0];
+                u16 tdsar_reg = TxHDescStartAddrLow;
+                RTL_W32(tp, tdsar_reg, ((u64)ring->TxPhyAddr & DMA_BIT_MASK(32)));
+                RTL_W32(tp, tdsar_reg + 4, ((u64)ring->TxPhyAddr >> 32));
+        }
+#endif
 
         RTL_W32(tp, RxDescAddrLow, ((u64) tp->RxPhyAddr & DMA_BIT_MASK(32)));
         RTL_W32(tp, RxDescAddrLow + 4, ((u64) tp->RxPhyAddr >> 32));
