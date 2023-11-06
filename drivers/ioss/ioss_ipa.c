@@ -315,7 +315,7 @@ static bool validate_channel(struct ioss_channel *ch,
 #if IPA_ETH_API_VER > 2
 
 /* Recursively select channels as per the channel config list provided by IPA */
-static int ioss_ipa_validate_one_channel(struct ioss_interface *iface, struct dma_ch_config *ch_list, int num_channels)
+static int ioss_ipa_validate_one_channel(struct ioss_interface *iface, struct ipa_eth_dma_ch_config *ch_list, int num_channels)
 {
 	int ret = -ENOENT;
 	enum ioss_channel_dir dir;

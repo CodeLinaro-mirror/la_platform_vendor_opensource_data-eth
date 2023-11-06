@@ -42,7 +42,7 @@ struct ioss_priv_data {
 struct ioss_ch_priv {
 	struct ipa_eth_client_pipe_info ipa_pi;
 #if IPA_ETH_API_VER > 2
-	const struct dma_ch_config *ipa_ch_config;
+	const struct ipa_eth_dma_ch_config *ipa_ch_config;
 #endif
 };
 
