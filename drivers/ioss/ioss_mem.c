@@ -116,7 +116,7 @@ static phys_addr_t llcc_mem_pa(struct ioss_device *idev,
 	return tcm_mem->phys_addr + (tcm_mem->virt_addr - addr);
 }
 
-static size_t llcc_mem_get()
+static size_t llcc_mem_get(void)
 {
 	struct llcc_tcm_data *tcm_data;
 
@@ -136,7 +136,7 @@ static size_t llcc_mem_get()
 	return tcm_mem->mem_size;
 }
 
-static void llcc_mem_put()
+static void llcc_mem_put(void)
 {
 	struct llcc_tcm_data *tcm_data = tcm_mem;
 
