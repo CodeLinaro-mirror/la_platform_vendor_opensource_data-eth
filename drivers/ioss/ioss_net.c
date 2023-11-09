@@ -227,29 +227,16 @@ static int ioss_net_device_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static bool disable_tcm;
-module_param(disable_tcm, bool, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-MODULE_PARM_DESC(disable_tcm, "Disable use of LLCC TCM memory allocator");
-
 #ifdef LLCC_ENABLE
 static int ioss_net_select_llcc_config(struct ioss_channel *ch)
 {
 	u32 ring_size;
 	size_t mem_size;
-	size_t mem_need = ch->config.ring_size * ch->config.buff_size;
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
-	if (disable_tcm) {
-		ioss_dev_cfg(idev,
-			"Not allocating TCM since it is disabled in IOSS");
-		return -ENOMEM;
-	}
+	mem_size = ioss_llcc_alctr.get();
 
-	mem_size = ioss_llcc_alctr.get(mem_need);
-
-	ioss_dev_cfg(idev,
-		"Requested %lu bytes of LLCC, received %lu bytes",
-		mem_need, mem_size);
+	ioss_dev_cfg(idev, "Received %lu bytes for LLCC", mem_size);
 
 	if (!mem_size)
 		return -ENOMEM;
@@ -272,17 +259,13 @@ static void ioss_net_select_channel_config(struct ioss_channel *ch)
 #ifdef LLCC_ENABLE
 	struct ioss_device *idev = ioss_ch_dev(ch);
 	u32 link_speed = ch->iface->link_speed;
-	u32 max_ddr_bw = idev->root->max_ddr_bandwidth;
-	bool llcc_allowed;
+	u32 line_rate_for_llcc = idev->root->line_rate_for_llcc;
 #endif
 
 	ch->config = ch->default_config;
 
 #ifdef LLCC_ENABLE
-
-	llcc_allowed = ioss_of_parse_llcc(idev);
-
-	if (ch->direction == IOSS_CH_DIR_TX && link_speed > max_ddr_bw && llcc_allowed)
+	if (idev->llcc_enabled && ch->direction == IOSS_CH_DIR_TX && link_speed >= line_rate_for_llcc)
 		ioss_net_select_llcc_config(ch);
 #endif
 }
@@ -291,8 +274,7 @@ static void ioss_net_deselect_channel_config(struct ioss_channel *ch)
 {
 #ifdef LLCC_ENABLE
 	if (ch->config.buff_alctr == &ioss_llcc_alctr)
-		ioss_llcc_alctr.put(
-			ch->config.ring_size * ch->config.buff_size);
+		ioss_llcc_alctr.put();
 #endif
 	ch->config = ch->default_config;
 }
@@ -380,7 +362,7 @@ static int ioss_net_alloc_channels(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Allocating channels for %s", idev->net_dev->name);
 
-	return ioss_list_iter_action(&iface->channels,
+	return ioss_list_iter_action(&iface->valid_channels,
 			__alloc_channel_action, __alloc_channel_revert);
 }
 
@@ -463,7 +445,7 @@ static int ioss_net_enable_channels(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Enabling channels for %s", idev->net_dev->name);
 
-	return ioss_list_iter_action(&iface->channels,
+	return ioss_list_iter_action(&iface->valid_channels,
 			__enable_channel_action, __enable_channel_revert);
 }
 
@@ -568,7 +550,7 @@ static int ioss_net_setup_events(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Setting up all device events");
 
-	return ioss_list_iter_action(&iface->channels,
+	return ioss_list_iter_action(&iface->valid_channels,
 			__setup_event_action, __setup_event_revert);
 }
 
@@ -601,6 +583,12 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 
 	ioss_dev_log(idev, "Bringing up %s", idev->net_dev->name);
 
+	rc = ioss_ipa_validate_channels(iface);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to validate channels");
+		goto err_validate_channels;
+	}
+
 	rc = ioss_net_alloc_channels(iface);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to allocate channels");
@@ -625,10 +613,18 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		goto err_enable_channels;
 	}
 
+	if(iface->is_pci_device){
+		rc = ioss_pci_disable_pc(idev);
+		if (rc) {
+			ioss_dev_err(idev, "Failed to disable PCI power collapse");
+			goto err_disable_pc;
+		}
+	}
 	iface->state = IOSS_IF_ST_ONLINE;
 
 	return;
-
+err_disable_pc:
+	ioss_net_disable_channels(iface);
 err_enable_channels:
 	ioss_net_teardown_events(iface);
 err_setup_events:
@@ -636,6 +632,8 @@ err_setup_events:
 err_ipa_register:
 	ioss_net_free_channels(iface);
 err_alloc_channels:
+	ioss_ipa_invalidate_channels(iface);
+err_validate_channels:
 	iface->state = IOSS_IF_ST_ERROR;
 
 	return;
@@ -658,6 +656,13 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 
 	iface->state = IOSS_IF_ST_OFFLINE;
 
+	if(iface->is_pci_device){
+		rc = ioss_pci_enable_pc(idev);
+		if (rc) {
+			ioss_dev_err(idev, "Failed to enable PCI power collapse");
+			iface->state = IOSS_IF_ST_ERROR;
+		}
+	}
 	rc = ioss_net_disable_channels(iface);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to disable channels");
@@ -681,6 +686,8 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 		ioss_dev_err(idev, "Failed to release channels");
 		iface->state = IOSS_IF_ST_ERROR;
 	}
+
+	ioss_ipa_invalidate_channels(iface);
 }
 
 static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)

@@ -139,6 +139,12 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 	return size;
 }
 
+/* By default assign port #0 to have LLCC enabled. Only one port can get LLCC. */
+static int enable_tcm_eth = 1;
+
+module_param(enable_tcm_eth, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(enable_tcm_eth, "Enable use of LLCC TCM memory for Ethernet port: Value 1 = eth0, 2 = eth1, 0 = disabled");
+
 static DEVICE_ATTR(suspend_ipa_offload, S_IWUSR | S_IRUGO,
 		show_suspend_ipa_offload, store_suspend_ipa_offload);
 
@@ -149,6 +155,10 @@ static int ioss_bus_probe(struct device *dev)
 	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "Initializing device for offload");
+
+	if ((enable_tcm_eth == 1 && strnstr(dev_name(dev), "emac0", strlen(dev_name(dev)))) ||
+	    (enable_tcm_eth == 2 && strnstr(dev_name(dev), "emac1", strlen(dev_name(dev)))))
+		idev->llcc_enabled = true;
 
 	device_init_wakeup(dev, true);
 
@@ -491,7 +501,8 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 
 	idev->root = ioss;
 
-	INIT_LIST_HEAD(&idev->interface.channels);
+	INIT_LIST_HEAD(&idev->interface.valid_channels);
+	INIT_LIST_HEAD(&idev->interface.invalid_channels);
 
 	idev->dev.parent = dev;
 	idev->dev.bus = &ioss_bus;
@@ -507,8 +518,16 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 	struct ioss_interface *iface = &idev->interface;
 
 	/* Free channels */
-	list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
+	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
 		list_del(&ch->node);
+		kfree(ch->ipa_configs);
+		kfree_sensitive(ch->ioss_priv);
+		kfree_sensitive(ch);
+	}
+
+	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
+		list_del(&ch->node);
+		kfree(ch->ipa_configs);
 		kfree_sensitive(ch->ioss_priv);
 		kfree_sensitive(ch);
 	}

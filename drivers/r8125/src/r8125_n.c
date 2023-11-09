@@ -363,7 +363,11 @@ static void rtl8125_desc_addr_fill(struct rtl8125_private *);
 static void rtl8125_tx_desc_init(struct rtl8125_private *tp);
 static void rtl8125_rx_desc_init(struct rtl8125_private *tp);
 
+static void mdio_direct_write_phy_ocp(struct rtl8125_private *tp, u16 RegAddr,u16 value);
 static u32 mdio_direct_read_phy_ocp(struct rtl8125_private *tp, u16 RegAddr);
+static void ClearAndSetEthPhyOcpBit(struct rtl8125_private *tp, u16 addr, u16 clearmask, u16 setmask);
+static void ClearEthPhyOcpBit(struct rtl8125_private *tp, u16 addr, u16 mask);
+static void SetEthPhyOcpBit(struct rtl8125_private *tp,  u16 addr, u16 mask);
 static u16 rtl8125_get_hw_phy_mcu_code_ver(struct rtl8125_private *tp);
 static void rtl8125_phy_power_up(struct net_device *dev);
 static void rtl8125_phy_power_down(struct net_device *dev);
@@ -707,6 +711,227 @@ int rtl8125_dump_tally_counter(struct rtl8125_private *tp, dma_addr_t paddr)
                 retval = 0;
 
         return retval;
+}
+
+static u32 rtl8125_convert_link_speed(u16 status)
+{
+        u32 speed = SPEED_UNKNOWN;
+
+        if (status & LinkStatus) {
+                if (status & _2500bpsF)
+                        speed = SPEED_2500;
+                else if (status & _1000bpsF)
+                        speed = SPEED_1000;
+                else if (status & _100bps)
+                        speed = SPEED_100;
+                else if (status & _10bps)
+                        speed = SPEED_10;
+        }
+
+        return speed;
+}
+
+static void rtl8125_mdi_swap(struct rtl8125_private *tp)
+{
+        int i;
+        u16 reg, val, mdi_reverse;
+        u16 tps_p0, tps_p1, tps_p2, tps_p3, tps_p3_p0;
+
+        switch (tp->mcfg) {
+        case CFG_METHOD_2:
+        case CFG_METHOD_3:
+        case CFG_METHOD_6:
+                reg = 0x8284;
+                break;
+        case CFG_METHOD_4:
+        case CFG_METHOD_5:
+        case CFG_METHOD_7:
+                reg = 0x81aa;
+                break;
+        default:
+                return;
+        };
+
+        tps_p3_p0 = rtl8125_mac_ocp_read(tp, 0xD440) & 0xF000;
+        tps_p3 = !!(tps_p3_p0 & BIT_15);
+        tps_p2 = !!(tps_p3_p0 & BIT_14);
+        tps_p1 = !!(tps_p3_p0 & BIT_13);
+        tps_p0 = !!(tps_p3_p0 & BIT_12);
+        mdi_reverse = rtl8125_mac_ocp_read(tp, 0xD442);
+
+        if ((mdi_reverse & BIT_5) && tps_p3_p0 == 0xA000)
+                return;
+
+        if (!(mdi_reverse & BIT_5))
+                val = tps_p0 << 8 |
+                      tps_p1 << 9 |
+                      tps_p2 << 10 |
+                      tps_p3 << 11;
+        else
+                val = tps_p3 << 8 |
+                      tps_p2 << 9 |
+                      tps_p1 << 10 |
+                      tps_p0 << 11;
+
+        for (i=8; i<12; i++) {
+                mdio_direct_write_phy_ocp(tp, 0xA436, reg);
+                ClearAndSetEthPhyOcpBit(tp,
+                                        0xA438,
+                                        BIT(i),
+                                        val & BIT(i));
+        }
+}
+
+static int rtl8125_vcd_test(struct rtl8125_private *tp)
+{
+        u16 val;
+        u32 wait_cnt;
+        int ret = -1;
+
+        rtl8125_mdi_swap(tp);
+
+        ClearEthPhyOcpBit(tp, 0xA422, BIT(0));
+        SetEthPhyOcpBit(tp, 0xA422, 0x00F0);
+        SetEthPhyOcpBit(tp, 0xA422, BIT(0));
+
+        wait_cnt = 0;
+        do {
+                mdelay(1);
+                val = mdio_direct_read_phy_ocp(tp, 0xA422);
+                wait_cnt++;
+        } while (!(val & BIT_15) && (wait_cnt < 5000));
+
+        if (wait_cnt == 5000)
+                goto exit;
+
+        ret = 0;
+
+exit:
+        return ret;
+}
+
+static void rtl8125_get_cp_len(struct rtl8125_private *tp,
+                               u16 cp_len[RTL8125_CP_NUM])
+{
+        int i;
+        u16 status;
+        u16 tmp_cp_len = 0;
+
+        status = RTL_R16(tp, PHYstatus);
+        if (status & LinkStatus) {
+                if (status & _10bps) {
+                        tmp_cp_len = 0;
+                } else if (status & (_100bps | _1000bpsF)) {
+                        rtl8125_mdio_write(tp, 0x1f, 0x0a88);
+                        tmp_cp_len = rtl8125_mdio_read(tp, 0x10);
+                } else if (status & _2500bpsF) {
+                        switch (tp->mcfg) {
+                        case CFG_METHOD_2:
+                        case CFG_METHOD_3:
+                        case CFG_METHOD_6:
+                                rtl8125_mdio_write(tp, 0x1f, 0x0ac5);
+                                tmp_cp_len = rtl8125_mdio_read(tp, 0x14);
+                                tmp_cp_len >>= 4;
+                                break;
+                        default:
+                                rtl8125_mdio_write(tp, 0x1f, 0x0acb);
+                                tmp_cp_len = rtl8125_mdio_read(tp, 0x15);
+                                tmp_cp_len >>= 2;
+                                break;
+                        }
+                } else
+                        goto exit;
+        } else
+                goto exit;
+
+        tmp_cp_len &= 0xff;
+        for (i=0; i<RTL8125_CP_NUM; i++)
+                cp_len[i] = tmp_cp_len;
+
+exit:
+        rtl8125_mdio_write(tp, 0x1f, 0x0000);
+
+        for (i=0; i<RTL8125_CP_NUM; i++)
+                if (cp_len[i] > RTL8125_MAX_SUPPORT_cp_len)
+                        cp_len[i] = RTL8125_MAX_SUPPORT_cp_len;
+
+        return;
+}
+
+static int __rtl8125_get_cp_status(u16 val)
+{
+        switch (val) {
+        case 0x0060:
+                return rtl8125_cp_normal;
+        case 0x0048:
+                return rtl8125_cp_open;
+        case 0x0050:
+                return rtl8125_cp_short;
+        case 0x0042:
+        case 0x0044:
+                return rtl8125_cp_mismatch;
+        default:
+                return rtl8125_cp_normal;
+        }
+}
+
+static int _rtl8125_get_cp_status(struct rtl8125_private *tp, u8 pair_num)
+{
+        u16 val;
+        int cp_status = rtl8125_cp_unknown;
+
+        if (pair_num > 3)
+                goto exit;
+
+        mdio_direct_write_phy_ocp(tp, 0xA436, 0x8027 + 4 * pair_num);
+        val = mdio_direct_read_phy_ocp(tp, 0xA438);
+
+        cp_status = __rtl8125_get_cp_status(val);
+
+exit:
+        return cp_status;
+}
+
+static const char * rtl8125_get_cp_status_string(int cp_status)
+{
+        switch(cp_status) {
+        case rtl8125_cp_normal:
+                return "normal  ";
+        case rtl8125_cp_short:
+                return "short   ";
+        case rtl8125_cp_open:
+                return "open    ";
+        case rtl8125_cp_mismatch:
+                return "mismatch";
+        default:
+                return "unknown ";
+        }
+}
+
+static u16 rtl8125_get_cp_pp(struct rtl8125_private *tp, u8 pair_num)
+{
+        u16 pp = 0;
+
+        if (pair_num > 3)
+                goto exit;
+
+        mdio_direct_write_phy_ocp(tp, 0xA436, 0x8029 + 4 * pair_num);
+        pp = mdio_direct_read_phy_ocp(tp, 0xA438);
+
+        pp &= 0x3fff;
+        pp /= 80;
+
+exit:
+        return pp;
+}
+
+static void rtl8125_get_cp_status(struct rtl8125_private *tp,
+                                  int cp_status[RTL8125_CP_NUM])
+{
+        int i;
+
+        for (i =0; i<RTL8125_CP_NUM; i++)
+                cp_status[i] = _rtl8125_get_cp_status(tp, i);
 }
 
 #ifdef ENABLE_R8125_PROCFS
@@ -1101,6 +1326,67 @@ static int proc_get_temperature(struct seq_file *m, void *v)
                 fah = tj * (9/5) + 32;
                 seq_printf(m, "Fah:-%d\n", fah);
         }
+
+        seq_putc(m, '\n');
+        return 0;
+}
+
+static int proc_get_cable_info(struct seq_file *m, void *v)
+{
+        int i;
+        u16 status;
+        int cp_status[RTL8125_CP_NUM];
+        u16 cp_len[RTL8125_CP_NUM] = {0};
+        struct net_device *dev = m->private;
+        struct rtl8125_private *tp = netdev_priv(dev);
+        const char *pair_str[RTL8125_CP_NUM] = {"1-2", "3-6", "4-5", "7-8"};
+
+        switch (tp->mcfg) {
+        case CFG_METHOD_2 ... CFG_METHOD_7:
+                /* support */
+                break;
+        default:
+                return -EOPNOTSUPP;
+        }
+
+        rtnl_lock();
+
+        rtl8125_mdio_write(tp, 0x1F, 0x0000);
+        if (rtl8125_mdio_read(tp, MII_BMCR) & BMCR_PDOWN) {
+                rtnl_unlock();
+                return -EIO;
+        }
+
+        status = RTL_R16(tp, PHYstatus);
+        if (status & LinkStatus)
+                seq_printf(m, "\nlink speed:%d",
+                           rtl8125_convert_link_speed(status));
+        else
+                seq_puts(m, "\nlink status:off");
+
+        rtl8125_get_cp_len(tp, cp_len);
+
+        rtl8125_vcd_test(tp);
+
+        rtl8125_get_cp_status(tp, cp_status);
+
+        seq_puts(m, "\npair\tlength\tstatus   \tpp\n");
+
+        for (i =0; i<RTL8125_CP_NUM; i++) {
+                seq_printf(m, "%s\t%d\t%s\t",
+                           pair_str[i], cp_len[i],
+                           rtl8125_get_cp_status_string(cp_status[i]));
+                if (cp_status[i] == rtl8125_cp_normal)
+                        seq_printf(m, "none\n");
+                else
+                        seq_printf(m, "%dm\n", rtl8125_get_cp_pp(tp, i));
+        }
+
+        tp->phy_reset_enable(dev);
+
+        rtl8125_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
+
+        rtnl_unlock();
 
         seq_putc(m, '\n');
         return 0;
@@ -1865,6 +2151,63 @@ static int proc_get_temperature(char *page, char **start,
         return len;
 }
 
+static int proc_get_cable_info(char *page, char **start,
+                               off_t offset, int count,
+                               int *eof, void *data)
+{
+        int i;
+        u16 status;
+        int len = 0;
+        struct net_device *dev = data;
+        int cp_status[RTL8125_CP_NUM] = {0};
+        u16 cp_len[RTL8125_CP_NUM] = {0};
+        struct rtl8125_private *tp = netdev_priv(dev);
+        const char *pair_str[RTL8125_CP_NUM] = {"1-2", "3-6", "4-5", "7-8"};
+
+        switch (tp->mcfg) {
+        case CFG_METHOD_2 ... CFG_METHOD_7:
+                /* support */
+                break;
+        default:
+                return -EOPNOTSUPP;
+        }
+
+        rtnl_lock();
+
+        status = RTL_R16(tp, PHYstatus);
+        if (status & LinkStatus)
+                len += snprintf(page + len, count - len,
+                                "\nlink speed:%d",
+                                rtl8125_convert_link_speed(status));
+        else
+                len += snprintf(page + len, count - len,
+                                "\nlink status:off");
+
+        rtl8125_get_cp(tp, cp_len, cp_status);
+
+        len += snprintf(page + len, count - len,
+                        "\npair\tlength\tstatus   \tpp\n");
+
+        for (i =0; i<RTL8125_CP_NUM; i++) {
+                len += snprintf(page + len, count - len,
+                                "%s\t%d\t%s\t",
+                                pair_str[i], cp_len[i],
+                                rtl8125_get_cp_status_string(cp_status[i]));
+                if (cp_status[i] == rtl8125_cp_normal)
+                        len += snprintf(page + len, count - len, "none\n");
+                else
+                        len += snprintf(page + len, count - len, "%dm\n",
+                                        rtl8125_get_cp_pp(tp, i));
+        }
+
+        rtnl_unlock();
+
+        len += snprintf(page + len, count - len, "\n");
+
+        *eof = 1;
+        return len;
+}
+
 void _proc_dump_desc(char *page, int *page_len, int *count, void *desc_base,
                      u32 alloc_size)
 {
@@ -2085,7 +2428,7 @@ static const struct file_operations rtl8125_proc_fops = {
  * Table of proc files we need to create.
  */
 struct rtl8125_proc_file {
-        char name[12];
+        char name[16];
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
         int (*show)(struct seq_file *, void *);
 #else
@@ -2093,7 +2436,7 @@ struct rtl8125_proc_file {
 #endif
 };
 
-static const struct rtl8125_proc_file rtl8125_proc_files[] = {
+static const struct rtl8125_proc_file rtl8125_debug_proc_files[] = {
         { "driver_var", &proc_get_driver_variable },
         { "tally", &proc_get_tally_counter },
         { "registers", &proc_get_registers },
@@ -2101,12 +2444,20 @@ static const struct rtl8125_proc_file rtl8125_proc_files[] = {
         { "eth_phy", &proc_get_eth_phy },
         { "ext_regs", &proc_get_extended_registers },
         { "pci_regs", &proc_get_pci_registers },
-        { "temp", &proc_get_temperature },
         { "tx_desc", &proc_dump_tx_desc },
         { "rx_desc", &proc_dump_rx_desc },
         { "msix_tbl", &proc_dump_msix_tbl },
         { "", NULL }
 };
+
+static const struct rtl8125_proc_file rtl8125_test_proc_files[] = {
+        { "temp", &proc_get_temperature },
+        { "cdt", &proc_get_cable_info },
+        { "", NULL }
+};
+
+#define R8125_PROC_DEBUG_DIR "debug"
+#define R8125_PROC_TEST_DIR "test"
 
 static void rtl8125_proc_init(struct net_device *dev)
 {
@@ -2114,7 +2465,12 @@ static void rtl8125_proc_init(struct net_device *dev)
         const struct rtl8125_proc_file *f;
         struct proc_dir_entry *dir;
 
-        if (rtl8125_proc && !tp->proc_dir) {
+        if (!rtl8125_proc)
+                return;
+
+        if (tp->proc_dir_debug || tp->proc_dir_test)
+                return;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
                 dir = proc_mkdir_data(dev->name, 0, rtl8125_proc, dev);
                 if (!dir) {
@@ -2122,16 +2478,45 @@ static void rtl8125_proc_init(struct net_device *dev)
                                MODULENAME, dev->name);
                         return;
                 }
-
                 tp->proc_dir = dir;
                 proc_init_num++;
 
-                for (f = rtl8125_proc_files; f->name[0]; f++) {
+        /* create debug entry */
+        dir = proc_mkdir_data(R8125_PROC_DEBUG_DIR, 0, tp->proc_dir, dev);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s/%s\n",
+                       MODULENAME, dev->name, R8125_PROC_DEBUG_DIR);
+                return;
+        }
+
+        tp->proc_dir_debug = dir;
+        for (f = rtl8125_debug_proc_files; f->name[0]; f++) {
+                if (!proc_create_data(f->name, S_IFREG | S_IRUGO, dir,
+                                      &rtl8125_proc_fops, f->show)) {
+                        printk("Unable to initialize "
+                               "/proc/net/%s/%s/%s/%s\n",
+                               MODULENAME, dev->name, R8125_PROC_DEBUG_DIR,
+                               f->name);
+                        return;
+                }
+        }
+
+        /* create test entry */
+        dir = proc_mkdir_data(R8125_PROC_TEST_DIR, 0, tp->proc_dir, dev);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s/%s\n",
+                       MODULENAME, dev->name, R8125_PROC_TEST_DIR);
+                return;
+        }
+
+        tp->proc_dir_test = dir;
+        for (f = rtl8125_test_proc_files; f->name[0]; f++) {
                         if (!proc_create_data(f->name, S_IFREG | S_IRUGO, dir,
                                               &rtl8125_proc_fops, f->show)) {
                                 printk("Unable to initialize "
-                                       "/proc/net/%s/%s/%s\n",
-                                       MODULENAME, dev->name, f->name);
+                               "/proc/net/%s/%s/%s/%s\n",
+                               MODULENAME, dev->name, R8125_PROC_TEST_DIR,
+                               f->name);
                                 return;
                         }
                 }
@@ -2146,17 +2531,46 @@ static void rtl8125_proc_init(struct net_device *dev)
                 tp->proc_dir = dir;
                 proc_init_num++;
 
-                for (f = rtl8125_proc_files; f->name[0]; f++) {
+        /* create debug entry */
+        dir = proc_mkdir(R8125_PROC_DEBUG_DIR, tp->proc_dir);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s/%s\n",
+                       MODULENAME, dev->name, R8125_PROC_DEBUG_DIR);
+                return;
+        }
+
+        tp->proc_dir_debug = dir;
+        for (f = rtl8125_debug_proc_files; f->name[0]; f++) {
                         if (!create_proc_read_entry(f->name, S_IFREG | S_IRUGO,
                                                     dir, f->show, dev)) {
                                 printk("Unable to initialize "
-                                       "/proc/net/%s/%s/%s\n",
-                                       MODULENAME, dev->name, f->name);
+                               "/proc/net/%s/%s/%s/%s\n",
+                               MODULENAME, dev->name, R8125_PROC_DEBUG_DIR,
+                               f->name);
+                        return;
+                }
+        }
+
+        /* create test entry */
+        dir = proc_mkdir(R8125_PROC_TEST_DIR, tp->proc_dir);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s/%s\n",
+                       MODULENAME, dev->name, R8125_PROC_TEST_DIR);
+                return;
+        }
+
+        tp->proc_dir_test = dir;
+        for (f = rtl8125_test_proc_files; f->name[0]; f++) {
+                if (!create_proc_read_entry(f->name, S_IFREG | S_IRUGO,
+                                            dir, f->show, dev)) {
+                        printk("Unable to initialize "
+                               "/proc/net/%s/%s/%s/%s\n",
+                               MODULENAME, dev->name, R8125_PROC_TEST_DIR,
+                               f->name);
                                 return;
                         }
                 }
 #endif
-        }
 }
 
 static void rtl8125_proc_remove(struct net_device *dev)
@@ -2166,18 +2580,28 @@ static void rtl8125_proc_remove(struct net_device *dev)
         if (tp->proc_dir) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
                 remove_proc_subtree(dev->name, rtl8125_proc);
-                proc_init_num--;
-
 #else
                 const struct rtl8125_proc_file *f;
                 struct rtl8125_private *tp = netdev_priv(dev);
 
-                for (f = rtl8125_proc_files; f->name[0]; f++)
-                        remove_proc_entry(f->name, tp->proc_dir);
+                if (tp->proc_dir_debug) {
+                        for (f = rtl8125_debug_proc_files; f->name[0]; f++)
+                                remove_proc_entry(f->name, tp->proc_dir_debug);
+                        remove_proc_entry(R8125_PROC_DEBUG_DIR, tp->proc_dir);
+                }
+
+                if (tp->proc_dir_test) {
+                        for (f = rtl8125_test_proc_files; f->name[0]; f++)
+                                remove_proc_entry(f->name, tp->proc_dir_test);
+                        remove_proc_entry(R8125_PROC_TEST_DIR, tp->proc_dir);
+                }
 
                 remove_proc_entry(dev->name, rtl8125_proc);
-                proc_init_num--;
 #endif
+                proc_init_num--;
+
+                tp->proc_dir_debug = NULL;
+                tp->proc_dir_test = NULL;
                 tp->proc_dir = NULL;
         }
 }
@@ -4765,9 +5189,9 @@ rtl8125_get_drvinfo(struct net_device *dev,
         struct rtl8125_private *tp = netdev_priv(dev);
         struct rtl8125_fw *rtl_fw = tp->rtl_fw;
 
-        strcpy(info->driver, MODULENAME);
-        strcpy(info->version, RTL8125_VERSION);
-        strcpy(info->bus_info, pci_name(tp->pci_dev));
+        strscpy(info->driver, MODULENAME, sizeof(info->driver));
+        strscpy(info->version, RTL8125_VERSION, sizeof(info->version));
+        strscpy(info->bus_info, pci_name(tp->pci_dev), sizeof(info->bus_info));
         info->regdump_len = R8125_REGS_DUMP_SIZE;
         info->eedump_len = tp->eeprom_len;
         BUILD_BUG_ON(sizeof(info->fw_version) < sizeof(rtl_fw->version));
@@ -10130,7 +10554,7 @@ static void rtl8125_del_napi(struct rtl8125_private *tp)
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,0)
         int i;
 
-        for (i = 0; i < tp->irq_nvecs; i++)
+        for (i = 0; i < tp->irq_nvecs && i < R8125_MAX_MSIX_VEC; i++)
                 RTL_NAPI_DEL((&tp->r8125napi[i]));
 #endif
 }
@@ -10871,7 +11295,7 @@ rtl8125_hw_config(struct net_device *dev)
         struct pci_dev *pdev = tp->pci_dev;
         u16 mac_ocp_data;
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8125_disable_rx_packet_filter(tp);
 
         rtl8125_hw_reset(dev);
 
@@ -11375,7 +11799,7 @@ _rtl8125_rx_clear(struct rtl8125_private *tp, struct rtl8125_rx_ring *ring)
 {
         int i;
 
-        for (i = 0; i < ring->num_rx_desc; i++) {
+        for (i = 0; i < ring->num_rx_desc && i < MAX_NUM_RX_DESC; i++) {
                 if (ring->Rx_skbuff[i]) {
                         rtl8125_free_rx_skb(tp,
                                             ring,
@@ -11392,7 +11816,7 @@ rtl8125_rx_clear(struct rtl8125_private *tp)
 {
         int i;
 
-        for (i = 0; i < tp->num_rx_rings; i++)
+        for (i = 0; i < tp->num_rx_rings && i < R8125_MAX_RX_QUEUES ; i++)
                 _rtl8125_rx_clear(tp, &tp->rx_ring[i]);
 }
 
@@ -11720,7 +12144,7 @@ rtl8125_wait_for_quiescence(struct net_device *dev)
 static int rtl8125_rx_nostuck(struct rtl8125_private *tp)
 {
         int i, ret = 1;
-        for (i = 0; i < tp->num_rx_rings; i++)
+        for (i = 0; i < tp->num_rx_rings && i < R8125_MAX_RX_QUEUES ; i++)
                 ret &= (tp->rx_ring[i].dirty_rx == tp->rx_ring[i].cur_rx);
         return ret;
 }

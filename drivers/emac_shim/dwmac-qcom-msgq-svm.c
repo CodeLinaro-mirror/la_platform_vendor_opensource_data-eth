@@ -169,6 +169,12 @@ int emac_ctrl_fe_register_notifier(struct notifier_block *nb)
 		/*DMA Driver is now registered*/
 		dev_info(msgq_priv->dev, "Register for Event notification \n");
 
+		ret = atomic_notifier_chain_register(&emac_msgq_rx_notifier_chain, nb);
+		if(ret)
+			goto reg_notifier_fail;
+
+		msgq_priv->emac_dma_drv_state = EMAC_DMA_DRV_REG;
+
 		/*process notification sequence so far*/
 		mutex_lock(&msgq_priv->emac_msgq_lock);
 		msgq_priv->tx_msg.type = REG_EVENTS;
@@ -176,12 +182,17 @@ int emac_ctrl_fe_register_notifier(struct notifier_block *nb)
 		mutex_unlock(&msgq_priv->emac_msgq_lock);
 
 		if(ret)
-			return ret;
-
-		msgq_priv->emac_dma_drv_state = EMAC_DMA_DRV_REG;
+			goto reg_fail;
 	}
 
-	return atomic_notifier_chain_register(&emac_msgq_rx_notifier_chain, nb);
+	return ret;
+
+reg_fail:
+	msgq_priv->emac_dma_drv_state = EMAC_DMA_DRV_UNREG;
+	atomic_notifier_chain_unregister(&emac_msgq_rx_notifier_chain, nb);
+reg_notifier_fail:
+	dev_err(msgq_priv->dev, "Register for Event notification failed: ret = %d\n", ret);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(emac_ctrl_fe_register_notifier);
 

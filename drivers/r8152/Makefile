@@ -2,26 +2,25 @@ ifeq ($(KP_MODULE_ROOT),)
 	KP_MODULE_ROOT=$(KERNEL_SRC)/$(M)
 endif
 
+ifeq ($(RELEASE_PACKAGE),1)
+EXTRA_CFLAGS+=-DRELEASE_PACKAGE
+endif
+LBITS := $(shell getconf LONG_BIT)
+ifeq ($(LBITS),64)
+CCFLAGS += -m64
+EXTRA_CFLAGS+=-DSYSTEM_IS_64
+else
+CCFLAGS += -m32
+endif
+
 M ?= $(shell pwd)
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 
-ioss-y := \
-	ioss_main.o \
-	ioss_bus.o \
-	ioss_pci.o \
-	ioss_net.o \
-	ioss_of.o \
-	ioss_ipa.o \
-	ioss_ipa_hal.o \
-	ioss_mem.o \
-	ioss_utils.o \
-	ioss_platform.o
-
-ioss-$(CONFIG_DEBUG_FS) += ioss_debugfs.o
+obj-m := r8152_rtl.o
 
 KBUILD_OPTIONS+=KBUILD_DTC_INCLUDE=$(KP_MODULE_ROOT)
-KBUILD_OPTIONS+=CONFIG_IOSS=m
+KBUILD_OPTIONS+=KBUILD_DUPLICATED_EXPORTS_NO_WARN=1
 
 all:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) modules $(KBUILD_OPTIONS)
