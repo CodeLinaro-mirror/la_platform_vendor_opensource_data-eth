@@ -3024,7 +3024,9 @@ int stmmac_resume(struct device *dev)
 
 	dma_free_tx_skbufs(priv);
 
-	stmmac_clear_descriptors(priv);
+	dma_free_rx_skbufs(priv);
+
+	init_dma_desc_rings(ndev, GFP_KERNEL);
 
 	stmmac_hw_setup(ndev);
 
