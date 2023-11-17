@@ -416,6 +416,11 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
         tp = ring->private;
         dev = tp->dev;
 
+        if (!netif_running(dev)) {
+                netif_warn(tp, drv, dev, "device closed not enable ring\n");
+                goto out_unlock;
+        }
+
         /* Start the ring if needed */
         netif_tx_disable(dev);
         _rtl8125_wait_for_quiescence(dev);
@@ -435,6 +440,7 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
 
         netif_tx_start_all_queues(dev);
 
+out_unlock:
         rtnl_unlock();
 
         return 0;
@@ -586,13 +592,20 @@ static int _rtl8125_enable_event(struct rtl8125_ring *ring)
 int rtl8125_enable_event(struct rtl8125_ring *ring)
 {
         struct rtl8125_private *tp;
+        struct net_device *dev;
 
         if (!ring)
                 return -EINVAL;
 
         rtnl_lock();
 
-        _rtl8125_enable_event(ring);
+        tp = ring->private;
+        dev = tp->dev;
+
+        if (!netif_running(dev))
+                netif_warn(tp, drv, dev, "device closed not enable event\n");
+        else
+                _rtl8125_enable_event(ring);
 
         rtnl_unlock();
 
