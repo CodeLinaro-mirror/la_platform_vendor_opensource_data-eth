@@ -388,7 +388,6 @@ int rtl8125_set_rxfh(struct net_device *dev, const u32 *indir,
         struct rtl8125_private *tp = netdev_priv(dev);
         int i;
         u32 reta_entries = rtl8125_rss_indir_tbl_entries(tp);
-	u32 rss_key_size;
 
         netif_info(tp, drv, tp->dev, "rss set rxfh\n");
 
@@ -411,10 +410,9 @@ int rtl8125_set_rxfh(struct net_device *dev, const u32 *indir,
                         tp->rss_indir_tbl[i] = indir[i];
         }
 
-	rss_key_size = rtl8125_get_rxfh_key_size(dev);
         /* Fill out the rss hash key */
-        if (key && !rss_key_size)
-		memcpy(tp->rss_key, key, rss_key_size);
+        if (key)
+                memcpy(tp->rss_key, key, rtl8125_get_rxfh_key_size(dev));
 
         rtl8125_store_reta(tp);
 
