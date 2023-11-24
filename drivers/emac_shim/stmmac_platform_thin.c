@@ -170,7 +170,7 @@ static int stmmac_mtl_setup(struct platform_device *pdev,
  * set some private fields that will be used by the main at runtime.
  */
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
+stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct plat_stmmacenet_data *plat;
@@ -181,12 +181,12 @@ stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
 	if (!plat)
 		return ERR_PTR(-ENOMEM);
 
-	rc = (char ) of_get_mac_address(np, (u8 *) (*mac));
+	rc = of_get_mac_address(np, mac);
 	if (rc) {
-			if (rc == -EPROBE_DEFER)
-					return ERR_PTR(rc);
+		if (rc == -EPROBE_DEFER)
+			return ERR_PTR(rc);
 
-			*mac = NULL;
+		eth_zero_addr(mac);
 	}
 
 	of_property_read_u32(np, "tx-fifo-depth", &plat->tx_fifo_size);
