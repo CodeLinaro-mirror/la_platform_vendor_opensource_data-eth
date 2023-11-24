@@ -14,7 +14,7 @@ extern void *ipc_emac_log_ctxt;
 #define __FILENAME__ (strrchr(__FILE__, '/') ? \
 		strrchr(__FILE__, '/') + 1 : __FILE__)
 
-#define DRV_NAME "qcom-ethqos"
+#define DRV_NAME "qcom-ethqos-thin"
 #define ETHQOSDBG(fmt, args...) \
 do {\
 	pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
