@@ -190,7 +190,6 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 	if (!plat)
 		return ERR_PTR(-ENOMEM);
 
-#ifndef CONFIG_ETHQOS_QCOM_SVM
 	rc = of_get_mac_address(np, mac);
 	if (rc) {
 		if (rc == -EPROBE_DEFER)
@@ -198,7 +197,6 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 
 		eth_zero_addr(mac);
 	}
-#endif
 
 	of_property_read_u32(np, "tx-fifo-depth", &plat->tx_fifo_size);
 
