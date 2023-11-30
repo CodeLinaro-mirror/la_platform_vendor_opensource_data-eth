@@ -493,7 +493,7 @@ static void dwmac4_print_reg(void __iomem *ioaddr, u32 ch, u32 offset)
 
 static void dwmac4_get_reg_info(void __iomem *ioaddr, u32 chan)
 {
-	pr_info("------Channel %u Register Dump------\n");
+	pr_info("------Channel %u Register Dump------\n", chan);
 	dwmac4_print_reg(ioaddr, chan, MTL_CHAN_TX_OP_MODE(chan));
 	dwmac4_print_reg(ioaddr, chan, MTL_CHAN_TX_DEBUG(chan));
 	dwmac4_print_reg(ioaddr, chan, MTL_ETSX_CTRL_BASE_ADDR(chan));
