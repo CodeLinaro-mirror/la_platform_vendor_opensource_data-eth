@@ -236,6 +236,85 @@ static ssize_t read_idev_stats(struct file *file, char __user *user_buf, size_t 
 	return ret_cnt;
 }
 
+static size_t fill_ch_ipa_config(char *buf, size_t buflen, const char *cfg, const char *active_cfg)
+{
+	size_t len = 0;
+
+	if (active_cfg && !strcmp(cfg, active_cfg))
+		len += scnprintf(buf + len, buflen - len, "[%s]", cfg);
+	else
+		len += scnprintf(buf + len, buflen - len, " %s ", cfg);
+
+	return len;
+}
+
+static size_t fill_ch_entry(char *buf, size_t buflen, struct ioss_channel *ch, bool valid)
+{
+	int i;
+	size_t len = 0;
+
+	len += scnprintf(buf + len, buflen - len, "%15s", ch->name);
+	len += scnprintf(buf + len, buflen - len, "%4s", ioss_ch_dir_name(ch->direction));
+	len += scnprintf(buf + len, buflen - len, "  %18s", ioss_traffic_name(ch->traffic_type));
+	len += scnprintf(buf + len, buflen - len, " %5s", valid ? "Y" : "N");
+
+	if (ch->allocated) {
+		if (ch->enabled)
+			len += scnprintf(buf + len, buflen - len, "%4d* ", ch->id);
+		else
+			len += scnprintf(buf + len, buflen - len, "%4d  ", ch->id);
+	} else {
+		len += scnprintf(buf + len, buflen - len, "%4s  ", "--");
+	}
+
+	if (!ch->num_ipa_configs)
+		len += fill_ch_ipa_config(buf + len, buflen - len, "--", ch->iface->ipa_config);
+	else
+		len += fill_ch_ipa_config(buf + len, buflen - len, ch->ipa_configs[0], ch->iface->ipa_config);
+
+	len += scnprintf(buf + len, buflen - len, "\n");
+
+	if (ch->num_ipa_configs < 2)
+		return len;
+
+	for (i = 1; i < ch->num_ipa_configs; i++) {
+		len += scnprintf(buf + len, buflen - len, "%51s", "");
+		len += fill_ch_ipa_config(buf + len, buflen - len, ch->ipa_configs[i], ch->iface->ipa_config);
+		len += scnprintf(buf + len, buflen - len, "\n");
+	}
+
+	return len;
+}
+
+static ssize_t read_idev_channels(struct file *file, char __user *user_buf, size_t size, loff_t *ppos)
+{
+	char *buf;
+	size_t len = 0;
+	const size_t BUF_LEN = 2048;
+	ssize_t ret_cnt = 0;
+	struct ioss_channel *ch;
+	struct ioss_device *idev = file->private_data;
+	const char *heading =
+			"           NAME DIR             TRAFFIC VALID  ID   IPA CONFIGS";
+
+	buf = kmalloc(BUF_LEN, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	len += scnprintf(buf + len, BUF_LEN - len, "%s\n", heading);
+
+	list_for_each_entry(ch, &idev->interface.valid_channels, node)
+		len += fill_ch_entry(buf + len, BUF_LEN - len, ch, true);
+
+	list_for_each_entry(ch, &idev->interface.invalid_channels, node)
+		len += fill_ch_entry(buf + len, BUF_LEN - len, ch, false);
+
+	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
+	kfree(buf);
+
+	return ret_cnt;
+}
+
 static ssize_t read_ch_statistics(struct file *file, char __user *user_buf,
 		size_t size, loff_t *ppos)
 {
@@ -388,6 +467,13 @@ static const struct file_operations fops_idev_stats = {
 	.llseek = default_llseek,
 };
 
+static const struct file_operations fops_idev_channels = {
+	.read = read_idev_channels,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+};
+
 static const struct file_operations fops_ch_statistics = {
 	.read = read_ch_statistics,
 	.open = simple_open,
@@ -420,6 +506,7 @@ int ioss_debugfs_add_idev(struct ioss_device *idev)
 {
 	struct dentry *statistics;
 	struct dentry *stats;
+	struct dentry *channels;
 
 	idev->debugfs = debugfs_create_dir(idev->net_dev->name, devices_dir);
 	if (IS_ERR_OR_NULL(idev->debugfs)) {
@@ -437,6 +524,12 @@ int ioss_debugfs_add_idev(struct ioss_device *idev)
 	stats = debugfs_create_file("stats", 0444, idev->debugfs, idev, &fops_idev_stats);
 	if (IS_ERR_OR_NULL(stats)) {
 		ioss_dev_err(idev, "Failed to create debugfs file for %s", idev->net_dev->name);
+		goto err_debugfs;
+	}
+
+	channels = debugfs_create_file("channels", 0444, idev->debugfs, idev, &fops_idev_channels);
+	if (IS_ERR_OR_NULL(channels)) {
+		ioss_dev_err(idev, "Failed to create debugfs channels for %s", idev->net_dev->name);
 		goto err_debugfs;
 	}
 

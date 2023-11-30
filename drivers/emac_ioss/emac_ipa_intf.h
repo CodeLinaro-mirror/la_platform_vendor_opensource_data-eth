@@ -17,6 +17,7 @@
 #include "ioss/ioss_version.h"
 
 #define MAX_PARSABLE_FRP_ENTRIES 72
+#define CONFIG_LEN 40
 
 #define EMAC0_EMAC_INTERRUPT_ENABLE 0x7C
 
@@ -24,6 +25,9 @@
 #define MASK_ALL_IPA_CH	0x0000FFFF
 #define EMAC0_IPA_RX_INTR_EN	BIT(8)
 #define EMAC0_IPA_TX_INTR_EN	BIT(0)
+#define EMAC0_IPA_RX3_INTR_EN	BIT(11)
+#define EMAC0_IPA_TX3_INTR_EN	BIT(3)
+
 #define XGMAC_AE_SHIFT	31
 #define XGMAC_MBC_SHIFT	24
 #define GMAC_AE_SHIFT	31
@@ -100,6 +104,9 @@ struct channel_info {
 	struct pci_dev *dma_pdev;	/* pdev that should be used for dma allocation */
 	dma_addr_t dma_map_dbaddr;	/* dma mapped address for ntn3 fw to access the db*/
 
+	bool ezmesh_enabled;		/* stores ezmesh enabled infomration */
+	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
+
 };
 
 struct request_channel_input {
@@ -116,6 +123,9 @@ struct request_channel_input {
 				 */
 	void *client_ch_priv;    /* To store in channel_info and pass it to mem_ops */
 	unsigned int ch_flags;
+
+	char ipa_config_info[CONFIG_LEN]; /* Stores config information */
+	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
 	phys_addr_t tail_ptr_addr;
 };
 
