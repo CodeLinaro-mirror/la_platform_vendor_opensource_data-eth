@@ -360,7 +360,7 @@ do { \
 #define RSS_SUFFIX ""
 #endif
 
-#define RTL8168_VERSION "8.051.02-b22_mod_fc" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
+#define RTL8168_VERSION "8.051.02-b22_cdt" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
 #define MODULENAME "r8168"
 #define PFX MODULENAME ": "
 
@@ -1482,6 +1482,17 @@ enum bits {
         BIT_31 = (1 << 31)
 };
 
+#define RTL8168_CP_NUM 4
+#define RTL8168_MAX_SUPPORT_cp_len 110
+
+enum rtl8168_cp_status {
+        rtl8168_cp_normal = 0,
+        rtl8168_cp_short,
+        rtl8168_cp_open,
+        rtl8168_cp_mismatch,
+        rtl8168_cp_unknown
+};
+
 enum effuse {
         EFUSE_NOT_SUPPORT = 0,
         EFUSE_SUPPORT_V1,
@@ -2034,6 +2045,8 @@ struct rtl8168_private {
 #ifdef ENABLE_R8168_PROCFS
         //Procfs support
         struct proc_dir_entry *proc_dir;
+        struct proc_dir_entry *proc_dir_debug;
+        struct proc_dir_entry *proc_dir_test;
 #endif
         u8 HwSuppRxDescType;
         u8 InitRxDescType;
