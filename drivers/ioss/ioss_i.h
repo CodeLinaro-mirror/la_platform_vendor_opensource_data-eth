@@ -14,12 +14,19 @@
 
 #include <linux/ipa_eth.h>
 
+#if IPA_ETH_API_VER < 2
+#error Unsupported IPA interface IPA_ETH_API_VER
+#endif
+
 #include "include/linux/msm/ioss.h"
 #include <linux/panic_notifier.h>
 
 #if IS_ENABLED(CONFIG_QCOM_LLCC)
 #define LLCC_ENABLE
 #endif
+
+#define DEFAULT_IPA_CONFIG "default"
+#define DEFAULT_IOSS_TRAFFIC_TYPE IOSS_TRAFFIC_BE
 
 enum ioss_statuses {
 	IOSS_ST_ERROR,
@@ -34,22 +41,16 @@ struct ioss_priv_data {
 
 struct ioss_ch_priv {
 	struct ipa_eth_client_pipe_info ipa_pi;
-};
-
-#if IPA_ETH_API_VER < 2
-union ioss_ipa_eth_hdr {
-	struct ethhdr l2;
-	struct vlan_ethhdr vlan;
-};
+#if IPA_ETH_API_VER > 2
+	const struct ipa_eth_dma_ch_config *ipa_ch_config;
 #endif
+};
 
 struct ioss_iface_priv {
 	struct ipa_eth_client ipa_ec;
 	struct ipa_eth_intf_info ipa_ii;
-
-#if IPA_ETH_API_VER < 2
-	union ioss_ipa_eth_hdr ipa_hdr_v4;
-	union ioss_ipa_eth_hdr ipa_hdr_v6;
+#if IPA_ETH_API_VER > 2
+	struct ipa_eth_config ipa_config;
 #endif
 };
 
@@ -79,6 +80,9 @@ struct platform_device *ioss_find_dev_from_of_node(
 
 int ioss_ipa_register(struct ioss_interface *iface);
 int ioss_ipa_unregister(struct ioss_interface *iface);
+
+int ioss_ipa_validate_channels(struct ioss_interface *iface);
+void ioss_ipa_invalidate_channels(struct ioss_interface *iface);
 
 enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_device *idev);
 int ioss_ipa_hal_fill_si(struct ioss_channel *ch);
@@ -119,6 +123,7 @@ int ioss_list_iter_action(struct list_head *head,
 
 const char *ioss_if_state_name(enum ioss_interface_state state);
 const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
+const char *ioss_traffic_name(enum ioss_traffic_type t);
 
 #define if_st_s(iface) ioss_if_state_name(iface->state)
 

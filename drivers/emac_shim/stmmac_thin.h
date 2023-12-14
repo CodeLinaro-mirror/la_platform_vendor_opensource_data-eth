@@ -27,7 +27,7 @@
 #define MAX_NUM_CH 8
 struct stmmac_resources {
 	void __iomem *addr;
-	const char *mac;
+	u8 mac[ETH_ALEN];
 	int irq[MAX_NUM_CH];
 	u32 ch;
 };

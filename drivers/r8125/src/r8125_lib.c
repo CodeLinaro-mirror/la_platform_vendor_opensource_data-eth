@@ -314,7 +314,6 @@ struct rtl8125_ring *rtl8125_request_ring(struct net_device *ndev,
 {
         struct rtl8125_private *tp = netdev_priv(ndev);
         struct rtl8125_ring * ring = 0;
-        bool locked = true;
 
         if (direction == RTL8125_CH_DIR_TX)
                 ring = rtl8125_get_tx_ring(tp);
@@ -333,16 +332,14 @@ struct rtl8125_ring *rtl8125_request_ring(struct net_device *ndev,
                 goto error_put_ring;
 
         /* initialize descriptors to point to buffers allocated */
-        if (!rtnl_trylock())
-                locked = false;
+        rtnl_lock();
 
         if (direction == RTL8125_CH_DIR_TX)
                 rtl8125_init_tx_ring(ring);
         else if (direction == RTL8125_CH_DIR_RX)
                 rtl8125_init_rx_ring(ring);
 
-        if (locked)
-                rtnl_unlock();
+        rtnl_unlock();
 
         return ring;
 
@@ -379,7 +376,6 @@ exit:
 void rtl8125_release_ring(struct rtl8125_ring *ring)
 {
         struct rtl8125_private *tp;
-        bool locked = true;
 
         if (!ring)
                 return;
@@ -390,8 +386,8 @@ void rtl8125_release_ring(struct rtl8125_ring *ring)
         rtl8125_put_ring(ring);
         if (rtl8125_all_ring_released(tp)) {
                 struct net_device *dev = tp->dev;
-                if (!rtnl_trylock())
-                        locked = false;
+
+                rtnl_lock();
 
                 if (netif_running(dev)) {
                         rtl8125_close(dev);
@@ -399,8 +395,7 @@ void rtl8125_release_ring(struct rtl8125_ring *ring)
                 } else
                         rtl8125_enable_hw_linkchg_interrupt(tp);
 
-                if (locked)
-                        rtnl_unlock();
+                rtnl_unlock();
         }
 }
 EXPORT_SYMBOL(rtl8125_release_ring);
@@ -409,7 +404,6 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
 {
         struct rtl8125_private *tp;
         struct net_device *dev;
-        bool locked = true;
 
         if (!ring)
                 return -EINVAL;
@@ -417,11 +411,15 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
         if (!(ring->direction == RTL8125_CH_DIR_TX || ring->direction == RTL8125_CH_DIR_RX))
                 return -EINVAL;
 
-        if (!rtnl_trylock())
-                locked = false;
+        rtnl_lock();
 
         tp = ring->private;
         dev = tp->dev;
+
+        if (!netif_running(dev)) {
+                netif_warn(tp, drv, dev, "device closed not enable ring\n");
+                goto out_unlock;
+        }
 
         /* Start the ring if needed */
         netif_tx_disable(dev);
@@ -442,8 +440,8 @@ int rtl8125_enable_ring(struct rtl8125_ring *ring)
 
         netif_tx_start_all_queues(dev);
 
-        if (locked)
-                rtnl_unlock();
+out_unlock:
+        rtnl_unlock();
 
         return 0;
 }
@@ -453,7 +451,6 @@ void rtl8125_disable_ring(struct rtl8125_ring *ring)
 {
         struct rtl8125_private *tp;
         struct net_device *dev;
-        bool locked = true;
 
         /* Stop the ring if possible. IPA do not want to receive or transmit
         packets beyond this point.
@@ -468,8 +465,7 @@ void rtl8125_disable_ring(struct rtl8125_ring *ring)
         tp = ring->private;
         dev = tp->dev;
 
-        if (!rtnl_trylock())
-                locked = false;
+        rtnl_lock();
 
         rtl8125_hw_reset(dev);
         //rtl8125_tx_clear(tp);
@@ -481,8 +477,7 @@ void rtl8125_disable_ring(struct rtl8125_ring *ring)
         //rtl8125_hw_config(dev);
         //rtl8125_hw_start(dev);
 
-        if (locked)
-                rtnl_unlock();
+        rtnl_unlock();
 }
 EXPORT_SYMBOL(rtl8125_disable_ring);
 
@@ -492,7 +487,6 @@ int rtl8125_request_event(struct rtl8125_ring *ring, unsigned long flags,
         struct rtl8125_private *tp;
         struct pci_dev *pdev;
         u32 message_id;
-        bool locked = true;
 
         if (!ring)
                 return -EINVAL;
@@ -516,8 +510,7 @@ int rtl8125_request_event(struct rtl8125_ring *ring, unsigned long flags,
                 /* Initialize any MSI-X/interrupt related register in HW */
                 u16 reg = message_id * 0x10;
 
-                if (!rtnl_trylock())
-                        locked = false;
+                rtnl_lock();
 
                 ring->event.addr = rtl8125_eri_read(tp, reg, 4, ERIAR_MSIX);
                 ring->event.addr |= (u64)rtl8125_eri_read(tp, reg + 4, 4, ERIAR_MSIX) << 32;
@@ -529,8 +522,7 @@ int rtl8125_request_event(struct rtl8125_ring *ring, unsigned long flags,
                 rtl8125_eri_write(tp, reg + 8, 4, data, ERIAR_MSIX);
                 rtl8125_eri_write(tp, reg + 12, 4, data >> 32, ERIAR_MSIX);
 
-                if (locked)
-                        rtnl_unlock();
+                rtnl_unlock();
 
                 ring->event.message_id = message_id;
                 ring->event.allocated = 1;
@@ -546,10 +538,9 @@ void rtl8125_release_event(struct rtl8125_ring *ring)
         dma_addr_t addr;
         u64 data;
         u16 reg;
-        bool locked = true;
 
         /* Reverse request_event() */
-        if (!ring->event.allocated)
+        if (!ring)
                 return;
 
         if (!(ring->direction == RTL8125_CH_DIR_TX || ring->direction == RTL8125_CH_DIR_RX))
@@ -565,16 +556,14 @@ void rtl8125_release_event(struct rtl8125_ring *ring)
         addr = ring->event.addr;
         data = ring->event.data;
 
-        if (!rtnl_trylock())
-                locked = false;
+        rtnl_lock();
 
         rtl8125_eri_write(tp, reg, 4, (u64)addr & DMA_BIT_MASK(32), ERIAR_MSIX);
         rtl8125_eri_write(tp, reg + 4, 4, (u64)addr >> 32, ERIAR_MSIX);
         rtl8125_eri_write(tp, reg + 8, 4, data, ERIAR_MSIX);
         rtl8125_eri_write(tp, reg + 12, 4, data >> 32, ERIAR_MSIX);
 
-        if (locked)
-                rtnl_unlock();
+        rtnl_unlock();
 
         ring->event.allocated = 0;
 
@@ -582,16 +571,12 @@ void rtl8125_release_event(struct rtl8125_ring *ring)
 }
 EXPORT_SYMBOL(rtl8125_release_event);
 
-int rtl8125_enable_event(struct rtl8125_ring *ring)
+static int _rtl8125_enable_event(struct rtl8125_ring *ring)
 {
         struct rtl8125_private *tp = ring->private;
-        bool locked = true;
 
         if (!ring->event.allocated)
                 return -EINVAL;
-
-        if (!rtnl_trylock())
-                locked = false;
 
         /* Set interrupt moderation timer */
         rtl8125_set_ring_intr_mod(ring, ring->event.delay);
@@ -599,10 +584,30 @@ int rtl8125_enable_event(struct rtl8125_ring *ring)
         /* Enable interrupt */
         rtl8125_enable_hw_interrupt_v2(tp, ring->event.message_id);
 
-        if (locked)
-                rtnl_unlock();
-
         ring->event.enabled = 1;
+
+        return 0;
+}
+
+int rtl8125_enable_event(struct rtl8125_ring *ring)
+{
+        struct rtl8125_private *tp;
+        struct net_device *dev;
+
+        if (!ring)
+                return -EINVAL;
+
+        rtnl_lock();
+
+        tp = ring->private;
+        dev = tp->dev;
+
+        if (!netif_running(dev))
+                netif_warn(tp, drv, dev, "device closed not enable event\n");
+        else
+                _rtl8125_enable_event(ring);
+
+        rtnl_unlock();
 
         return 0;
 }
@@ -611,19 +616,16 @@ EXPORT_SYMBOL(rtl8125_enable_event);
 int rtl8125_disable_event(struct rtl8125_ring *ring)
 {
         struct rtl8125_private *tp = ring->private;
-        bool locked = true;
 
         if (!ring->event.allocated)
                 return -EINVAL;
 
-        if (!rtnl_trylock())
-                locked = false;
+        rtnl_lock();
 
         /* Disable interrupt */
         rtl8125_disable_hw_interrupt_v2(tp, ring->event.message_id);
 
-        if (locked)
-                rtnl_unlock();
+        rtnl_unlock();
 
         ring->event.enabled = 0;
 
@@ -634,14 +636,21 @@ EXPORT_SYMBOL(rtl8125_disable_event);
 int rtl8125_set_ring_intr_mod(struct rtl8125_ring *ring, int delay)
 {
         struct rtl8125_private *tp = ring->private;
+        bool locked = true;
 
         if (!ring->event.allocated)
                 return -EFAULT;
+
+        if (!rtnl_trylock())
+                locked = false;
 
         ring->event.delay = delay;
 
         /* Set interrupt moderation timer */
         rtl8125_hw_set_timer_int_8125(tp, ring->event.message_id, ring->event.delay);
+
+        if (locked)
+                rtnl_unlock();
 
         return 0;
 }
@@ -685,16 +694,9 @@ EXPORT_SYMBOL(rtl8125_rss_reset);
 
 struct net_device *rtl8125_get_netdev(struct device *dev)
 {
-        struct pci_dev *pdev = NULL;
+        struct pci_dev *pdev = to_pci_dev(dev);
 
-	if(!dev)
-		return -EINVAL;
-
-	pdev = to_pci_dev(dev);
-	if (!pdev)
-		return -EINVAL;
-
-	/* Get device private data from @dev */
+        /* Get device private data from @dev */
         /* Retrieve struct net_device * from device private data */
 
         return pci_get_drvdata(pdev);
@@ -866,7 +868,7 @@ void rtl8125_init_lib_ring(struct rtl8125_private *tp)
                         continue;
 
                 if (ring->event.enabled)
-                        rtl8125_enable_event(ring);
+                        _rtl8125_enable_event(ring);
 
                 rtl8125_init_tx_ring(ring);
         }
@@ -878,7 +880,7 @@ void rtl8125_init_lib_ring(struct rtl8125_private *tp)
                         continue;
 
                 if (ring->event.enabled)
-                        rtl8125_enable_event(ring);
+                        _rtl8125_enable_event(ring);
 
                 rtl8125_init_rx_ring(ring);
         }

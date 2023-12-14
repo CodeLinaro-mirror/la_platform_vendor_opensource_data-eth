@@ -6,7 +6,7 @@
 #ifndef _IOSS_VERSION_H_
 #define _IOSS_VERSION_H_
 
-#define IOSS_VER_MAJOR 1
+#define IOSS_VER_MAJOR 2
 #define IOSS_VER_MINOR 0
 #define IOSS_VER_PATCH 0
 
