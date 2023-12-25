@@ -367,7 +367,7 @@ do { \
 #define RSS_SUFFIX ""
 #endif
 
-#define RTL8125_VERSION "9.010.01" NAPI_SUFFIX DASH_SUFFIX REALWOW_SUFFIX PTP_SUFFIX RSS_SUFFIX
+#define RTL8125_VERSION "9.010.01_cdt" NAPI_SUFFIX DASH_SUFFIX REALWOW_SUFFIX PTP_SUFFIX RSS_SUFFIX
 #define MODULENAME "r8125"
 #define PFX MODULENAME ": "
 
@@ -637,7 +637,11 @@ typedef int *napi_budget;
 typedef struct napi_struct *napi_ptr;
 typedef int napi_budget;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
+#define RTL_NAPI_CONFIG(ndev, priv, function, weight)   netif_napi_add_weight(ndev, &priv->napi, function, weight)
+#else
 #define RTL_NAPI_CONFIG(ndev, priv, function, weight)   netif_napi_add(ndev, &priv->napi, function, weight)
+#endif //LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
 #define RTL_NAPI_QUOTA(budget, ndev)            min(budget, budget)
 #define RTL_GET_PRIV(stuct_ptr, priv_struct)        container_of(stuct_ptr, priv_struct, stuct_ptr)
 #define RTL_GET_NETDEV(priv_ptr)            struct net_device *dev = priv_ptr->dev;
@@ -1632,6 +1636,17 @@ enum bits {
         BIT_31 = (1 << 31)
 };
 
+#define RTL8125_CP_NUM 4
+#define RTL8125_MAX_SUPPORT_CP_LEN 110
+
+enum rtl8125_cp_status {
+        rtl8125_cp_normal = 0,
+        rtl8125_cp_short,
+        rtl8125_cp_open,
+        rtl8125_cp_mismatch,
+        rtl8125_cp_unknown
+};
+
 enum effuse {
         EFUSE_NOT_SUPPORT = 0,
         EFUSE_SUPPORT_V1,
@@ -2306,6 +2321,8 @@ struct rtl8125_private {
 #ifdef ENABLE_R8125_PROCFS
         //Procfs support
         struct proc_dir_entry *proc_dir;
+        struct proc_dir_entry *proc_dir_debug;
+        struct proc_dir_entry *proc_dir_test;
 #endif
         u8 InitRxDescType;
         u16 RxDescLength; //V1 16 Byte V2 32 Bytes
