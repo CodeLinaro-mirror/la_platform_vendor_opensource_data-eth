@@ -4538,12 +4538,20 @@ rtl8168_irq_mask_and_ack(struct rtl8168_private *tp)
 }
 
 static void
+rtl8168_disable_rx_packet_filter(struct rtl8168_private *tp)
+{
+        RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) &
+                ~(AcceptErr | AcceptRunt |AcceptBroadcast | AcceptMulticast |
+                  AcceptMyPhys |  AcceptAllPhys));
+}
+
+static void
 rtl8168_nic_reset(struct net_device *dev)
 {
         struct rtl8168_private *tp = netdev_priv(dev);
         int i;
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8168_disable_rx_packet_filter(tp);
 
         rtl8168_enable_rxdvgate(dev);
 
@@ -4627,6 +4635,9 @@ rtl8168_nic_reset(struct net_device *dev)
                 }
                 break;
         }
+
+        /* reset rcr */
+        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
 }
 
 static void
@@ -4766,7 +4777,7 @@ static void rtl8168_mac_loopback_test(struct rtl8168_private *tp)
                                 break;
                 }
 
-                RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) & ~(AcceptErr | AcceptRunt | AcceptBroadcast | AcceptMulticast | AcceptMyPhys |  AcceptAllPhys));
+                rtl8168_disable_rx_packet_filter(tp);
 
                 rx_len = rx_cmd & 0x3FFF;
                 rx_len -= 4;
@@ -8831,7 +8842,7 @@ rtl8168_exit_oob(struct net_device *dev)
         struct rtl8168_private *tp = netdev_priv(dev);
         u16 data16;
 
-        RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) & ~(AcceptErr | AcceptRunt | AcceptBroadcast | AcceptMulticast | AcceptMyPhys |  AcceptAllPhys));
+        rtl8168_disable_rx_packet_filter(tp);
 
         if (HW_SUPP_SERDES_PHY(tp)) {
                 if (tp->HwSuppSerDesPhyVer == 1) {
@@ -29024,7 +29035,7 @@ rtl8168_hw_config(struct net_device *dev)
         }
 #endif
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8168_disable_rx_packet_filter(tp);
 
         rtl8168_hw_reset(dev);
 
