@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: GPL-2.0-only
-//Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+//Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
 
 #include <errno.h>
 #include <stdio.h>
@@ -15,7 +15,6 @@
 #include <netlink/netlink.h>
 #include <dirent.h>
 #include "thermal_netlink.h"
-#include "ds_util.h"
 
 #define MAX_LENGTH		256
 #define MAX_PATH		256
@@ -26,7 +25,6 @@
 #define CDEV_TYPE_NAME		"ethernet-usxgmii"
 
 struct cdevData {
-//	Mitigation data;
 	int cdevn;
 };
 
@@ -88,6 +86,7 @@ static int thermal_nl_parse_family(struct nl_msg *msg, void *data)
 				!nl_group[CTRL_ATTR_MCAST_GRP_ID])
 			continue;
 
+		printf("Family:%s\n", (char *)nla_data(nl_group[CTRL_ATTR_MCAST_GRP_NAME]));
 		if (!strncmp(nla_data(nl_group[CTRL_ATTR_MCAST_GRP_NAME]),
 				      THERMAL_GENL_EVENT_GROUP_NAME,
 				      nla_len(nl_group[CTRL_ATTR_MCAST_GRP_NAME])))
@@ -104,12 +103,17 @@ static int thermal_nl_send_msg(struct nl_msg *msg)
 	int ret = 0;
 
 	ret = nl_send_auto(nl_socket.soc, msg);
-	if (ret < 0)
+	if (ret < 0) {
+		printf("Message send error. :%d\n", ret);
 		return ret;
+	}
 	nl_socket_disable_seq_check(nl_socket.soc);
 	nl_socket_modify_cb(nl_socket.soc, NL_CB_VALID, NL_CB_CUSTOM,
 			    thermal_nl_parse_family, NULL);
 	ret = nl_recvmsgs_default(nl_socket.soc);
+	if (ret)
+		printf("Error for nl_recvmsgs_default with err%d\n", ret);
+
 	return ret;
 }
 
@@ -134,8 +138,10 @@ static int thermal_nl_fetch_id(void)
 	if (nl_socket.grp_id != -1) {
 		ret = nl_socket_add_membership(nl_socket.soc,
 					       nl_socket.grp_id);
-		if (ret)
+		if (ret) {
+			printf("Event Socket membership add err:%d\n", ret);
 			return ret;
+	}
 	}
 	return 0;
 }
@@ -165,6 +171,7 @@ static int thermal_nl_event_cb(struct nl_msg *n, void *data)
 	struct nlattr *attrs[THERMAL_GENL_ATTR_MAX + 1];
 	int cdev_id = -1, cur_state = -1;
 
+	printf("CB %s  genlhdr->cmd: %d\n", __func__, genlhdr->cmd);
 	genlmsg_parse(nl_hdr, 0, attrs, THERMAL_GENL_ATTR_MAX, NULL);
 
 	switch (genlhdr->cmd) {
@@ -176,11 +183,22 @@ static int thermal_nl_event_cb(struct nl_msg *n, void *data)
 				return 0;
 			}
 		}
-	
+
 		if (attrs[THERMAL_GENL_ATTR_CDEV_CUR_STATE])
 			cur_state = nla_get_u32(
 						attrs[THERMAL_GENL_ATTR_CDEV_CUR_STATE]);
-
+#ifdef CONFIG_ARCH_SA525
+		if (((old_state == 0) && (cur_state == 1)) || ((old_state == 1) && (cur_state == 0))) {
+			if (system("echo 1 > /sys/class/net/eth0/suspend_ipa_offload") == -1)
+				return -1;
+			if (system("echo 1 > /sys/class/net/eth0/thermal_netlink") == -1)
+				return -1;
+			if (system("echo 0 > /sys/class/net/eth0/thermal_netlink") == -1)
+				return -1;
+			if (system("echo 0 > /sys/class/net/eth0/suspend_ipa_offload") == -1)
+				return -1;
+		}
+#else
 		if ((old_state == 0) && (cur_state == 1)) {
 			if (system("echo 1 > /sys/class/net/eth1/suspend_ipa_offload") == -1)
 				return -1;
@@ -205,6 +223,7 @@ static int thermal_nl_event_cb(struct nl_msg *n, void *data)
 			if (system("echo 0 > /sys/class/net/eth1/suspend_ipa_offload") == -1)
 				return -1;
 		}
+#endif
 		old_state = cur_state;
 		notify_event_cb(soc_data, cdev_id, cur_state);
 		break;
@@ -215,14 +234,21 @@ static int thermal_nl_event_cb(struct nl_msg *n, void *data)
 
 static void *thermal_sensor_netlink(void *data)
 {
+	int ret = 0;
+
 	if (nl_socket.grp_id == -1)
 		return NULL;
 
 	nl_socket_disable_seq_check(nl_socket.soc);
+	printf("CB reg thermal_nl_event_cb\n");
 	nl_socket_modify_cb(nl_socket.soc, NL_CB_VALID, NL_CB_CUSTOM,
 			    thermal_nl_event_cb, &nl_socket);
-	while (!stop)
-		nl_recvmsgs_default(nl_socket.soc);
+
+	while (!stop) {
+		printf("Calling nl_recvmsgs_default\n");
+		ret = nl_recvmsgs_default(nl_socket.soc);
+		printf("ret = %d\n", ret);
+	}
 
 	return NULL;
 }
@@ -255,10 +281,13 @@ int thermal_nl_init(void)
 
 	if (!nl_socket.soc) {
 		nl_socket.soc = nl_socket_alloc();
-		if (!nl_socket.soc)
+		if (!nl_socket.soc) {
+			printf("Event socket alloc failed:%d\n", errno);
 			return -1;
+		}
 
 		if (genl_connect(nl_socket.soc)) {
+			printf("Event socket connect failed:%d\n", errno);
 			nl_socket_free(nl_socket.soc);
 			nl_socket.soc = NULL;
 			return -1;
@@ -268,6 +297,7 @@ int thermal_nl_init(void)
 
 	ret = thermal_nl_fetch_id();
 	if (ret) {
+		printf("Error for thermal_nl_fetch_id with err%d\n", ret);
 		nl_socket_free(nl_socket.soc);
 		nl_socket.soc = NULL;
 		return ret;
@@ -309,6 +339,25 @@ int thermal_nl_register_trip(nl_trip_cb cb, void *data)
 	local_cb.trip_cb = cb;
 
 	return thermal_nl_add_cb(&nl_socket, local_cb, data, THERMAL_NL_TRIP);
+}
+
+int strlcpy(char *dst, const char *src, int n)
+{
+	int i = 0;
+
+	if (!dst)
+		return 0;
+
+	if (!src) {
+		*dst = 0;
+		return 0;
+	}
+
+	while (*src && i++ < n-1)
+		*dst++ = *src++;
+
+	*dst = 0;
+	return i;
 }
 
 int readLineFromFile(char *path, char out[MAX_PATH][MAX_PATH], int l_var)
