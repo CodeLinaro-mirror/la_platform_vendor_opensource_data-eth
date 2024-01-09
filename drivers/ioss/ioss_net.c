@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -125,6 +125,8 @@ static void ioss_net_event_register(struct ioss_interface *iface,
 
 	ioss_dev_log(idev, "Register event for %s", net_dev->name);
 
+	idev->wol_activated = false;
+
 	memset(&iface->exception_stats, 0, sizeof(iface->exception_stats));
 
 	if (ioss_bus_register_iface(iface, net_dev)) {
@@ -175,9 +177,11 @@ static void ioss_net_event_up(struct ioss_interface *iface,
 
 	ioss_dev_log(idev, "UP event for %s", net_dev->name);
 
-	if (wol->wolopts) {
+	if (wol->wolopts && !idev->wol_activated) {
 		if (!ops->set_wol || ops->set_wol(net_dev, wol))
 			ioss_dev_err(idev, "Failed to set Wake-on-LAN");
+		else
+			idev->wol_activated = true;
 	}
 
 	ioss_iface_queue_refresh(iface, false);
