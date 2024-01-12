@@ -1026,29 +1026,29 @@ exit:
 }
 
 static void rtl8168_get_cp_len(struct rtl8168_private *tp,
-                               u16 cp_len[RTL8168_CP_NUM])
+                               int cp_len[RTL8168_CP_NUM])
 {
         int i;
         u16 status;
-        u16 tmp_cp_len = 0;
+        int tmp_cp_len;
 
         status = RTL_R8(tp, PHYstatus);
         if (status & LinkStatus) {
                 if (status & _10bps) {
-                        tmp_cp_len = 0;
+                        tmp_cp_len = -1;
                 } else if (status & (_100bps | _1000bpsF)) {
                         rtl8168_mdio_write(tp, 0x1f, 0x0a88);
                         tmp_cp_len = rtl8168_mdio_read(tp, 0x10);
                 } else
-                        goto exit;
+                        tmp_cp_len = 0;
         } else
-                goto exit;
+                tmp_cp_len = 0;
 
-        tmp_cp_len &= 0xff;
+        if (tmp_cp_len > 0)
+                tmp_cp_len &= 0xff;
         for (i=0; i<RTL8168_CP_NUM; i++)
                 cp_len[i] = tmp_cp_len;
 
-exit:
         rtl8168_mdio_write(tp, 0x1f, 0x0000);
 
         for (i=0; i<RTL8168_CP_NUM; i++)
@@ -1130,12 +1130,30 @@ exit:
 }
 
 static void rtl8168_get_cp_status(struct rtl8168_private *tp,
-                                  int cp_status[RTL8168_CP_NUM])
+                                  int cp_status[RTL8168_CP_NUM],
+                                  bool poe_mode)
 {
+        u16 status;
         int i;
 
-        for (i =0; i<RTL8168_CP_NUM; i++)
-                cp_status[i] = _rtl8168_get_cp_status(tp, i);
+        status = RTL_R8(tp, PHYstatus);
+        if (status & LinkStatus && !(status & (_10bps | _100bps))) {
+                for (i=0; i<RTL8168_CP_NUM; i++)
+                        cp_status[i] = rtl8168_cp_normal;
+        } else {
+                /* cannot do vcd when link is on */
+                rtl8168_vcd_test(tp);
+
+                for (i=0; i<RTL8168_CP_NUM; i++)
+                        cp_status[i] = _rtl8168_get_cp_status(tp, i);
+        }
+
+        if (poe_mode) {
+                for (i=0; i<RTL8168_CP_NUM; i++) {
+                        if (cp_status[i] == rtl8168_cp_mismatch)
+                                cp_status[i] = rtl8168_cp_normal;
+                }
+        }
 }
 
 #ifdef ENABLE_R8168_PROCFS
@@ -1474,15 +1492,16 @@ static int proc_get_pci_registers(struct seq_file *m, void *v)
         return 0;
 }
 
-static int proc_get_cable_info(struct seq_file *m, void *v)
+static int _proc_get_cable_info(struct seq_file *m, void *v, bool poe_mode)
 {
         int i;
         u16 status;
         int cp_status[RTL8168_CP_NUM] = {0};
-        u16 cp_len[RTL8168_CP_NUM] = {0};
+        int cp_len[RTL8168_CP_NUM] = {0};
         struct net_device *dev = m->private;
         struct rtl8168_private *tp = netdev_priv(dev);
         const char *pair_str[RTL8168_CP_NUM] = {"1-2", "3-6", "4-5", "7-8"};
+        int ret;
 
         switch (tp->mcfg) {
         case CFG_METHOD_30:
@@ -1490,15 +1509,16 @@ static int proc_get_cable_info(struct seq_file *m, void *v)
                 /* support */
                 break;
         default:
-                return -EOPNOTSUPP;
+                ret = -EOPNOTSUPP;
+                goto error_out;
         }
 
         rtnl_lock();
 
         rtl8168_mdio_write(tp, 0x1f, 0x0000);
         if (rtl8168_mdio_read(tp, MII_BMCR) & BMCR_PDOWN) {
-                rtnl_unlock();
-                return -EIO;
+                ret = -EIO;
+                goto error_unlock;
         }
 
         status = RTL_R8(tp, PHYstatus);
@@ -1510,36 +1530,44 @@ static int proc_get_cable_info(struct seq_file *m, void *v)
 
         rtl8168_get_cp_len(tp, cp_len);
 
-        if (tp->link_ok(dev)) {
-                for (i=0; i<RTL8168_CP_NUM; i++)
-                        cp_status[i] = rtl8168_cp_normal;
-        } else {
-                /* cannot do vcd when link is on */
-                rtl8168_vcd_test(tp);
-
-                rtl8168_get_cp_status(tp, cp_status);
-        }
+        rtl8168_get_cp_status(tp, cp_status, poe_mode);
 
         seq_puts(m, "\npair\tlength\tstatus   \tpp\n");
 
         for (i=0; i<RTL8168_CP_NUM; i++) {
-                seq_printf(m, "%s\t%d\t%s\t",
-                           pair_str[i], cp_len[i],
-                           rtl8168_get_cp_status_string(cp_status[i]));
+                if (cp_len[i] < 0)
+                        seq_printf(m, "%s\t%s\t%s\t",
+                                   pair_str[i], "none",
+                                   rtl8168_get_cp_status_string(cp_status[i]));
+                else
+                        seq_printf(m, "%s\t%d\t%s\t",
+                                   pair_str[i], cp_len[i],
+                                   rtl8168_get_cp_status_string(cp_status[i]));
                 if (cp_status[i] == rtl8168_cp_normal)
                         seq_printf(m, "none\n");
                 else
                         seq_printf(m, "%dm\n", rtl8168_get_cp_pp(tp, i));
         }
 
-        tp->phy_reset_enable(dev);
+        seq_putc(m, '\n');
 
-        rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
+        ret = 0;
 
+error_unlock:
         rtnl_unlock();
 
-        seq_putc(m, '\n');
-        return 0;
+error_out:
+        return ret;
+}
+
+static int proc_get_cable_info(struct seq_file *m, void *v)
+{
+        return _proc_get_cable_info(m, v, 0);
+}
+
+static int proc_get_poe_cable_info(struct seq_file *m, void *v)
+{
+        return _proc_get_cable_info(m, v, 1);
 }
 
 static int proc_dump_rx_desc(struct seq_file *m, void *v)
@@ -2233,16 +2261,17 @@ static int proc_get_pci_registers(char *page, char **start,
         return len;
 }
 
-static int proc_get_cable_info(char *page, char **start,
-                               off_t offset, int count,
-                               int *eof, void *data)
+static int _proc_get_cable_info(char *page, char **start,
+                                off_t offset, int count,
+                                int *eof, void *data,
+                                bool poe_mode)
 {
         int i;
         u16 status;
         int len = 0;
         struct net_device *dev = data;
         int cp_status[RTL8168_CP_NUM] = {0};
-        u16 cp_len[RTL8168_CP_NUM] = {0};
+        int cp_len[RTL8168_CP_NUM] = {0};
         struct rtl8168_private *tp = netdev_priv(dev);
         const char *pair_str[RTL8168_CP_NUM] = {"1-2", "3-6", "4-5", "7-8"};
 
@@ -2268,24 +2297,22 @@ static int proc_get_cable_info(char *page, char **start,
 
         rtl8168_get_cp_len(tp, cp_len);
 
-        if (tp->link_ok(dev)) {
-                for (i=0; i<RTL8168_CP_NUM; i++)
-                        cp_status[i] = rtl8168_cp_normal;
-        } else {
-                /* cannot do vcd when link is on */
-                rtl8168_vcd_test(tp);
-
-                rtl8168_get_cp_status(tp, cp_status);
-        }
+        rtl8168_get_cp_status(tp, cp_status, poe_mode);
 
         len += snprintf(page + len, count - len,
                         "\npair\tlength\tstatus   \tpp\n");
 
         for (i=0; i<RTL8168_CP_NUM; i++) {
-                len += snprintf(page + len, count - len,
-                                "%s\t%d\t%s\t",
-                                pair_str[i], cp_len[i],
-                                rtl8168_get_cp_status_string(cp_status[i]));
+                if (cp_len[i] < 0)
+                        len += snprintf(page + len, count - len,
+                                        "%s\t%s\t%s\t",
+                                        pair_str[i], "none",
+                                        rtl8168_get_cp_status_string(cp_status[i]));
+                else
+                        len += snprintf(page + len, count - len,
+                                        "%s\t%d\t%s\t",
+                                        pair_str[i], cp_len[i],
+                                        rtl8168_get_cp_status_string(cp_status[i]));
                 if (cp_status[i] == rtl8168_cp_normal)
                         len += snprintf(page + len, count - len, "none\n");
                 else
@@ -2293,12 +2320,27 @@ static int proc_get_cable_info(char *page, char **start,
                                         rtl8168_get_cp_pp(tp, i));
         }
 
-        rtnl_unlock();
-
         len += snprintf(page + len, count - len, "\n");
+
+out_unlock:
+        rtnl_unlock();
 
         *eof = 1;
         return len;
+}
+
+static int proc_get_cable_info(char *page, char **start,
+                               off_t offset, int count,
+                               int *eof, void *data)
+{
+        return _proc_get_cable_info(page, start, offset, count, eof, data, 0);
+}
+
+static int proc_get_poe_cable_info(char *page, char **start,
+                                   off_t offset, int count,
+                                   int *eof, void *data)
+{
+        return _proc_get_cable_info(page, start, offset, count, eof, data, 1);
 }
 
 static int proc_dump_rx_desc(char *page, char **start,
@@ -2600,6 +2642,7 @@ static const struct rtl8168_proc_file rtl8168_debug_proc_files[] = {
 
 static const struct rtl8168_proc_file rtl8168_test_proc_files[] = {
         { "cdt", &proc_get_cable_info },
+        { "cdt_poe", &proc_get_poe_cable_info },
         { "" }
 };
 
@@ -4538,12 +4581,20 @@ rtl8168_irq_mask_and_ack(struct rtl8168_private *tp)
 }
 
 static void
+rtl8168_disable_rx_packet_filter(struct rtl8168_private *tp)
+{
+        RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) &
+                ~(AcceptErr | AcceptRunt |AcceptBroadcast | AcceptMulticast |
+                  AcceptMyPhys |  AcceptAllPhys));
+}
+
+static void
 rtl8168_nic_reset(struct net_device *dev)
 {
         struct rtl8168_private *tp = netdev_priv(dev);
         int i;
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8168_disable_rx_packet_filter(tp);
 
         rtl8168_enable_rxdvgate(dev);
 
@@ -4627,6 +4678,9 @@ rtl8168_nic_reset(struct net_device *dev)
                 }
                 break;
         }
+
+        /* reset rcr */
+        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
 }
 
 static void
@@ -4766,7 +4820,7 @@ static void rtl8168_mac_loopback_test(struct rtl8168_private *tp)
                                 break;
                 }
 
-                RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) & ~(AcceptErr | AcceptRunt | AcceptBroadcast | AcceptMulticast | AcceptMyPhys |  AcceptAllPhys));
+                rtl8168_disable_rx_packet_filter(tp);
 
                 rx_len = rx_cmd & 0x3FFF;
                 rx_len -= 4;
@@ -8831,7 +8885,7 @@ rtl8168_exit_oob(struct net_device *dev)
         struct rtl8168_private *tp = netdev_priv(dev);
         u16 data16;
 
-        RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) & ~(AcceptErr | AcceptRunt | AcceptBroadcast | AcceptMulticast | AcceptMyPhys |  AcceptAllPhys));
+        rtl8168_disable_rx_packet_filter(tp);
 
         if (HW_SUPP_SERDES_PHY(tp)) {
                 if (tp->HwSuppSerDesPhyVer == 1) {
@@ -29024,7 +29078,7 @@ rtl8168_hw_config(struct net_device *dev)
         }
 #endif
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8168_disable_rx_packet_filter(tp);
 
         rtl8168_hw_reset(dev);
 
