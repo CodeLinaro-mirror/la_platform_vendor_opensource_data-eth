@@ -32,9 +32,10 @@
  *   6      - Change one-to-many mapping to one-to-one mapping from ioss_device to
  *            ioss_interface
  *   7	    - Added API to update skb coming in UL exception path
+ *   8	    - Added QOS Support
  */
 
-#define IOSS_API_VER 7
+#define IOSS_API_VER 8
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -602,6 +603,7 @@ struct ioss_driver {
 	bool (*match)(struct device *dev);
 
 	struct ioss_driver_ops *ops;
+	struct ioss_qos_ops *qos_ops;
 	enum ioss_filter_types filter_types;
 
 	/* IOSS managed */

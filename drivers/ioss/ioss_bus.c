@@ -4,6 +4,7 @@
  */
 
 #include "ioss_i.h"
+#include "include/linux/msm/ioss_qos.h"
 #include <linux/cdev.h>
 
 /* Wake lock duration to allow the device to settle after a resume */
@@ -83,7 +84,7 @@ static ssize_t show_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, char *user_buf)
 {
 	struct net_device *net_dev = NULL;
-        struct ioss_interface *iface = NULL;
+	struct ioss_interface *iface = NULL;
 	struct ioss_device *idev = NULL;
 
 	if (!dev)
@@ -236,6 +237,12 @@ static int ioss_bus_probe(struct device *dev)
 		}
 	}
 
+	rc = create_qos_sysfs_nodes(dev);
+	if (rc) {
+		ioss_dev_err(idev, "unable to create qos sysfs nodes");
+		goto err_sysfs;
+	}
+
 	return 0;
 
 fail_create_emac_ipa_device:
@@ -267,6 +274,8 @@ static void ioss_bus_remove(struct device *dev)
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
+
+	remove_qos_sysfs_nodes(dev);
 
 	if(emac_ipa_cdev && iface->auto_resume_disabled)
 	{
