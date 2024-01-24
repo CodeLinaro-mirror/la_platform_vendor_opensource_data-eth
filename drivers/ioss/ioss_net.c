@@ -184,7 +184,13 @@ static void ioss_net_event_up(struct ioss_interface *iface,
 			idev->wol_activated = true;
 	}
 
+	if (idev->qos_enabled)
+		ioss_reconfigure_qos(idev);
+
 	ioss_iface_queue_refresh(iface, false);
+
+	if (idev->qos_enabled)
+		ioss_enable_qos(idev);
 }
 
 typedef void (*ioss_net_event_handler)(struct ioss_interface *iface,

@@ -8,18 +8,17 @@
 
 #include <linux/stat.h>
 #include <linux/module.h>
-
 #include <linux/if_vlan.h>
 #include <linux/platform_device.h>
-
 #include <linux/ipa_eth.h>
+#include <linux/panic_notifier.h>
 
 #if IPA_ETH_API_VER < 2
 #error Unsupported IPA interface IPA_ETH_API_VER
 #endif
 
 #include "include/linux/msm/ioss.h"
-#include <linux/panic_notifier.h>
+#include "include/linux/msm/ioss_qos.h"
 
 #if IS_ENABLED(CONFIG_QCOM_LLCC)
 #define LLCC_ENABLE
@@ -159,5 +158,11 @@ static inline void ioss_debugfs_remove_channel(struct ioss_channel *ch)
 {
 }
 #endif
+
+int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp);
+void disable_qos_ipa_channels(struct ioss_device *idev);
+int ioss_reconfigure_qos(struct ioss_device *idev);
+int ioss_enable_qos(struct ioss_device *idev);
+
 
 #endif /* _IOSS_I_H_ */

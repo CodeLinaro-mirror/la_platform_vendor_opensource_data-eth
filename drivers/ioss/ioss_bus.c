@@ -4,6 +4,7 @@
  */
 
 #include "ioss_i.h"
+#include "include/linux/msm/ioss_qos.h"
 #include <linux/cdev.h>
 
 /* Wake lock duration to allow the device to settle after a resume */
@@ -83,7 +84,7 @@ static ssize_t show_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, char *user_buf)
 {
 	struct net_device *net_dev = NULL;
-        struct ioss_interface *iface = NULL;
+	struct ioss_interface *iface = NULL;
 	struct ioss_device *idev = NULL;
 
 	if (!dev)
@@ -107,6 +108,7 @@ static ssize_t show_suspend_ipa_offload(struct device *dev,
 static ssize_t store_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, const char *user_buf, size_t size)
 {
+	int ret = 0;
 	struct net_device *net_dev = NULL;
 	struct ioss_interface *iface = NULL;
 	struct ioss_device *idev = NULL;
@@ -132,7 +134,19 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 
 	idev->dev.offline = input;
 
+	if (!input && idev->qos_enabled) {
+		ret = ioss_reconfigure_qos(idev);
+		if (ret)
+			ioss_dev_err(idev, "reconfigure_qos failed on resume");
+	}
+
 	ioss_iface_queue_refresh(iface, true);
+
+	if (!input && idev->qos_enabled) {
+		ret = ioss_enable_qos(idev);
+		if (ret)
+			ioss_dev_err(idev, "enable_qos failed on resume");
+	}
 
 	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
@@ -236,6 +250,12 @@ static int ioss_bus_probe(struct device *dev)
 		}
 	}
 
+	rc = create_qos_sysfs_nodes(dev);
+	if (rc) {
+		ioss_dev_err(idev, "unable to create qos sysfs nodes");
+		goto err_sysfs;
+	}
+
 	return 0;
 
 fail_create_emac_ipa_device:
@@ -264,6 +284,8 @@ static void ioss_bus_remove(struct device *dev)
 	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "De-initializing device");
+
+	remove_qos_sysfs_nodes(dev);
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
