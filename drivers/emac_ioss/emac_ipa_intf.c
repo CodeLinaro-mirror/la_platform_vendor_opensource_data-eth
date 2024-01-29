@@ -1,6 +1,6 @@
 /* Copyright (C) 2021 Toshiba Electronic Devices & Storage Corporation
  *
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,7 +23,7 @@
 #include "dwmac-qcom-ethqos.h"
 
 #define IPA_MAX_BUFFER_SIZE (9 * 1024) /* 9KBytes */
-#define IPA_MAX_DESC_CNT    1024
+#define IPA_MAX_DESC_CNT    16384 /* XGMAC limit */
 
 #define MAC_ADDR_INDEX 1
 #define MAC_ADDR_AE 1
