@@ -13,7 +13,6 @@
 
 #include <linux/slab.h>
 #include <linux/poll.h>
-#include <linux/dma-iommu.h>
 #include <linux/iommu.h>
 
 #include <linux/etherdevice.h>
@@ -220,7 +219,7 @@ static unsigned int dwmac_qcom_get_plat_tx_coal_frames(struct sk_buff *skb)
 }
 
 static const struct of_device_id qcom_ethqos_match[] = {
-	{ .compatible = "qcom,stmmac-ethqos-emac1", },
+	{ .compatible = "qcom,stmmac-ethqos-emac0", },
 	{ .compatible = "qcom,emac-smmu-embedded", },
 	{ }
 };
@@ -492,7 +491,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	ethqos->pdev = pdev;
 
 	plat_dat = stmmac_probe_config_dt(pdev,
-					  &stmmac_res.mac, stmmac_res.ch);
+					  stmmac_res.mac, stmmac_res.ch);
 	if (IS_ERR(plat_dat)) {
 		dev_err(&pdev->dev, "dt configuration failed\n");
 		return PTR_ERR(plat_dat);

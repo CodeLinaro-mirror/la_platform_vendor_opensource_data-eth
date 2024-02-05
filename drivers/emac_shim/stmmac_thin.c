@@ -391,7 +391,7 @@ static void stmmac_free_rx_buffer(struct stmmac_priv *priv, int i)
 	struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
 
 	if (buf->page)
-		page_pool_put_page(rx_q->page_pool, buf->page, false);
+		page_pool_put_page(rx_q->page_pool, buf->page, -1, false);
 	buf->page = NULL;
 }
 
@@ -2180,7 +2180,7 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
  *   netdev structure and arrange for the device to be reset to a sane state
  *   in order to transmit a new packet.
  */
-static void stmmac_tx_timeout(struct net_device *dev)
+static void stmmac_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
@@ -2812,7 +2812,7 @@ int stmmac_dvr_probe(struct device *device,
 		 __func__, priv->ioaddr, res->ch, priv->dev->irq);
 
 	if (!IS_ERR_OR_NULL(res->mac))
-		memcpy(priv->dev->dev_addr, res->mac, ETH_ALEN);
+		memcpy((void*) priv->dev->dev_addr, (void*)res->mac, ETH_ALEN);
 
 	dev_set_drvdata(device, priv->dev);
 
@@ -2889,11 +2889,9 @@ int stmmac_dvr_probe(struct device *device,
 
 	ch->priv_data = priv;
 
-	netif_napi_add(ndev, &ch->rx_napi, stmmac_napi_poll_rx,
-		       NAPI_POLL_WEIGHT);
+	netif_napi_add(ndev, &ch->rx_napi, stmmac_napi_poll_rx);
 
-	netif_tx_napi_add(ndev, &ch->tx_napi, stmmac_napi_poll_tx,
-			  NAPI_POLL_WEIGHT);
+	netif_napi_add_tx(ndev, &ch->tx_napi, stmmac_napi_poll_tx);
 
 	mutex_init(&priv->lock);
 
@@ -3056,7 +3054,7 @@ int stmmac_resume(struct device *dev)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(stmmac_resume);
-
+/*
 static int __init stmmac_init(void)
 {
 	return 0;
@@ -3068,7 +3066,7 @@ static void __exit stmmac_exit(void)
 
 module_init(stmmac_init)
 module_exit(stmmac_exit)
-
+*/
 MODULE_DESCRIPTION("STMMAC 10/100/1000 Ethernet device driver");
 MODULE_AUTHOR("Giuseppe Cavallaro <peppe.cavallaro@st.com>");
 MODULE_LICENSE("GPL v2");

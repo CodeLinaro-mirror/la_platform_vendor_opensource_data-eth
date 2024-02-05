@@ -21,7 +21,7 @@
 #define DMA_TX_SIZE 512
 #define DMA_RX_SIZE 512
 #define STMMAC_GET_ENTRY(x, size)	(((x) + 1) & ((size) - 1))
-
+#define FIELD_SIZEOF(t, f) (sizeof(((t*)0)->f))
 #undef FRAME_FILTER_DEBUG
 /* #define FRAME_FILTER_DEBUG */
 
