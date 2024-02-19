@@ -3,6 +3,7 @@ ifeq ($(building_out_of_srctree),1)
 ccflags-y += -I$(src)/../ioss/include/
 endif
 
+ccflags-y += -Wno-unused-label
 ccflags-y += -I$(srctree)/$(src)/include
 ccflags-y += -I$(src)/include
 
