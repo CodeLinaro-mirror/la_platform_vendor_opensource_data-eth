@@ -1,9 +1,9 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 29 Apr 2022
+Release Date: 26 Dec 2023
 
-Release Version: V_01-00-51 : Limited-tested version
+Release Version: V_01-03-59 : Limited-tested version
 
-TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
+TC956X PCIe EMAC driver is based on "Fedora 39, kernel-6.6.1".
 
 # Compilation & Run: Need to be root user to execute the following steps.
 1.  By default, DMA_OFFLOAD_ENABLE is enabled. Execute following commands:
@@ -65,8 +65,8 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
        argument info:
 	     mac0_interface: For PORT0 interface mode setting
 	     mac1_interface: For PORT1 interface mode setting
-	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII]
-	     y = [0: USXGMII (unsupported), 1: XFI (unsupported), 2: RGMII, 3: SGMII(default)]
+	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII, 4: 2500Base-X]
+	     y = [0: USXGMII (unsupported), 1: XFI (unsupported), 2: RGMII, 3: SGMII(default), 4: 2500Base-X]
   
     If invalid and unsupported modes are passed as kernel module parameter, the default interface mode will be selected.
 
@@ -261,6 +261,36 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 	argument info:
 		mac_power_save_at_link_down: Common for both PORT0 & PORT1
 		x = [0: DISABLE (default), 1: ENABLE]
+
+	If invalid values are passed as kernel module parameter, the default value will be selected.
+
+17. Debufs directory will be created for port specific in debug path of kernel i.e. "/sys/kernel/debug" in x86 Linux platfrom.
+    Under port specific debugfs directory (tc956x_port0_debug/tc956x_port1_debug), module specific files are created to get dump of debug information related to module.
+	Example: 
+	config_stats	--> Registers related to CONFIG module
+	mac_stats	--> Registers related to MAC block
+	mtl_stats	--> Registers related to MTL block
+	dma_stats	--> Registers related to DMA block
+	m3_stats	--> Debug information related to M3 Firmware
+	interrupt_stats	--> Registers related to MSI & INT blocks
+	other_stats	--> Information related to Driver & Firmware, TAMAP, Flexible Receiver Parser, mmc counters
+	reg_dump	--> Dumps all registers of MAC, MTL, DMA and CNFG modules
+    
+    Information will be printed to "dmesg" console, when files related to specific module are invoked.
+    
+    debugfs file can be invoked by using "cat" command.
+	Example:
+	cat /sys/kernel/debug/tc956x_port0_debug/config_stats
+
+18. Use the below command to insert the kernel module for SW reset during link down.
+
+	#insmod tc956x_pcie_eth.ko mac0_link_down_macrst=x mac1_link_down_macrst=y
+
+	argument info:
+		mac0_link_down_macrst: For PORT0
+		x = [0: DISABLE, 1: ENABLE (default)]
+		mac1_link_down_macrst: For PORT1
+		y = [0: DISABLE (default), 1: ENABLE]
 
 	If invalid values are passed as kernel module parameter, the default value will be selected.
 
@@ -509,3 +539,45 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 3. Triggering Power saving at Link down after releasing of Offloaded DMA channels.
 4. Added kernel Module parameter for selecting Power saving at Link down and default is disabled.
 5. Added Lock for syncing linkdown, port rlease and release of offloaded DMA channels.
+
+## TC956X_Host_Driver_20220615_V_01-00-52:
+1. Added debugfs support for module specific register dump.
+
+## TC956X_Host_Driver_20220808_V_01-00-53:
+1. For IPA offload path, disable RBU interrupt when RBU interrupt occurs.
+   Interrupt should be enabled back in IPA SW.
+
+## TC956X_Host_Driver_20220831_V_01-00-54:
+1. Fix for configuring Rx Parser when EEE is enabled and RGMII Interface is used
+
+## TC956X_Host_Driver_20220902_V_01-00-55:
+1. 2500Base-X support for line speeds 2.5Gbps, 1Gbps, 100Mbps.
+
+## TC956X_Host_Driver_20221021_V_01-00-56:
+1. MDIO registration failures treated as error of type "ENODEV"
+
+## TC956X_Host_Driver_20221109_V_01-00-57:
+1. Update of fix for configuring Rx Parser when EEE is enabled
+
+## TC956X_Host_Driver_20221222_V_01-00-58:
+1. Support for SW reset during link down.
+2. Module parameters introduced for the control of SW reset and by default SW reset is disabled.
+
+## TC956X_Host_Driver_20230509_V_01-00-59:
+1. Module parameters for SW reset (during link change) enabled by default for Port0.
+
+## TC956X_Linux_Host_Driver_20230810_V_01-01-59
+1. Automotive AVB/TSN support
+2. Default Port 0 interface is XFI and Port1 interface is SGMII 
+3. IPA (macro TC956X_DMA_OFFLOAD_ENABLE) enabled by default
+4. Kernel timers are used to process transmitted TX descriptor. Systick timers are not used.
+5. Dynamic change of MTU not supported. Max MTU supported is 9000.
+6. Port 1 supports USXGMII, XFI and 25000Base-X interface also.
+
+## TC956X_Linux_Host_Driver_20231110_V_01-02-59
+1. Kernel 6.1.18 Porting changes
+2. TC956x switch to switch connection support (upto 1 level) over DSP ports
+
+## TC956X_Linux_Host_Driver_20231226_V_01-03-59
+1. Kernel 6.6.1 Porting changes
+2. Added the support for TC commands taprio and flower
