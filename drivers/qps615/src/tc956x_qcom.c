@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2021, The Linux Foundation. All rights reserved.
+// Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
 
 #include <linux/kernel.h>
 #include <linux/device.h>
@@ -7,7 +8,6 @@
 #include <linux/regulator/consumer.h>
 #include <linux/of_irq.h>
 #include <linux/delay.h>
-
 #include "tc956xmac.h"
 
 struct tc956x_qcom_priv {
@@ -16,7 +16,11 @@ struct tc956x_qcom_priv {
 	struct regulator *phy_supply;
 	u32 phy_rst_gpio;
 	u32 phy_rst_delay_us;
+	u32 phy_rst_settling_delay_us;
 	int wol_irq;
+	bool is_built_in_wol;
+	bool phy_reverse_rst;
+	bool not_need_pinctrl;
 };
 
 #define to_priv(priv) \
@@ -24,12 +28,20 @@ struct tc956x_qcom_priv {
 
 static int tc956x_assert_phy_reset(struct tc956xmac_priv *priv)
 {
-	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 0);
+	if (to_priv(priv)->phy_reverse_rst) {
+		return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 1);
+	} else {
+		return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 0);
+	}
 }
 
 static int tc956x_deassert_phy_reset(struct tc956xmac_priv *priv)
 {
-	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 1);
+	if (to_priv(priv)->phy_reverse_rst) {
+		return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 0);
+	} else {
+		return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 1);
+	}
 }
 
 static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
@@ -43,15 +55,19 @@ static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
 		return ret;
 	}
 
+	dev_dbg(priv->device,"QPS615 PHY out of reset delay %d", qpriv->phy_rst_delay_us);
+	usleep_range(qpriv->phy_rst_delay_us, qpriv->phy_rst_delay_us);
+
 	ret = tc956x_deassert_phy_reset(priv);
 	if (ret) {
 		dev_err(priv->device, "Failed to deassert QPS615 GPIO0%d\n", qpriv->phy_rst_gpio);
 		if (regulator_disable(qpriv->phy_supply))
 			dev_err(priv->device, "Failed to disable regulator\n");
+		return ret;
 	}
 
-	dev_dbg(priv->device,"QPS615 PHY out of reset delay %d", qpriv->phy_rst_delay_us);
-	usleep_range(qpriv->phy_rst_delay_us, qpriv->phy_rst_delay_us);
+	dev_dbg(priv->device,"QPS615 PHY out of reset settling delay %d", qpriv->phy_rst_settling_delay_us);
+	usleep_range(qpriv->phy_rst_settling_delay_us, qpriv->phy_rst_settling_delay_us);
 
 	return ret;
 }
@@ -90,10 +106,22 @@ static int tc956x_platform_of_parse(struct device *dev,
 		return -EINVAL;
 	}
 
-	qpriv->wol_irq = of_irq_get_byname(dev->of_node, "wol_irq");
-	if (qpriv->wol_irq <= 0) {
-		dev_err(dev, "Failed to get 'wol_irq' IRQ with error %d\n", qpriv->wol_irq);
+	if (of_property_read_u32(dev->of_node, "qcom,phy-rst-settling-delay-us", &qpriv->phy_rst_settling_delay_us)) {
+		dev_err(dev, "Failed to get PHY reset settling delay time\n");
 		return -EINVAL;
+	}
+
+	qpriv->phy_reverse_rst = of_property_read_bool(dev->of_node, "qcom,phy-reverse-rst");
+	qpriv->is_built_in_wol = of_property_read_bool(dev->of_node, "qcom,phy-built-in-wol");
+
+	if (!qpriv->is_built_in_wol) {
+		qpriv->wol_irq = of_irq_get_byname(dev->of_node, "wol_irq");
+		if (qpriv->wol_irq <= 0) {
+			dev_err(dev, "Failed to get 'wol_irq' IRQ with error %d\n", qpriv->wol_irq);
+			return -EINVAL;
+		}
+	} else {
+		qpriv->wol_irq = -1;
 	}
 
 	qpriv->phy_supply = devm_regulator_get(dev, "phy");
@@ -102,22 +130,28 @@ static int tc956x_platform_of_parse(struct device *dev,
 		return -EINVAL;
 	}
 
-	qpriv->pinctrl = devm_pinctrl_get(dev);
-	if (IS_ERR_OR_NULL(qpriv->pinctrl)) {
-		dev_err(dev, "Failed to get pinctrl handle\n");
-		goto err_pinctrl_get;
-	}
+	qpriv->not_need_pinctrl = of_property_read_bool(dev->of_node, "qcom,not-need-pinctrl");
+	
+	if (!qpriv->not_need_pinctrl)
+	{
+		qpriv->pinctrl = devm_pinctrl_get(dev);
+		if (IS_ERR_OR_NULL(qpriv->pinctrl)) {
+			dev_err(dev, "Failed to get pinctrl handle\n");
+			goto err_pinctrl_get;
+		}
 
-	qpriv->pinctrl_default = pinctrl_lookup_state(qpriv->pinctrl, PINCTRL_STATE_DEFAULT);
-	if (IS_ERR_OR_NULL(qpriv->pinctrl_default)) {
-		dev_err(dev, "Failed to look up '%s' pinctrl state\n", PINCTRL_STATE_DEFAULT);
-		goto err_pinctrl_lookup_state;
+		qpriv->pinctrl_default = pinctrl_lookup_state(qpriv->pinctrl, PINCTRL_STATE_DEFAULT);
+		if (IS_ERR_OR_NULL(qpriv->pinctrl_default)) {
+			dev_err(dev, "Failed to look up '%s' pinctrl state\n", PINCTRL_STATE_DEFAULT);
+			goto err_pinctrl_lookup_state;
+		}
 	}
 
 	return 0;
 
 err_pinctrl_lookup_state:
-	devm_pinctrl_put(qpriv->pinctrl);
+	if (!qpriv->not_need_pinctrl)
+		devm_pinctrl_put(qpriv->pinctrl);
 err_pinctrl_get:
 	devm_regulator_put(qpriv->phy_supply);
 	return -EINVAL;
@@ -151,10 +185,12 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 		goto err_assert_phy_rst;
 	}
 
-	ret = pinctrl_select_state(qpriv->pinctrl, qpriv->pinctrl_default);
-	if (ret) {
-		dev_err(priv->device, "Failed to select the 'default' pincrl state\n");
-		goto err_pinctrl_select_state;
+	if (!qpriv->not_need_pinctrl) {
+		ret = pinctrl_select_state(qpriv->pinctrl, qpriv->pinctrl_default);
+		if (ret) {
+			dev_err(priv->device, "Failed to select the 'default' pincrl state\n");
+			goto err_pinctrl_select_state;
+		}
 	}
 
 	ret = tc956x_phy_power_on(priv);
@@ -163,17 +199,21 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 		goto err_power_on;
 	}
 
-	res->wol_irq = qpriv->wol_irq;
+	if (!qpriv->is_built_in_wol) {
+		res->wol_irq = qpriv->wol_irq;
+	}
+
 	dev_info(priv->device, "QPS615 platform probing has finished successfully\n");
 
 	return 0;
 
 err_power_on:
-	irq_set_irq_wake(qpriv->wol_irq, 0);
+	if (!qpriv->is_built_in_wol)
+		irq_set_irq_wake(qpriv->wol_irq, 0);
 err_pinctrl_select_state:
 err_assert_phy_rst:
 err_parse_properties:
-	kzfree(qpriv);
+	kfree(qpriv);
 	priv->plat_priv = NULL;
 	return -EINVAL;
 }
@@ -191,8 +231,9 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 
 	devm_regulator_put(qpriv->phy_supply);
 
-	devm_pinctrl_put(qpriv->pinctrl);
-	kzfree(priv->plat_priv);
+	if (!qpriv->not_need_pinctrl)
+		devm_pinctrl_put(qpriv->pinctrl);
+	kfree(priv->plat_priv);
 	priv->plat_priv = NULL;
 
 	return ret;
@@ -203,10 +244,14 @@ int tc956x_platform_suspend(struct tc956xmac_priv *priv)
 	int ret = 0;
 
 	if (priv->wolopts) {
-		ret = enable_irq_wake(priv->wol_irq);
-		if (unlikely(ret))
-			dev_err(priv->device, "Failed to set WOL IRQ %d as wake up capable with error %d\n",
-				priv->wol_irq, ret);
+		struct tc956x_qcom_priv *qpriv = to_priv(priv);
+
+		if (qpriv->wol_irq > 0) {
+			ret = enable_irq_wake(priv->wol_irq);
+			if (unlikely(ret))
+				dev_err(priv->device, "Failed to set WOL IRQ %d as wake up capable with error %d\n",
+					priv->wol_irq, ret);
+		}
 	} else {
 		ret = tc956x_phy_power_off(priv);
 		if (ret)
@@ -221,10 +266,14 @@ int tc956x_platform_resume(struct tc956xmac_priv *priv)
 	int ret = 0;
 
 	if (priv->wolopts) {
-		ret = disable_irq_wake(priv->wol_irq);
-		if (unlikely(ret))
-			dev_err(priv->device, "Failed to set WOL IRQ %d as a wake-disabled irq with error %d\n",
-				priv->wol_irq, ret);
+		struct tc956x_qcom_priv *qpriv = to_priv(priv);
+
+		if (qpriv->wol_irq > 0) {
+			ret = disable_irq_wake(priv->wol_irq);
+			if (unlikely(ret))
+				dev_err(priv->device, "Failed to set WOL IRQ %d as a wake-disabled irq with error %d\n",
+					priv->wol_irq, ret);
+		}
 	} else {
 		ret = tc956x_phy_power_on(priv);
 		if (ret)
@@ -232,4 +281,17 @@ int tc956x_platform_resume(struct tc956xmac_priv *priv)
 	}
 
 	return ret;
+}
+
+int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res)
+{
+	u32 interface;
+
+	if (of_property_read_u32(dev->of_node, "qcom,phy-port-interface", &interface)) {
+		dev_err(dev, "Failed to get phy port interface\n");
+	} else {
+		dev_info(dev, "phy port interface overlay to %d from %d\n", interface, res->port_interface);
+		res->port_interface = interface;
+	}
+	return 0;
 }
