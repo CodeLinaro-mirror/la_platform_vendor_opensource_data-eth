@@ -15,6 +15,8 @@
 #include <linux/ipa_eth.h>
 
 #include "include/linux/msm/ioss.h"
+#include "include/linux/msm/ioss_qos.h"
+
 #include <linux/panic_notifier.h>
 
 #if IS_ENABLED(CONFIG_QCOM_LLCC)
