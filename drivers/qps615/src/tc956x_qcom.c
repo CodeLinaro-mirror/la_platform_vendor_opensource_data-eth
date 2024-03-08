@@ -43,7 +43,12 @@ static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
 		return ret;
 	}
 
+	usleep_range(qpriv->phy_rst_delay_us, qpriv->phy_rst_delay_us);
+	ret = tc956x_assert_phy_reset(priv);
+
+	usleep_range(qpriv->phy_rst_delay_us, qpriv->phy_rst_delay_us);
 	ret = tc956x_deassert_phy_reset(priv);
+
 	if (ret) {
 		dev_err(priv->device, "Failed to deassert QPS615 GPIO0%d\n", qpriv->phy_rst_gpio);
 		if (regulator_disable(qpriv->phy_supply))
@@ -145,7 +150,7 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 		goto err_parse_properties;
 	}
 
-	ret = tc956x_assert_phy_reset(priv);
+	ret = tc956x_deassert_phy_reset(priv);
 	if (ret) {
 		dev_err(priv->device, "Failed to assert the PHY reset with error %d\n", ret);
 		goto err_assert_phy_rst;
@@ -173,7 +178,7 @@ err_power_on:
 err_pinctrl_select_state:
 err_assert_phy_rst:
 err_parse_properties:
-	kzfree(qpriv);
+	kfree(qpriv);
 	priv->plat_priv = NULL;
 	return -EINVAL;
 }
@@ -192,7 +197,7 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 	devm_regulator_put(qpriv->phy_supply);
 
 	devm_pinctrl_put(qpriv->pinctrl);
-	kzfree(priv->plat_priv);
+	kfree(priv->plat_priv);
 	priv->plat_priv = NULL;
 
 	return ret;
