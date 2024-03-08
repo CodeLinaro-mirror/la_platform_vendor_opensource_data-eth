@@ -32,7 +32,7 @@
 				/* phy reset*/
 				qcom,phy-rst-gpio = <1>;
 				qcom,phy-rst-delay-us = <10000>;
-				qcom,phy-rst-settling-delay-us = <30000>;
+				qcom,phy-rst-settling-delay-us = <72000>;
 				qcom,phy-reverse-rst;
 
 				/* power enable*/
