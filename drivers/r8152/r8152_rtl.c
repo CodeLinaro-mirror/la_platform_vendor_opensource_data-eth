@@ -745,6 +745,10 @@ enum spd_duplex {
 /* SRAM_PHY_LOCK */
 #define PHY_PATCH_LOCK		0x0001
 
+static bool eee_en = false;
+module_param(eee_en, bool, 0644);
+MODULE_PARM_DESC(eee_en, "Default setting for enabling eee");
+
 enum rtl_register_content {
 	_2500bps	= BIT(10),
 	_1250bps	= BIT(9),
@@ -19984,7 +19988,7 @@ static int rtl_ops_init(struct r8152 *tp)
 		ops->hw_phy_cfg		= r8152b_hw_phy_cfg;
 		ops->autosuspend_en	= rtl_runtime_suspend_enable;
 		tp->rx_buf_sz		= 16 * 1024;
-		tp->eee_en		= true;
+		tp->eee_en		= eee_en;
 		tp->eee_adv		= MDIO_EEE_100TX;
 		break;
 
@@ -20010,7 +20014,7 @@ static int rtl_ops_init(struct r8152 *tp)
 			tp->rx_buf_sz	= 16 * 1024;
 		else
 			tp->rx_buf_sz	= 32 * 1024;
-		tp->eee_en		= true;
+		tp->eee_en		= eee_en;
 		tp->eee_adv		= MDIO_EEE_1000T | MDIO_EEE_100TX;
 		break;
 
@@ -20031,7 +20035,7 @@ static int rtl_ops_init(struct r8152 *tp)
 		ops->autosuspend_en	= rtl8153b_runtime_enable;
 		ops->change_mtu		= rtl8153_change_mtu;
 		tp->rx_buf_sz		= 32 * 1024;
-		tp->eee_en		= true;
+		tp->eee_en		= eee_en;
 		tp->eee_adv		= MDIO_EEE_1000T | MDIO_EEE_100TX;
 		break;
 
@@ -20054,7 +20058,7 @@ static int rtl_ops_init(struct r8152 *tp)
 		break;
 
 	case RTL_VER_11:
-		tp->eee_en		= true;
+		tp->eee_en		= eee_en;
 		tp->eee_adv		= MDIO_EEE_1000T | MDIO_EEE_100TX;
 		fallthrough;
 	case RTL_VER_10:
@@ -20081,7 +20085,7 @@ static int rtl_ops_init(struct r8152 *tp)
 		tp->support_2500full	= 1;
 		fallthrough;
 	case RTL_VER_15:
-		tp->eee_en		= true;
+		tp->eee_en		= eee_en;
 		tp->eee_adv		= MDIO_EEE_1000T | MDIO_EEE_100TX;
 		ops->init		= r8156b_init;
 		ops->enable		= rtl8156b_enable;
@@ -20116,7 +20120,7 @@ static int rtl_ops_init(struct r8152 *tp)
 		ops->autosuspend_en	= rtl8153c_runtime_enable;
 		ops->change_mtu		= rtl8153c_change_mtu;
 		tp->rx_buf_sz		= 32 * 1024;
-		tp->eee_en		= true;
+		tp->eee_en		= eee_en;
 		tp->eee_adv		= MDIO_EEE_1000T | MDIO_EEE_100TX;
 		break;
 
