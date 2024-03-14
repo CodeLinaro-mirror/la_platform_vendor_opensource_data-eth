@@ -991,26 +991,26 @@ int enable_event(struct net_device *ndev, struct channel_info *channel)
 
 	if (channel->direction == CH_DIR_TX) {
 #if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
-		reg |= (EMAC_CHANNEL_INTR_EN | EMAC0_IPA_TX_INTR_EN);
+		reg |= (EMAC_CHANNEL_INTR_EN | (EMAC0_IPA_TX_INTR_EN << channel->channel_num));
 		if (ethqos->emac_ver == EMAC_HW_v4_0_0) {
 			/* Disabling interrupts on all channels */
 			qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
 		}
 #else
-		reg |= EMAC0_IPA_TX_INTR_EN;
+		reg |= (EMAC0_IPA_TX_INTR_EN << channel->channel_num);
 		/* Disabling interrupts on all channels */
 		rgmii_updatel(ethqos, reg, reg, EMAC0_EMAC_INTERRUPT_ENABLE);
 #endif
 
 	} else if (channel->direction == CH_DIR_RX) {
 #if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
-		reg |= (EMAC_CHANNEL_INTR_EN | EMAC0_IPA_RX_INTR_EN);
+		reg |= (EMAC_CHANNEL_INTR_EN | (EMAC0_IPA_RX_INTR_EN << channel->channel_num));
 		if (ethqos->emac_ver == EMAC_HW_v4_0_0) {
 			/* Disabling interrupts on all channels */
 			qcom_scm_call_ipa_intr_config(ethqos->rgmii_phy_base, reg);
 		}
 #else
-		reg |= EMAC0_IPA_RX_INTR_EN;
+		reg |= (EMAC0_IPA_RX_INTR_EN << channel->channel_num);
 		rgmii_updatel(ethqos, reg, reg, EMAC0_EMAC_INTERRUPT_ENABLE);
 #endif
 	} else {
