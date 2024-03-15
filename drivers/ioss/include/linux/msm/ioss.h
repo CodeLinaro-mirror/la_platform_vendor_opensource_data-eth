@@ -316,6 +316,9 @@ struct ioss_channel {
 	bool enabled;
 
 	void *ioss_priv;
+
+	int channel_num;
+	u32 tc_mapping;
 };
 
 struct ioss_device {
@@ -342,6 +345,9 @@ struct ioss_device {
 		u64 system_suspend;
 		u64 system_resume;
 	} pm_stats;
+
+	bool qos_enabled;
+	bool clear_qos_hw;
 };
 
 #define to_ioss_device(device) \

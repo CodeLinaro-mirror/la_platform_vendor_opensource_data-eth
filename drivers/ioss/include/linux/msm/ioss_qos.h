@@ -77,6 +77,7 @@ enum action {
 struct qos_routing_rx {
     u8 tc_prio;
 
+    bool committed;
     enum action action;
 
     struct pcp_array pcp;
@@ -97,6 +98,7 @@ struct qos_routing_rx {
 struct qos_routing_tx {
     u8 tc_prio;
 
+    bool committed;
     enum action action;
 
     struct tx_cbs_bw cbs_bw;
@@ -142,6 +144,9 @@ void remove_qos_sysfs_nodes(struct device *dev);
 
 #define VLAN_LOWER_LIMIT 1
 #define VLAN_UPPER_LIMIT 4095
+
+#define BW_LOWER_LIMIT 0
+#define BW_UPPER_LIMIT 10000
 /* Limits End */
 
 #endif /* _IOSS_QOS_H_ */
