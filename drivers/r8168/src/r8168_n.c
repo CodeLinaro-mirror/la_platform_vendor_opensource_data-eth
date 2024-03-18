@@ -963,6 +963,199 @@ int rtl8168_dump_tally_counter(struct rtl8168_private *tp, dma_addr_t paddr)
         return retval;
 }
 
+static u32 rtl8168_convert_link_speed(u16 status)
+{
+        u32 speed = SPEED_UNKNOWN;
+
+        if (status & LinkStatus) {
+                if (status & _1000bpsF)
+                        speed = SPEED_1000;
+                else if (status & _100bps)
+                        speed = SPEED_100;
+                else if (status & _10bps)
+                        speed = SPEED_10;
+        }
+
+        return speed;
+}
+
+static int rtl8168_vcd_test(struct rtl8168_private *tp)
+{
+        u16 val;
+        u32 wait_cnt;
+        int ret = -1;
+
+        rtl8168_mdio_write(tp, 0x1f, 0x0a43);
+        rtl8168_mdio_write(tp, 0x13, 0x8169);
+        rtl8168_mdio_write(tp, 0x14, 0x18c1);
+        rtl8168_mdio_write(tp, 0x13, 0x816b);
+        rtl8168_mdio_write(tp, 0x14, 0xc7b0);
+        rtl8168_mdio_write(tp, 0x13, 0x816d);
+        rtl8168_mdio_write(tp, 0x14, 0x5933);
+        rtl8168_mdio_write(tp, 0x13, 0x816f);
+        rtl8168_mdio_write(tp, 0x14, 0xb920);
+        rtl8168_mdio_write(tp, 0x13, 0x8171);
+        rtl8168_mdio_write(tp, 0x14, 0xee07);
+        rtl8168_mdio_write(tp, 0x13, 0x8162);
+        rtl8168_mdio_write(tp, 0x14, 0x1800);
+        rtl8168_mdio_write(tp, 0x13, 0x8173);
+        rtl8168_mdio_write(tp, 0x14, 0x0304);
+        rtl8168_mdio_write(tp, 0x1f, 0x0000);
+
+        rtl8168_mdio_write(tp, 0x1f, 0x0a42);
+        rtl8168_clear_eth_phy_bit(tp, 0x11, BIT(0));
+        rtl8168_set_eth_phy_bit(tp, 0x11, 0x00f0);
+        rtl8168_set_eth_phy_bit(tp, 0x11, BIT(0));
+
+        wait_cnt = 0;
+        do {
+                mdelay(1);
+                val = rtl8168_mdio_read(tp, 0x11);
+                wait_cnt++;
+        } while (!(val & BIT_15) && (wait_cnt < 5000));
+
+        if (wait_cnt == 5000)
+                goto exit;
+
+        ret = 0;
+
+exit:
+        rtl8168_mdio_write(tp, 0x1f, 0x0000);
+
+        return ret;
+}
+
+static void rtl8168_get_cp_len(struct rtl8168_private *tp,
+                               int cp_len[RTL8168_CP_NUM])
+{
+        int i;
+        u16 status;
+        int tmp_cp_len;
+
+        status = RTL_R8(tp, PHYstatus);
+        if (status & LinkStatus) {
+                if (status & _10bps) {
+                        tmp_cp_len = -1;
+                } else if (status & (_100bps | _1000bpsF)) {
+                        rtl8168_mdio_write(tp, 0x1f, 0x0a88);
+                        tmp_cp_len = rtl8168_mdio_read(tp, 0x10);
+                } else
+                        tmp_cp_len = 0;
+        } else
+                tmp_cp_len = 0;
+
+        if (tmp_cp_len > 0)
+                tmp_cp_len &= 0xff;
+        for (i=0; i<RTL8168_CP_NUM; i++)
+                cp_len[i] = tmp_cp_len;
+
+        rtl8168_mdio_write(tp, 0x1f, 0x0000);
+
+        for (i=0; i<RTL8168_CP_NUM; i++)
+                if (cp_len[i] > RTL8168_MAX_SUPPORT_CP_LEN)
+                        cp_len[i] = RTL8168_MAX_SUPPORT_CP_LEN;
+
+        return;
+}
+
+static int __rtl8168_get_cp_status(u16 val)
+{
+        switch (val) {
+        case 0x0060:
+                return rtl8168_cp_normal;
+        case 0x0048:
+                return rtl8168_cp_open;
+        case 0x0050:
+                return rtl8168_cp_short;
+        case 0x0042:
+        case 0x0044:
+                return rtl8168_cp_mismatch;
+        default:
+                return rtl8168_cp_normal;
+        }
+}
+
+static int _rtl8168_get_cp_status(struct rtl8168_private *tp, u8 pair_num)
+{
+        u16 val;
+        int cp_status = rtl8168_cp_unknown;
+
+        if (pair_num > 3)
+                goto exit;
+
+        rtl8168_mdio_write(tp, 0x1f, 0x0a43);
+        rtl8168_mdio_write(tp, 0x13, 0x802b + 4 * pair_num);
+        val = rtl8168_mdio_read(tp, 0x14);
+        rtl8168_mdio_write(tp, 0x1f, 0x0000);
+
+        cp_status = __rtl8168_get_cp_status(val);
+
+exit:
+        return cp_status;
+}
+
+static const char * rtl8168_get_cp_status_string(int cp_status)
+{
+        switch(cp_status) {
+        case rtl8168_cp_normal:
+                return "normal  ";
+        case rtl8168_cp_short:
+                return "short   ";
+        case rtl8168_cp_open:
+                return "open    ";
+        case rtl8168_cp_mismatch:
+                return "mismatch";
+        default:
+                return "unknown ";
+        }
+}
+
+static u16 rtl8168_get_cp_pp(struct rtl8168_private *tp, u8 pair_num)
+{
+        u16 pp = 0;
+
+        if (pair_num > 3)
+                goto exit;
+
+        rtl8168_mdio_write(tp, 0x1f, 0x0a43);
+        rtl8168_mdio_write(tp, 0x13, 0x802d + 4 * pair_num);
+        pp = rtl8168_mdio_read(tp, 0x14);
+        rtl8168_mdio_write(tp, 0x1f, 0x0000);
+
+        pp &= 0x3fff;
+        pp /= 80;
+
+exit:
+        return pp;
+}
+
+static void rtl8168_get_cp_status(struct rtl8168_private *tp,
+                                  int cp_status[RTL8168_CP_NUM],
+                                  bool poe_mode)
+{
+        u16 status;
+        int i;
+
+        status = RTL_R8(tp, PHYstatus);
+        if (status & LinkStatus && !(status & (_10bps | _100bps))) {
+                for (i=0; i<RTL8168_CP_NUM; i++)
+                        cp_status[i] = rtl8168_cp_normal;
+        } else {
+                /* cannot do vcd when link is on */
+                rtl8168_vcd_test(tp);
+
+                for (i=0; i<RTL8168_CP_NUM; i++)
+                        cp_status[i] = _rtl8168_get_cp_status(tp, i);
+        }
+
+        if (poe_mode) {
+                for (i=0; i<RTL8168_CP_NUM; i++) {
+                        if (cp_status[i] == rtl8168_cp_mismatch)
+                                cp_status[i] = rtl8168_cp_normal;
+                }
+        }
+}
+
 #ifdef ENABLE_R8168_PROCFS
 /****************************************************************************
 *   -----------------------------PROCFS STUFF-------------------------
@@ -1297,6 +1490,84 @@ static int proc_get_pci_registers(struct seq_file *m, void *v)
 
         seq_putc(m, '\n');
         return 0;
+}
+
+static int _proc_get_cable_info(struct seq_file *m, void *v, bool poe_mode)
+{
+        int i;
+        u16 status;
+        int cp_status[RTL8168_CP_NUM] = {0};
+        int cp_len[RTL8168_CP_NUM] = {0};
+        struct net_device *dev = m->private;
+        struct rtl8168_private *tp = netdev_priv(dev);
+        const char *pair_str[RTL8168_CP_NUM] = {"1-2", "3-6", "4-5", "7-8"};
+        int ret;
+
+        switch (tp->mcfg) {
+        case CFG_METHOD_30:
+        case CFG_METHOD_35:
+                /* support */
+                break;
+        default:
+                ret = -EOPNOTSUPP;
+                goto error_out;
+        }
+
+        rtnl_lock();
+
+        rtl8168_mdio_write(tp, 0x1f, 0x0000);
+        if (rtl8168_mdio_read(tp, MII_BMCR) & BMCR_PDOWN) {
+                ret = -EIO;
+                goto error_unlock;
+        }
+
+        status = RTL_R8(tp, PHYstatus);
+        if (status & LinkStatus)
+                seq_printf(m, "\nlink speed:%d",
+                           rtl8168_convert_link_speed(status));
+        else
+                seq_puts(m, "\nlink status:off");
+
+        rtl8168_get_cp_len(tp, cp_len);
+
+        rtl8168_get_cp_status(tp, cp_status, poe_mode);
+
+        seq_puts(m, "\npair\tlength\tstatus   \tpp\n");
+
+        for (i=0; i<RTL8168_CP_NUM; i++) {
+                if (cp_len[i] < 0)
+                        seq_printf(m, "%s\t%s\t%s\t",
+                                   pair_str[i], "none",
+                                   rtl8168_get_cp_status_string(cp_status[i]));
+                else
+                        seq_printf(m, "%s\t%d\t%s\t",
+                                   pair_str[i], cp_len[i],
+                                   rtl8168_get_cp_status_string(cp_status[i]));
+                if (cp_status[i] == rtl8168_cp_normal)
+                        seq_printf(m, "none\n");
+                else
+                        seq_printf(m, "%dm\n", rtl8168_get_cp_pp(tp, i));
+        }
+
+        seq_putc(m, '\n');
+
+        ret = 0;
+
+error_unlock:
+        rtnl_unlock();
+
+error_out:
+        return ret;
+}
+
+static int proc_get_cable_info(struct seq_file *m, void *v)
+{
+        return _proc_get_cable_info(m, v, 0);
+}
+
+static int proc_get_poe_cable_info(struct seq_file *m, void *v)
+{
+        return _proc_get_cable_info(m, v, 1);
 }
 
 static int proc_dump_rx_desc(struct seq_file *m, void *v)
@@ -1990,6 +2261,88 @@ static int proc_get_pci_registers(char *page, char **start,
         return len;
 }
 
+static int _proc_get_cable_info(char *page, char **start,
+                                off_t offset, int count,
+                                int *eof, void *data,
+                                bool poe_mode)
+{
+        int i;
+        u16 status;
+        int len = 0;
+        struct net_device *dev = data;
+        int cp_status[RTL8168_CP_NUM] = {0};
+        int cp_len[RTL8168_CP_NUM] = {0};
+        struct rtl8168_private *tp = netdev_priv(dev);
+        const char *pair_str[RTL8168_CP_NUM] = {"1-2", "3-6", "4-5", "7-8"};
+
+        switch (tp->mcfg) {
+        case CFG_METHOD_30:
+        case CFG_METHOD_35:
+                /* support */
+                break;
+        default:
+                return -EOPNOTSUPP;
+        }
+
+        rtnl_lock();
+
+        status = RTL_R8(tp, PHYstatus);
+        if (status & LinkStatus)
+                len += snprintf(page + len, count - len,
+                                "\nlink speed:%d",
+                                rtl8168_convert_link_speed(status));
+        else
+                len += snprintf(page + len, count - len,
+                                "\nlink status:off");
+
+        rtl8168_get_cp_len(tp, cp_len);
+
+        rtl8168_get_cp_status(tp, cp_status, poe_mode);
+
+        len += snprintf(page + len, count - len,
+                        "\npair\tlength\tstatus   \tpp\n");
+
+        for (i=0; i<RTL8168_CP_NUM; i++) {
+                if (cp_len[i] < 0)
+                        len += snprintf(page + len, count - len,
+                                        "%s\t%s\t%s\t",
+                                        pair_str[i], "none",
+                                        rtl8168_get_cp_status_string(cp_status[i]));
+                else
+                        len += snprintf(page + len, count - len,
+                                        "%s\t%d\t%s\t",
+                                        pair_str[i], cp_len[i],
+                                        rtl8168_get_cp_status_string(cp_status[i]));
+                if (cp_status[i] == rtl8168_cp_normal)
+                        len += snprintf(page + len, count - len, "none\n");
+                else
+                        len += snprintf(page + len, count - len, "%dm\n",
+                                        rtl8168_get_cp_pp(tp, i));
+        }
+
+        len += snprintf(page + len, count - len, "\n");
+
+out_unlock:
+        rtnl_unlock();
+
+        *eof = 1;
+        return len;
+}
+
+static int proc_get_cable_info(char *page, char **start,
+                               off_t offset, int count,
+                               int *eof, void *data)
+{
+        return _proc_get_cable_info(page, start, offset, count, eof, data, 0);
+}
+
+static int proc_get_poe_cable_info(char *page, char **start,
+                                   off_t offset, int count,
+                                   int *eof, void *data)
+{
+        return _proc_get_cable_info(page, start, offset, count, eof, data, 1);
+}
+
 static int proc_dump_rx_desc(char *page, char **start,
                              off_t offset, int count,
                              int *eof, void *data)
@@ -2264,7 +2617,7 @@ static const struct file_operations rtl8168_proc_fops = {
  * Table of proc files we need to create.
  */
 struct rtl8168_proc_file {
-        char name[12];
+        char name[16];
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
         int (*show)(struct seq_file *, void *);
 #else
@@ -2272,7 +2625,7 @@ struct rtl8168_proc_file {
 #endif
 };
 
-static const struct rtl8168_proc_file rtl8168_proc_files[] = {
+static const struct rtl8168_proc_file rtl8168_debug_proc_files[] = {
         { "driver_var", &proc_get_driver_variable },
         { "tally", &proc_get_tally_counter },
         { "registers", &proc_get_registers },
@@ -2287,55 +2640,127 @@ static const struct rtl8168_proc_file rtl8168_proc_files[] = {
         { "" }
 };
 
+static const struct rtl8168_proc_file rtl8168_test_proc_files[] = {
+        { "cdt", &proc_get_cable_info },
+        { "cdt_poe", &proc_get_poe_cable_info },
+        { "" }
+};
+
+#define R8168_PROC_DEBUG_DIR "debug"
+#define R8168_PROC_TEST_DIR "test"
+
 static void rtl8168_proc_init(struct net_device *dev)
 {
         struct rtl8168_private *tp = netdev_priv(dev);
         const struct rtl8168_proc_file *f;
         struct proc_dir_entry *dir;
 
-        if (rtl8168_proc && !tp->proc_dir) {
+        if (!rtl8168_proc)
+                return;
+
+        if (tp->proc_dir_debug || tp->proc_dir_test)
+                return;
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
-                dir = proc_mkdir_data(dev->name, 0, rtl8168_proc, dev);
-                if (!dir) {
-                        printk("Unable to initialize /proc/net/%s/%s\n",
-                               MODULENAME, dev->name);
-                        return;
-                }
-
-                tp->proc_dir = dir;
-                proc_init_num++;
-
-                for (f = rtl8168_proc_files; f->name[0]; f++) {
-                        if (!proc_create_data(f->name, S_IFREG | S_IRUGO, dir,
-                                              &rtl8168_proc_fops, f->show)) {
-                                printk("Unable to initialize "
-                                       "/proc/net/%s/%s/%s\n",
-                                       MODULENAME, dev->name, f->name);
-                                return;
-                        }
-                }
-#else
-                dir = proc_mkdir(dev->name, rtl8168_proc);
-                if (!dir) {
-                        printk("Unable to initialize /proc/net/%s/%s\n",
-                               MODULENAME, dev->name);
-                        return;
-                }
-
-                tp->proc_dir = dir;
-                proc_init_num++;
-
-                for (f = rtl8168_proc_files; f->name[0]; f++) {
-                        if (!create_proc_read_entry(f->name, S_IFREG | S_IRUGO,
-                                                    dir, f->show, dev)) {
-                                printk("Unable to initialize "
-                                       "/proc/net/%s/%s/%s\n",
-                                       MODULENAME, dev->name, f->name);
-                                return;
-                        }
-                }
-#endif
+        dir = proc_mkdir_data(dev->name, 0, rtl8168_proc, dev);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s\n",
+                       MODULENAME, dev->name);
+                return;
         }
+        tp->proc_dir = dir;
+        proc_init_num++;
+
+        /* create debug entry */
+        dir = proc_mkdir_data(R8168_PROC_DEBUG_DIR, 0, tp->proc_dir, dev);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s/%s\n",
+                       MODULENAME, dev->name, R8168_PROC_DEBUG_DIR);
+                return;
+        }
+
+        tp->proc_dir_debug = dir;
+        for (f = rtl8168_debug_proc_files; f->name[0]; f++) {
+                if (!proc_create_data(f->name, S_IFREG | S_IRUGO, dir,
+                                      &rtl8168_proc_fops, f->show)) {
+                        printk("Unable to initialize "
+                               "/proc/net/%s/%s/%s/%s\n",
+                               MODULENAME, dev->name, R8168_PROC_DEBUG_DIR,
+                               f->name);
+                        return;
+                }
+        }
+
+        /* create test entry */
+        dir = proc_mkdir_data(R8168_PROC_TEST_DIR, 0, tp->proc_dir, dev);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s/%s\n",
+                       MODULENAME, dev->name, R8168_PROC_TEST_DIR);
+                return;
+        }
+
+        tp->proc_dir_test = dir;
+        for (f = rtl8168_test_proc_files; f->name[0]; f++) {
+                if (!proc_create_data(f->name, S_IFREG | S_IRUGO, dir,
+                                      &rtl8168_proc_fops, f->show)) {
+                        printk("Unable to initialize "
+                               "/proc/net/%s/%s/%s/%s\n",
+                               MODULENAME, dev->name, R8168_PROC_TEST_DIR,
+                               f->name);
+                        return;
+                }
+        }
+#else
+        dir = proc_mkdir(dev->name, rtl8168_proc);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s\n",
+                       MODULENAME, dev->name);
+                return;
+        }
+
+        tp->proc_dir = dir;
+        proc_init_num++;
+
+        /* create debug entry */
+        dir = proc_mkdir(R8168_PROC_DEBUG_DIR, tp->proc_dir);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s/%s\n",
+                       MODULENAME, dev->name, R8168_PROC_DEBUG_DIR);
+                return;
+        }
+
+        tp->proc_dir_debug = dir;
+        for (f = rtl8168_debug_proc_files; f->name[0]; f++) {
+                if (!create_proc_read_entry(f->name, S_IFREG | S_IRUGO,
+                                            dir, f->show, dev)) {
+                        printk("Unable to initialize "
+                               "/proc/net/%s/%s/%s/%s\n",
+                               MODULENAME, dev->name, R8168_PROC_DEBUG_DIR,
+                               f->name);
+                        return;
+                }
+        }
+
+        /* create test entry */
+        dir = proc_mkdir(R8168_PROC_TEST_DIR, tp->proc_dir);
+        if (!dir) {
+                printk("Unable to initialize /proc/net/%s/%s/%s\n",
+                       MODULENAME, dev->name, R8168_PROC_TEST_DIR);
+                return;
+        }
+
+        tp->proc_dir_test = dir;
+        for (f = rtl8168_test_proc_files; f->name[0]; f++) {
+                if (!create_proc_read_entry(f->name, S_IFREG | S_IRUGO,
+                                            dir, f->show, dev)) {
+                        printk("Unable to initialize "
+                               "/proc/net/%s/%s/%s/%s\n",
+                               MODULENAME, dev->name, R8168_PROC_TEST_DIR,
+                               f->name);
+                        return;
+                }
+        }
+#endif
 }
 
 static void rtl8168_proc_remove(struct net_device *dev)
@@ -2345,18 +2770,28 @@ static void rtl8168_proc_remove(struct net_device *dev)
         if (tp->proc_dir) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
                 remove_proc_subtree(dev->name, rtl8168_proc);
-                proc_init_num--;
-
 #else
                 const struct rtl8168_proc_file *f;
                 struct rtl8168_private *tp = netdev_priv(dev);
 
-                for (f = rtl8168_proc_files; f->name[0]; f++)
-                        remove_proc_entry(f->name, tp->proc_dir);
+                if (tp->proc_dir_debug) {
+                        for (f = rtl8168_debug_proc_files; f->name[0]; f++)
+                                remove_proc_entry(f->name, tp->proc_dir_debug);
+                        remove_proc_entry(R8168_PROC_DEBUG_DIR, tp->proc_dir);
+                }
+
+                if (tp->proc_dir_test) {
+                        for (f = rtl8168_test_proc_files; f->name[0]; f++)
+                                remove_proc_entry(f->name, tp->proc_dir_test);
+                        remove_proc_entry(R8168_PROC_TEST_DIR, tp->proc_dir);
+                }
 
                 remove_proc_entry(dev->name, rtl8168_proc);
-                proc_init_num--;
 #endif
+                proc_init_num--;
+
+                tp->proc_dir_debug = NULL;
+                tp->proc_dir_test = NULL;
                 tp->proc_dir = NULL;
         }
 }
@@ -4146,12 +4581,20 @@ rtl8168_irq_mask_and_ack(struct rtl8168_private *tp)
 }
 
 static void
+rtl8168_disable_rx_packet_filter(struct rtl8168_private *tp)
+{
+        RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) &
+                ~(AcceptErr | AcceptRunt |AcceptBroadcast | AcceptMulticast |
+                  AcceptMyPhys |  AcceptAllPhys));
+}
+
+static void
 rtl8168_nic_reset(struct net_device *dev)
 {
         struct rtl8168_private *tp = netdev_priv(dev);
         int i;
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8168_disable_rx_packet_filter(tp);
 
         rtl8168_enable_rxdvgate(dev);
 
@@ -4235,6 +4678,9 @@ rtl8168_nic_reset(struct net_device *dev)
                 }
                 break;
         }
+
+        /* reset rcr */
+        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
 }
 
 static void
@@ -4374,7 +4820,7 @@ static void rtl8168_mac_loopback_test(struct rtl8168_private *tp)
                                 break;
                 }
 
-                RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) & ~(AcceptErr | AcceptRunt | AcceptBroadcast | AcceptMulticast | AcceptMyPhys |  AcceptAllPhys));
+                rtl8168_disable_rx_packet_filter(tp);
 
                 rx_len = rx_cmd & 0x3FFF;
                 rx_len -= 4;
@@ -8439,7 +8885,7 @@ rtl8168_exit_oob(struct net_device *dev)
         struct rtl8168_private *tp = netdev_priv(dev);
         u16 data16;
 
-        RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) & ~(AcceptErr | AcceptRunt | AcceptBroadcast | AcceptMulticast | AcceptMyPhys |  AcceptAllPhys));
+        rtl8168_disable_rx_packet_filter(tp);
 
         if (HW_SUPP_SERDES_PHY(tp)) {
                 if (tp->HwSuppSerDesPhyVer == 1) {
@@ -28632,7 +29078,7 @@ rtl8168_hw_config(struct net_device *dev)
         }
 #endif
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8168_disable_rx_packet_filter(tp);
 
         rtl8168_hw_reset(dev);
 
