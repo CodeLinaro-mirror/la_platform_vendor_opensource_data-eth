@@ -8,7 +8,8 @@
 #include <linux/virtio_config.h>
 
 /*Virtio ID of EMAC*/
-#define VIRTIO_ID_EMAC_CTL_FE       38
+#define VIRTIO_DT_QCOM_BASE         (49152)
+#define VIRTIO_ID_EMAC_CTL_FE       (VIRTIO_DT_QCOM_BASE + 8)
 
 /* VIRTIO Driver Feature Flags*/
 #define VERSION_MAJOR                0
