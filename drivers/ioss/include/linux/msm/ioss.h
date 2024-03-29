@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -31,9 +31,10 @@
  *            of event doorbell address logic to glue drivers
  *   6      - Change one-to-many mapping to one-to-one mapping from ioss_device to
  *            ioss_interface
+ *   7	    - Added API to update skb coming in UL exception path
  */
 
-#define IOSS_API_VER 6
+#define IOSS_API_VER 7
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -643,6 +644,8 @@ struct ioss_driver_ops {
 				      struct ioss_channel_stats *stats);
 	int (*get_channel_status)(struct ioss_channel *ch,
 				  struct ioss_channel_status *status);
+	int (*update_skb)(struct ioss_channel *ch,
+			  struct sk_buff *skb);
 };
 
 #define ioss_dev_op(idev, op, args...) \
