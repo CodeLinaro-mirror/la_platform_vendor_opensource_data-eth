@@ -33,9 +33,10 @@
  *            ioss_interface
  *   7      - Added support for channel allocation using IPA config type and channel
  *            traffic type properties
+ *   8	    - Added API to update skb coming in UL exception path
  */
 
-#define IOSS_API_VER 7
+#define IOSS_API_VER 8
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -672,6 +673,8 @@ struct ioss_driver_ops {
 				      struct ioss_channel_stats *stats);
 	int (*get_channel_status)(struct ioss_channel *ch,
 				  struct ioss_channel_status *status);
+	int (*update_skb)(struct ioss_channel *ch,
+			  struct sk_buff *skb);
 };
 
 #define ioss_dev_op(idev, op, args...) \

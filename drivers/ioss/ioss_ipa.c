@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -53,6 +53,8 @@ static void ioss_ipa_notify_cb(void *priv,
 #ifdef CONFIG_MSM_BOOT_TIME_MARKER
 	struct rtnl_link_stats64 netdev_stats;
 #endif
+	struct ioss_device *idev = ioss_ch_dev(ch);
+
 	if (evt != IPA_RECEIVE)
 		return;
 
@@ -70,6 +72,8 @@ static void ioss_ipa_notify_cb(void *priv,
 	iface->exception_stats.rx_bytes += skb->len;
 
 	skb->protocol = eth_type_trans(skb, ioss_iface_to_netdev(iface));
+
+	ioss_dev_op(idev, update_skb, ch, skb);
 
 	if (netif_rx_ni(skb) == NET_RX_DROP)
 		iface->exception_stats.rx_drops++;
