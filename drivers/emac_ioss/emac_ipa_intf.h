@@ -105,6 +105,7 @@ struct channel_info {
 	dma_addr_t dma_map_dbaddr;	/* dma mapped address for ntn3 fw to access the db*/
 
 	bool ezmesh_enabled;		/* stores ezmesh enabled infomration */
+	bool tsn_enabled;		/* flag to know if tsn feature is enabled or not*/
 	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
 
 };

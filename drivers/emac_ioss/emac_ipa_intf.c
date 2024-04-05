@@ -36,7 +36,7 @@ static u8 mac_addr_default[6] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
  */
 bool is_invalid_default_config(struct channel_info *channel)
 {
-	if ((channel->ezmesh_enabled == false) && (channel->channel_num != IPA_MUL_CHANNEL_BE0)) 
+	if((channel->ezmesh_enabled == false && channel->tsn_enabled == false) && (channel->channel_num != IPA_MUL_CHANNEL_BE0))
 		return true;
 
 	return false;
@@ -59,6 +59,22 @@ bool is_invalid_easymesh_config(struct channel_info *channel)
 	return false;
 }
 
+/* For tsn case, channel should be either 0 or 3.
+ * else invalid
+ */
+bool is_invalid_tsn_config(struct channel_info *channel)
+{
+	if (((channel->tsn_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_LL)) &&
+		(channel->channel_num != IPA_MUL_CHANNEL_BE3) && (channel-> direction == CH_DIR_TX))
+			return true;
+
+	if (((channel->tsn_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_BE)) &&
+		(channel->channel_num != IPA_MUL_CHANNEL_BE0))
+			return true;
+
+	return false;
+}
+
 /* For Default case channel should be 0
  * For Ezmesh case, channel should be either 0 or 3.
  * else invalid
@@ -68,8 +84,9 @@ bool is_invalid_config(struct channel_info *channel)
 	bool invalid = false;
 	if ((channel->direction == CH_DIR_TX) || (channel->direction == CH_DIR_RX))
 	{
-		if ((is_invalid_easymesh_config(channel)) ||
-			(is_invalid_default_config(channel)))
+		if (is_invalid_easymesh_config(channel) ||
+			is_invalid_default_config(channel) ||
+			is_invalid_tsn_config(channel))
 		{
 			invalid = true;
 		}
@@ -585,18 +602,21 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 	channel->mem_ops = channel_input->mem_ops;
 	channel->ch_flags = channel_input->ch_flags;
 	channel->traffic_type_info = channel_input->traffic_type_info;
-	channel->ezmesh_enabled = false;
-	
-	if (strnstr(channel_input->ipa_config_info, "ezmesh", CONFIG_LEN))
+
+	if (!strcmp(channel_input->ipa_config_info, "ezmesh"))
 		channel->ezmesh_enabled = true;
-	
+
+	if (!strcmp(channel_input->ipa_config_info, "tsn"))
+		channel->tsn_enabled = true;
+
 	if ((channel->ezmesh_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_BE))
 	{
 		channel->channel_num = IPA_MUL_CHANNEL_BE3;
 		queue_num = IPA_MUL_QUEUE_BE3;
-	}
-	else
-	{
+	} else if ((channel->tsn_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_LL) && (channel->direction == CH_DIR_TX)) {
+		channel->channel_num = IPA_MUL_CHANNEL_BE3;
+		queue_num = IPA_MUL_QUEUE_BE3;
+	} else {
 		channel->channel_num = IPA_MUL_CHANNEL_BE0;
 		queue_num = IPA_MUL_QUEUE_BE0;
 	}
@@ -669,10 +689,11 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 #endif
 
 		stmmac_map_mtl_to_dma(priv, priv->hw, queue_num, channel->channel_num);
-		if (queue_num == IPA_MUL_QUEUE_BE3)
+
+		if ((queue_num == IPA_MUL_QUEUE_BE3) && (channel->ezmesh_enabled))
 		{
 			priv->plat->rx_queues_cfg[queue_num].pkt_route = PACKET_UPQ;
-			stmmac_rx_queue_routing(priv, priv->hw, priv->plat->rx_queues_cfg[queue_num].pkt_route, queue_num);			
+			stmmac_rx_queue_routing(priv, priv->hw, priv->plat->rx_queues_cfg[queue_num].pkt_route, queue_num);
 		}
 	}
 
@@ -1055,7 +1076,7 @@ int enable_event(struct net_device *ndev, struct channel_info *channel)
 
 	if (channel->direction == CH_DIR_TX) {
 #if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
-		if (channel->ezmesh_enabled == true)
+		if (channel->ezmesh_enabled || channel->tsn_enabled)
 		{
 			reg |= (EMAC_CHANNEL_INTR_EN | EMAC0_IPA_TX_INTR_EN | EMAC0_IPA_TX3_INTR_EN);
 		}
@@ -1075,7 +1096,7 @@ int enable_event(struct net_device *ndev, struct channel_info *channel)
 
 	} else if (channel->direction == CH_DIR_RX) {
 #if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
-		if (channel->ezmesh_enabled == true)
+		if (channel->ezmesh_enabled)
 		{
 			reg |= (EMAC_CHANNEL_INTR_EN | EMAC0_IPA_RX_INTR_EN | EMAC0_IPA_RX3_INTR_EN);
 		}
@@ -1153,7 +1174,7 @@ int disable_event(struct net_device *ndev, struct channel_info *channel)
 	}
 
 	if (channel->direction == CH_DIR_TX) {
-		if (channel->ezmesh_enabled == true)
+		if (channel->ezmesh_enabled || channel->tsn_enabled)
 		{
 			reg |= (EMAC0_IPA_TX_INTR_EN | EMAC0_IPA_TX3_INTR_EN);
 		}
