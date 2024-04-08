@@ -999,27 +999,6 @@ int rtl8168_lib_printf_macio_regs(struct net_device *ndev, struct rtl8168_regs_s
 }
 */
 
-void *rtl8168_lib_get_rdsar(struct net_device *ndev)
-{
-        struct rtl8168_private *tp = netdev_priv(ndev);
-        void *rdsar = NULL;
-
-        if (rtl8168_num_lib_rx_rings(tp) < 1)
-                goto out;
-
-        if (tp->RxDescArray == NULL)
-                goto out;
-
-        if(tp->lib_rx_ring[1].enabled)
-                goto out;
-
-        rdsar = (void*)rtl8168_get_rxdesc(tp, tp->RxDescArray, 0, 1);
-
-out:
-        return rdsar;
-}
-EXPORT_SYMBOL(rtl8168_lib_get_rdsar);
-
 unsigned int rtl8168_lib_get_num_rx_rings(struct net_device *ndev)
 {
         struct rtl8168_private *tp = netdev_priv(ndev);
