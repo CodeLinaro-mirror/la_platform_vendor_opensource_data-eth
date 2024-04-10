@@ -82,6 +82,11 @@ static int get_idev_statistics(struct ioss_device *idev,
 		}
 	}
 
+	if (ioss_iface_to_netdev(iface) == NULL) {
+		ioss_dev_err(idev, "The netdev is not registered");
+		return -ENODEV;
+	}
+
 	/* Fetch Linux netdev stats */
 	memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
 	dev_get_stats(ioss_iface_to_netdev(iface), &netdev_stats);
