@@ -1,3 +1,4 @@
+ccflags-y += -Wno-unused-function -Wno-unused-variable
 
 ifeq ($(building_out_of_srctree),1)
 ccflags-y += -I$(src)/../ioss/include/

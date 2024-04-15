@@ -105,7 +105,7 @@
 #endif
 
 /* Enable DMA IPA offload */
-#define DMA_OFFLOAD_ENABLE
+//#define DMA_OFFLOAD_ENABLE
 //#define TC956X_LPI_INTERRUPT
 /* Indepenedent Suspend/Resume Debug */
 #undef TC956X_PM_DEBUG
