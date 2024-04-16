@@ -825,6 +825,7 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 
 	if (channel->direction == CH_DIR_TX) {
 		stmmac_stop_tx(priv, priv->ioaddr, channel->channel_num);
+		stmmac_flush_tx_mtl(priv, priv->hw, channel->channel_num);
 		dealloc_ipa_tx_resources(ndev, channel);
 	} else if (channel->direction == CH_DIR_RX) {
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
