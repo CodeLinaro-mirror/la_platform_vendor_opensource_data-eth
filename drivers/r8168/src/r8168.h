@@ -1091,10 +1091,10 @@ enum RTL8168_registers {
         CounterAddrLow      = 0x10,
         CounterAddrHigh     = 0x14,
         CustomLED       = 0x18,
-        TxDescStartAddrLow  = 0x20,
-        TxDescStartAddrHigh = 0x24,
-        TxHDescStartAddrLow = 0x28,
-        TxHDescStartAddrHigh    = 0x2c,
+        TxDescStartAddrLow  = 0x28,
+        TxDescStartAddrHigh = 0x2c,
+        TxHDescStartAddrLow = 0x20,
+        TxHDescStartAddrHigh    = 0x24,
         FLASH           = 0x30,
         ERSR            = 0x36,
         ChipCmd         = 0x37,
@@ -1216,8 +1216,8 @@ enum RTL8168_register_content {
         AcceptAllPhys = 0x01,
 
         /* Transmit Priority Polling*/
-        HPQ = 0x80,
-        NPQ = 0x40,
+        HPQ = 0x40,
+        NPQ = 0x80,
         FSWInt = 0x01,
 
         /* RxConfigBits */
