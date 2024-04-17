@@ -3,7 +3,7 @@
 LOCAL_PATH := $(call my-dir)
 
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list, gen4), true)
+ifeq ($(call is-board-platform-in-list, gen4 pineapple), true)
 
 LOCAL_PATH := $(call my-dir)
 
@@ -44,6 +44,7 @@ include $(DLKM_DIR)/Build_external_kernelmodule.mk
 # as well if corresponding flags are added in KBUILD_OPTIONS from upper
 # level Makefiles.
 
+ifeq (gen4_gvm,$(filter $(TARGET_PRODUCT), gen4_gvm))
 ########################## emac_ctrl_fe_virtio ############################
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
@@ -65,6 +66,20 @@ LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
 ###########################################################
+endif
+
+ifeq ($(call is-board-platform-in-list, pineapple), true)
+################################ emac_QPS615 ################################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
+LOCAL_MODULE              := tc956x_pcie_eth.ko
+LOCAL_MODULE_KBUILD_NAME  := drivers/qps615/src/tc956x_pcie_eth.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+###########################################################
+endif
 
 endif # DLKM check
 endif # supported target check
