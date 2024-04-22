@@ -3502,7 +3502,11 @@ static s32 __init tc956x_init_module(void)
 		return ret;
 	}
 
+#ifdef CONFIG_DEBUG_FS
+#ifdef TC956X
 	tc956xmac_init();
+#endif
+#endif
 	KPRINT_INFO("%s", __func__);
 	return ret;
 }
@@ -3519,7 +3523,11 @@ static void __exit tc956x_exit_module(void)
 {
 	KPRINT_INFO("%s", __func__);
 	pci_unregister_driver(&tc956xmac_pci_driver);
+#ifdef CONFIG_DEBUG_FS
+#ifdef TC956X
 	tc956xmac_exit();
+#endif
+#endif
 	KPRINT_INFO("%s", __func__);
 }
 
