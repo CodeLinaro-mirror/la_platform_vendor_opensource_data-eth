@@ -44,7 +44,7 @@ include $(DLKM_DIR)/Build_external_kernelmodule.mk
 # as well if corresponding flags are added in KBUILD_OPTIONS from upper
 # level Makefiles.
 
-ifeq (gen4_gvm,$(filter $(TARGET_PRODUCT), gen4_gvm))
+ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm)
 ########################## emac_ctrl_fe_virtio ############################
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
