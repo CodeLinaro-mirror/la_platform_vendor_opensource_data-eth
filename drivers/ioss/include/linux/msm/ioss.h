@@ -175,6 +175,8 @@ struct ioss_interface {
 	struct work_struct refresh;
 	struct list_head channels;
 
+	const char *ipa_config; /* currently selected IPA config type */
+
 	void *ioss_priv;
 
 	u32 link_speed;
@@ -348,6 +350,8 @@ struct ioss_device {
 
 	bool qos_enabled;
 	bool clear_qos_hw;
+	u8 qos_rx_channels;
+	u8 qos_tx_channels;
 };
 
 #define to_ioss_device(device) \

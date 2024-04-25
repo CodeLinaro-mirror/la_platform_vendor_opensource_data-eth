@@ -9,6 +9,7 @@
 
 #include "ioss_i.h"
 
+
 #define IOSS_NET_DEVICE_MAX_EVENTS (NETDEV_CHANGE_TX_QUEUE_LEN + 1)
 
 static const char * const
@@ -180,7 +181,13 @@ static void ioss_net_event_up(struct ioss_interface *iface,
 			ioss_dev_err(idev, "Failed to set Wake-on-LAN");
 	}
 
+	if (idev->qos_enabled)
+		ioss_request_qos(idev);
+
 	ioss_iface_queue_refresh(iface, false);
+
+	if (idev->qos_enabled)
+		ioss_enable_qos(idev);
 }
 
 typedef void (*ioss_net_event_handler)(struct ioss_interface *iface,
@@ -571,8 +578,13 @@ static int ioss_net_teardown_events(struct ioss_interface *iface)
 static void ioss_iface_set_online(struct ioss_interface *iface)
 {
 	int rc;
+	struct ipa_eth_config *ipa_config;
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ioss_device *idev = ioss_iface_dev(iface);
-
+#if IPA_ETH_API_VER >= 4
+	u32 inst_id = iface->instance_id;
+	enum ipa_eth_client_type ct = ioss_ipa_hal_get_ctype(idev);
+#endif
 	if (iface->state != IOSS_IF_ST_OFFLINE) {
 		ioss_dev_dbg(idev,
 			"Interface %s state is %s; required is %s",
@@ -582,6 +594,22 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 	}
 
 	ioss_dev_log(idev, "Bringing up %s", idev->net_dev->name);
+
+	// Get IPA Config
+	ipa_config = &ifp->ipa_config;
+	iface->ipa_config = NULL;
+
+	memset(ipa_config, 0, sizeof(*ipa_config));
+#if IPA_ETH_API_VER >= 4
+	rc = ipa_eth_get_config_type(ct, inst_id, ipa_config);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to get IPA config for %u.%u", ct, inst_id);
+		goto err_ipa_config;
+	}
+#endif
+	iface->ipa_config = ipa_config->config;
+
+	ioss_dev_log(idev, "IPA config = %s", iface->ipa_config);
 
 	rc = ioss_net_alloc_channels(iface);
 	if (rc) {
@@ -611,6 +639,10 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 
 	return;
 
+#if IPA_ETH_API_VER >= 4
+err_ipa_config:
+	pr_err("[ioss] : IPA get config failed");
+#endif
 err_enable_channels:
 	ioss_net_teardown_events(iface);
 err_setup_events:

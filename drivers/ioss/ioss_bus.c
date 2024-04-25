@@ -108,6 +108,7 @@ static ssize_t show_suspend_ipa_offload(struct device *dev,
 static ssize_t store_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, const char *user_buf, size_t size)
 {
+	int ret = 0;
 	struct net_device *net_dev = NULL;
 	struct ioss_interface *iface = NULL;
 	struct ioss_device *idev = NULL;
@@ -133,7 +134,19 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 
 	idev->dev.offline = input;
 
+	if (!input && idev->qos_enabled) {
+		ret = ioss_request_qos(idev);
+		if (ret)
+			ioss_dev_err(idev, "request_qos failed on resume");
+	}
+
 	ioss_iface_queue_refresh(iface, true);
+
+	if (!input && idev->qos_enabled) {
+		ret = ioss_enable_qos(idev);
+		if (ret)
+			ioss_dev_err(idev, "enable_qos failed on resume");
+	}
 
 	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
