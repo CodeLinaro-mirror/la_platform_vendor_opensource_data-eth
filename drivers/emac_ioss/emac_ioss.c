@@ -124,10 +124,9 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 				CH_DIR_RX : CH_DIR_TX;
 	struct channel_info *ring;
 
-	pr_info("vv: request channel\n");
-	ioss_dev_log(ioss_ch_dev(ch), "%s, ring_size=%d, buf_size=%d, dir=%d",
+	ioss_dev_log(ioss_ch_dev(ch), "%s, ring_size=%d, buf_size=%d, dir=%d, id=%d, tc_map=%u",
 		     __func__, ch->config.ring_size, ch->config.buff_size,
-			ch->direction);
+			ch->direction, ch->channel_num, ch->tc_mapping);
 
 	ipa_channel_info.mem_ops = kzalloc(sizeof(*ipa_channel_info.mem_ops), GFP_KERNEL);
 	if (!ipa_channel_info.mem_ops)
@@ -142,6 +141,7 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 	ipa_channel_info.ndev = ioss_ch_dev(ch)->net_dev;
 	ipa_channel_info.desc_cnt = ch->config.ring_size;
 	ipa_channel_info.ch_dir = direction;
+	ipa_channel_info.channel_num = ch->channel_num;
 	ipa_channel_info.buf_size = ch->config.buff_size;
 	ipa_channel_info.ch_flags = STMMAC_CONTIG_BUFS;
 	ipa_channel_info.flags = GFP_KERNEL;

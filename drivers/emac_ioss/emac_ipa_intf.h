@@ -117,6 +117,7 @@ struct request_channel_input {
 	void *client_ch_priv;    /* To store in channel_info and pass it to mem_ops */
 	unsigned int ch_flags;
 	phys_addr_t tail_ptr_addr;
+	int channel_num;
 };
 
 struct mem_ops {
