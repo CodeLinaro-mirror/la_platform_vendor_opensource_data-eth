@@ -170,7 +170,7 @@ static int stmmac_mtl_setup(struct platform_device *pdev,
  * set some private fields that will be used by the main at runtime.
  */
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch)
+stmmac_thin_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct plat_stmmacenet_data *plat;
@@ -246,14 +246,14 @@ error_hw_init:
 
 #else
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, const char **mac)
+stmmac_thin_probe_config_dt(struct platform_device *pdev, const char **mac)
 {
 	return ERR_PTR(-EINVAL);
 }
 #endif /* CONFIG_OF */
-EXPORT_SYMBOL_GPL(stmmac_probe_config_dt);
+EXPORT_SYMBOL_GPL(stmmac_thin_probe_config_dt);
 
-int stmmac_get_platform_resources(struct platform_device *pdev,
+int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 				  struct stmmac_resources *stmmac_res)
 {
 	struct resource *res;
@@ -312,7 +312,7 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	}
 	return PTR_ERR_OR_ZERO(stmmac_res->addr);
 }
-EXPORT_SYMBOL_GPL(stmmac_get_platform_resources);
+EXPORT_SYMBOL_GPL(stmmac_thin_get_platform_resources);
 
 /**
  * stmmac_pltfr_remove
@@ -320,19 +320,19 @@ EXPORT_SYMBOL_GPL(stmmac_get_platform_resources);
  * Description: this function calls the main to free the net resources
  * and calls the platforms hook and release the resources (e.g. mem).
  */
-int stmmac_pltfr_remove(struct platform_device *pdev)
+int stmmac_thin_pltfr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	struct plat_stmmacenet_data *plat = priv->plat;
-	int ret = stmmac_dvr_remove(&pdev->dev);
+	int ret = stmmac_thin_dvr_remove(&pdev->dev);
 
 	if (plat->exit)
 		plat->exit(pdev, plat->bsp_priv);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_pltfr_remove);
+EXPORT_SYMBOL_GPL(stmmac_thin_pltfr_remove);
 
 MODULE_DESCRIPTION("STMMAC 10/100/1000 Ethernet platform support");
 MODULE_AUTHOR("Giuseppe Cavallaro <peppe.cavallaro@st.com>");

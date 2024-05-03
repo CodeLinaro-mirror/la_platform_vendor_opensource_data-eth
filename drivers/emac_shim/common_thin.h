@@ -235,6 +235,6 @@ struct mac_device_info {
 	void __iomem *pcsr;     /* vpointer to device CSRs */
 };
 
-int dwmac4_setup(struct stmmac_priv *priv);
+int dwmac4_thin_setup(struct stmmac_priv *priv);
 
 #endif /* __COMMON_H__ */
