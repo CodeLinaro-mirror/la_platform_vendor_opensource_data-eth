@@ -29,9 +29,33 @@ PKG_PROG_PKG_CONFIG
 #AC_SUBST(THERMAL_CFLAGS)
 #AC_SUBST(THERMAL_LIBS)
 
+AC_ARG_WITH([qmi_framework],
+	    AC_HELP_STRING([--with-qmi-framework],
+			   [enable qmi-framework for building thermal engine on LE]))
+
+
+PKG_CHECK_MODULES([QMIF], [qmi-framework])
+AC_SUBST([QMIF_CFLAGS])
+AC_SUBST([QMIF_LIBS])
+
+AC_ARG_WITH([netlink_framework],
+	    AC_HELP_STRING([--with-netlink-framework],
+			   [enable netlink-framework for building thermal engine on LE]))
+
+AC_ARG_WITH([glib],
+	    AC_HELP_STRING([--with-glib],
+			   [enable glib, building HLOS systems which use glib]))
+
+
 AC_ARG_WITH([sanitized-headers],
 	    [AS_HELP_STRING([--with-sanitized-headers=DIR],[location of the sanitized Linux kernel headers])],
 	    [CFLAGS="${CFLAGS} -I$withval"])
+
+AC_ARG_ENABLE([target-sa525m],
+	      AC_HELP_STRING([--enable-target-sa525m],
+			     [Enable conditional compile for target sa525m]),
+			     [target_sa525m="${enableval}"],
+			     target_sa525m=no)
 
 
 has_libnl_ver=0
