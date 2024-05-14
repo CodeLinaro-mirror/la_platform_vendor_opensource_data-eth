@@ -4494,7 +4494,7 @@ rtl8168_enable_lib_interrupt(struct rtl8168_private *tp)
 {
         int i;
 
-        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
+        for (i=0; i<rtl8168_tot_rx_rings(tp); i++)
                 rtl8168_enable_interrupt_by_vector(tp, i);
 }
 
@@ -4512,7 +4512,7 @@ rtl8168_disable_lib_interrupt(struct rtl8168_private *tp)
 {
         int i;
 
-        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
+        for (i=0; i<rtl8168_tot_rx_rings(tp); i++)
                 rtl8168_disable_interrupt_by_vector(tp, i);
 }
 
@@ -26607,7 +26607,7 @@ err1:
                 eee->supported  = SUPPORTED_100baseT_Full |
                                   SUPPORTED_1000baseT_Full;
                 eee->advertised = mmd_eee_adv_to_ethtool_adv_t(MDIO_EEE_1000T | MDIO_EEE_100TX);
-		eee->tx_lpi_enabled = eee_enable;
+                eee->tx_lpi_enabled = eee_enable;
                 eee->tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
         }
 
@@ -29087,7 +29087,7 @@ rtl8168_hw_config(struct net_device *dev)
                 RTL_W8(tp, 0xF1, RTL_R8(tp, 0xF1) & ~BIT_7);
                 rtl8168_hw_aspm_clkreq_enable(tp, false);
         }
-	rtl8168_set_eee_lpi_timer(tp);
+        rtl8168_set_eee_lpi_timer(tp);
 
         //clear io_rdy_l23
         switch (tp->mcfg) {
@@ -30118,7 +30118,7 @@ rtl8168_change_mtu(struct net_device *dev,
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 
         dev->mtu = new_mtu;
-	tp->eee.tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
+        tp->eee.tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
 
         if (!netif_running(dev))
                 goto out;
@@ -30625,14 +30625,6 @@ rtl8168_wait_for_quiescence(struct net_device *dev)
 #endif //CONFIG_R8168_NAPI
 }
 
-static int rtl8168_rx_nostuck(struct rtl8168_private *tp)
-{
-        int i, ret = 1;
-        for (i = 0; i < tp->num_rx_rings; i++)
-                ret &= (tp->rx_ring[i].dirty_rx == tp->rx_ring[i].cur_rx);
-        return ret;
-}
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
 static void rtl8168_reset_task(void *_data)
 {
@@ -30645,7 +30637,6 @@ static void rtl8168_reset_task(struct work_struct *work)
                 container_of(work, struct rtl8168_private, reset_task.work);
         struct net_device *dev = tp->dev;
 #endif
-        u32 budget = ~(u32)0;
         int i;
 
         rtnl_lock();
@@ -30655,37 +30646,26 @@ static void rtl8168_reset_task(struct work_struct *work)
             !test_and_clear_bit(R8168_FLAG_TASK_RESET_PENDING, tp->task_flags))
                 goto out_unlock;
 
-        rtl8168_wait_for_quiescence(dev);
-
-        for (i = 0; i < tp->num_rx_rings; i++) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-                rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[i], &budget);
-#else
-                rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[i], budget);
-#endif	//LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-        }
+        netdev_err(dev, "Device reseting!\n");
 
         netif_carrier_off(dev);
         netif_tx_disable(dev);
+        _rtl8168_wait_for_quiescence(dev);
         rtl8168_hw_reset(dev);
 
         rtl8168_tx_clear(tp);
 
-        if (rtl8168_rx_nostuck(tp)) {
-                rtl8168_rx_clear(tp);
-                rtl8168_init_ring(dev);
-                rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
-        } else {
-                if (unlikely(net_ratelimit())) {
-                        struct rtl8168_private *tp = netdev_priv(dev);
+        rtl8168_init_ring_indexes(tp);
 
-                        if (netif_msg_intr(tp)) {
-                                printk(PFX KERN_EMERG
-                                       "%s: Rx buffers shortage\n", dev->name);
-                        }
-                }
-                rtl8168_schedule_reset_work(tp);
-        }
+        rtl8168_tx_desc_init(tp);
+        for (i = 0; i < tp->num_rx_desc; i++)
+                rtl8168_mark_to_asic(tp->RxDescArray + i, tp->rx_buf_sz);
+
+#ifdef CONFIG_R8168_NAPI
+        rtl8168_enable_napi(tp);
+#endif //CONFIG_R8168_NAPI
+
+        rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
 
 out_unlock:
         rtnl_unlock();
@@ -30754,6 +30734,8 @@ rtl8168_tx_timeout(struct net_device *dev)
 #endif
 {
         struct rtl8168_private *tp = netdev_priv(dev);
+
+        netdev_err(dev, "Transmit timeout reset Device!\n");
 
         /* Let's wait a bit while any (async) irq lands on */
         rtl8168_schedule_reset_work(tp);
@@ -31391,7 +31373,7 @@ rtl8168_rx_interrupt(struct net_device *dev,
                 goto rx_out;
 
 #ifdef ENABLE_LIB_SUPPORT
-        if (ring->index > 0) {
+        if (tp->num_rx_rings == 0 && ring->index == 0) {
                 rtl8168_lib_rx_interrupt(tp);
                 goto rx_out;
         }
@@ -31722,7 +31704,7 @@ static irqreturn_t rtl8168_interrupt_msix(int irq, void *dev_instance)
                  * Skip its interrupt here or its queue will be initialized
                  * incorrectly.
                  */
-                if (message_id >= tp->num_rx_rings)
+                if (message_id >= tp->num_hw_tot_en_rx_rings)
                         break;
 
 #ifdef CONFIG_R8168_NAPI
@@ -31737,7 +31719,7 @@ static irqreturn_t rtl8168_interrupt_msix(int irq, void *dev_instance)
                 if (message_id == 0)
                         rtl8168_tx_all_interrupt(tp);
 
-                if (message_id < tp->num_rx_rings) {
+                if (message_id < tp->num_hw_tot_en_rx_rings) {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
                         rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[message_id], &budget);
 #else
@@ -31768,7 +31750,7 @@ static int rtl8168_poll_vector(napi_ptr napi, napi_budget budget, bool all_rx_q)
                 rtl8168_tx_all_interrupt(tp);
 
         if (all_rx_q)
-                for (i = 0; i < tp->num_rx_rings; i++)
+                for (i = 0; i < tp->num_hw_tot_en_rx_rings; i++)
                         work_done += rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[i], budget);
         else
                 work_done += rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[message_id], budget);
@@ -32074,7 +32056,7 @@ rtl8168_resume(struct device *device)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
         struct pci_dev *pdev = to_pci_dev(device);
-#endif 
+#endif
         struct net_device *dev = pci_get_drvdata(pdev);
         struct rtl8168_private *tp = netdev_priv(dev);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)
