@@ -1,6 +1,6 @@
 # Build DATA-ETH kernel drivers
 ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm)
-PRODUCT_PACKAGES += $(KERNEL_MODULES_OUT)/stmmac.ko\
+PRODUCT_PACKAGES += $(KERNEL_MODULES_OUT)/emac_thin.ko\
 	$(KERNEL_MODULES_OUT)/emac_ctrl_fe_virtio.ko
 endif
 
