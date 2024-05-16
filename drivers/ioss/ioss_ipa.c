@@ -4,6 +4,7 @@
  */
 
 #include <linux/etherdevice.h>
+#include <linux/string.h>
 
 #include "ioss_i.h"
 
@@ -53,9 +54,17 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	struct ipa_eth_buff_smmu_map *sm;
 	struct ipa_eth_pipe_setup_info *si = &pi->info;
 	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct ioss_interface *iface = &idev->interface;
 
 	pi->dir = (ch->direction == IOSS_CH_DIR_TX) ?
 			IPA_ETH_PIPE_DIR_TX : IPA_ETH_PIPE_DIR_RX;
+#if IPA_ETH_API_VER >= 4
+	pi->tc_bmap = ch->tc_mapping;
+#endif
+	if (strnstr(iface->ipa_config, "qos", IPA_ETH_CONFIG_LEN))
+		pi->traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+	else
+		pi->traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
 
 	desc_mem = list_first_entry_or_null(
 			&ch->desc_mem, typeof(*desc_mem), node);
@@ -243,14 +252,17 @@ int ioss_ipa_register(struct ioss_interface *iface)
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
 	struct ioss_channel *ch;
+	struct ioss_device	*idev = ioss_iface_dev(iface);
 #if IPA_ETH_API_VER < 2
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 #endif
-	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	ec->priv = iface;
 	ec->inst_id = iface->instance_id;
-	ec->traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
+	if (strnstr(iface->ipa_config, "qos", IPA_ETH_CONFIG_LEN))
+		ec->traffic_type = IPA_ETH_PIPE_TRAFFIC_TYPE_QOS;
+	else
+		ec->traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
 	ec->client_type = ioss_ipa_hal_get_ctype(idev);
 
 	if (ec->client_type == IPA_ETH_CLIENT_MAX) {

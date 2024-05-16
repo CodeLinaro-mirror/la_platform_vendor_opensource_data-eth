@@ -1,0 +1,152 @@
+/* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ */
+
+#ifndef _IOSS_QOS_H_
+#define _IOSS_QOS_H_
+
+#include <linux/list.h>
+#include <linux/socket.h>
+#include <linux/if_ether.h>
+#include <linux/ctype.h>
+
+#include "ioss.h"
+
+struct IOSS_QOS_TABLE {
+    struct list_head qos_rx_pending_table;
+    struct list_head qos_rx_committed_table;
+    struct list_head qos_tx_pending_table;
+    struct list_head qos_tx_committed_table;
+};
+
+struct IOSS_QOS_NEW_NODES {
+    struct qos_routing_rx *rx_node;
+    struct qos_routing_tx *tx_node;
+};
+
+enum protocol {
+    IOSS_IPPROTO_TCP = 0,
+    IOSS_IPPROTO_UDP = 1,
+    IOSS_IPPROTO_TCP_UDP = 2,
+    IOSS_IPPROTO_INVALID_PROTO = 3
+};
+
+struct port {
+    u32 port_num;
+    enum protocol proto;
+};
+
+struct tx_cbs_bw {
+    u16 low_bw;
+    u16 high_bw;
+};
+
+struct qos_filters {
+    struct sockaddr_storage address;
+    u8 mask_length;
+    u32 port_num;
+    char *proto;
+};
+
+struct qos_filters_array {
+    struct qos_filters *arr;
+    size_t len;
+};
+
+struct pcp_array {
+    u8 *arr;
+    size_t len;
+};
+
+struct vlan_id_array {
+    u16 *arr;
+    size_t len;
+};
+
+struct mac_array {
+	u16 len;
+	u8 (*arr)[ETH_ALEN];
+};
+
+enum action {
+    NOT_DEFINED = 0,
+    IOSS_QOS_SW_PATH = 1,
+    IOSS_QOS_HW_PATH = 2
+};
+
+struct qos_routing_rx {
+    u8 tc_prio;
+
+    bool committed;
+    enum action action;
+
+    struct pcp_array pcp;
+    struct vlan_id_array vlan_ids;
+
+    struct qos_filters_array src;
+    struct qos_filters_array dst;
+
+    struct mac_array smac;
+    struct mac_array dmac;
+
+    void *filter_info;
+
+    struct list_head node;
+};
+#define to_qos_routing_rx(ptr) list_entry(ptr, struct qos_routing_rx, node)
+
+struct qos_routing_tx {
+    u8 tc_prio;
+
+    bool committed;
+    enum action action;
+
+    struct tx_cbs_bw cbs_bw;
+    void *tx_param_info;
+
+    struct list_head node;
+};
+#define to_qos_routing_tx(ptr) list_entry(ptr, struct qos_routing_tx, node)
+
+/*
+* TC Map: for each channel maintain a bitmask, this will be passed to IPA
+*/
+struct qos_pipe_mapping {
+    u32 pipe_to_tc_mapping_rx[5];
+    bool is_rx_tc_sw[5];
+    u32 pipe_to_tc_mapping_tx[5];
+    bool is_tx_tc_sw[5];
+};
+
+struct response {
+    int err;
+    u8 num_tx_pipes;
+    u8 num_rx_pipes;
+    struct qos_pipe_mapping qos_pipe_mapping;
+};
+
+struct ioss_qos_ops {
+	struct response (*prepare_qos)(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx);
+	int (*request_qos)(struct ioss_device *idev);
+	int (*enable_qos)(struct ioss_device *idev);
+	int (*clear_qos)(struct ioss_device *idev);
+};
+
+#define QOS_TABLE_ROW_BUFFER 16
+#define QOS_TABLE_BUFFER 2048
+
+int create_qos_sysfs_nodes(struct device *dev);
+void remove_qos_sysfs_nodes(struct device *dev);
+
+/* Limits Start */
+#define PCP_LOWER_LIMIT 0
+#define PCP_UPPER_LIMIT 7
+
+#define VLAN_LOWER_LIMIT 1
+#define VLAN_UPPER_LIMIT 4095
+
+#define BW_LOWER_LIMIT 0
+#define BW_UPPER_LIMIT 10000
+/* Limits End */
+
+#endif /* _IOSS_QOS_H_ */

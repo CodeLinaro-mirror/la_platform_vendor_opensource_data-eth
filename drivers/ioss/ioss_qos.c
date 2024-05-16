@@ -1,0 +1,1897 @@
+/* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ */
+
+#include <linux/inet.h>
+#include <linux/of.h>
+
+#include "include/linux/msm/ioss.h"
+#include "include/linux/msm/ioss_qos.h"
+
+#include "ioss_i.h"
+
+static struct kobject* qos_kobj;
+static struct kobject* qos_tc_params_kobj;
+
+static struct IOSS_QOS_TABLE ioss_qos_table;
+static struct IOSS_QOS_NEW_NODES ioss_qos_new_nodes;
+
+static u16 get_num_arguments(char** buff, const char* delim)
+{
+	u16 len = 0;
+	char* token;
+
+	while ((token = strsep(buff, delim)))
+		if (strlen(token)) len++;
+
+	return len;
+}
+
+static bool is_valid_pcp(u8 pcp)
+{
+	return (pcp >= PCP_LOWER_LIMIT && pcp <= PCP_UPPER_LIMIT);
+}
+
+static bool is_valid_vlan_id(u16 vlan_id)
+{
+	return (vlan_id >= VLAN_LOWER_LIMIT && vlan_id <= VLAN_UPPER_LIMIT);
+}
+
+static bool is_valid_bw(u16 bw)
+{
+	return (bw >= BW_LOWER_LIMIT && bw <= BW_UPPER_LIMIT);
+}
+
+static int extract_ip_mask(char *src, struct qos_filters *addr)
+{
+	int i = 0;
+	int ret = 0;
+	char *token;
+
+	while ( (token = strsep(&src, "/")) ) {
+		pr_debug("%s : %s : %s\n", __func__, src, token);
+		if (i > 1)
+			return -1;
+		if (i == 0) {
+			ret = inet_pton_with_scope(&init_net, AF_UNSPEC, token, NULL, &(addr->address));
+			if (ret) {
+				ioss_dev_err(NULL, "[ioss qos] Invalid IP address entered\n");
+				return -EINVAL;
+			}
+		}
+		else {
+			if (kstrtou8(token, 10, &(addr->mask_length)) < 0)
+				return -EINVAL;
+		}
+		i++;
+	}
+	pr_debug("%s: extracted address\n", __func__);
+
+	if (addr->address.ss_family == AF_INET) {
+		if (addr->mask_length > 32) {
+			ioss_dev_err(NULL, "[ioss qos] : Mask must be <= 32 for IPv4 address\n");
+			return -EINVAL;
+		}
+		else if (addr->mask_length == 0) {
+			addr->mask_length = 32;
+		}
+	}
+	else if (addr->address.ss_family == AF_INET6) {
+		if (addr->mask_length > 128) {
+			ioss_dev_err(NULL, "[ioss qos] : Mask must be <= 128 for IPv6 address\n");
+			return -EINVAL;
+		}
+		else if (addr->mask_length == 0) {
+			addr->mask_length = 128;
+		}
+	}
+	else {
+		ioss_dev_err(NULL, "[ioss qos] : Neither IPv4 or IPv6 address\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int extract_proto_port(char *src, struct qos_filters *addr)
+{
+	char *token;
+
+	/*
+	* Currently, src = <Protocol>/<Port>]
+	* Remove trailing ] and split into <Protocol> and <Port>
+	*/
+	src[strlen(src) - 1] = '\0';
+	while ( (token = strsep(&src, "/")) ) {
+		pr_debug("%s : %s : %s\n", __func__, src, token);
+		if (isalpha(token[0])) {
+			addr->proto = kstrdup(token, GFP_KERNEL);
+		}
+		else {
+			if (kstrtou32(token, 10, &(addr->port_num)) < 0)
+				return -EINVAL;
+			if (addr->port_num < 1 || addr->port_num > 65535)
+				return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+static int extract_qos_filters(char *src, struct qos_filters *addr)
+{
+	char *token;
+
+	/*
+	* Separate <IP>/<Mask>[<Protocol>/<Port>]
+	* into <IP>/<Mask>  and  <Protocol>/<Port>]
+	*/
+	while ( (token = strsep(&src, "[")) ) {
+		pr_debug("%s : %s : %s\n", __func__, src, token);
+		if (0 == strlen(token)) // Fix for invalid ip
+			continue;
+		if (token[strlen(token) - 1] == ']') {
+			if (extract_proto_port(token, addr))
+				return -EINVAL;
+		}
+		else {
+			if (extract_ip_mask(token, addr))
+				return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+static bool rx_tc_already_exists(u8 prio)
+{
+	struct list_head *ptr;
+    struct qos_routing_rx *entry;
+
+    for (ptr = ioss_qos_table.qos_rx_pending_table.next; ptr != &ioss_qos_table.qos_rx_pending_table; ptr = ptr->next) {
+        entry = to_qos_routing_rx(ptr);
+        if (entry->tc_prio == prio)
+            return true;
+    }
+    return false;
+}
+
+static bool tx_tc_already_exists(u8 prio)
+{
+	struct list_head *ptr;
+    struct qos_routing_tx *entry;
+
+    for (ptr = ioss_qos_table.qos_tx_pending_table.next; ptr != &ioss_qos_table.qos_tx_pending_table; ptr = ptr->next) {
+        entry = to_qos_routing_tx(ptr);
+        if (entry->tc_prio == prio)
+            return true;
+    }
+    return false;
+}
+
+static void add_rx_tc_by_priority(struct qos_routing_rx *rx_node)
+{
+	struct list_head *ptr;
+    struct qos_routing_rx *entry;
+
+    for (ptr = ioss_qos_table.qos_rx_pending_table.next; ptr != &ioss_qos_table.qos_rx_pending_table; ptr = ptr->next) {
+        entry = to_qos_routing_rx(ptr);
+        if (entry->tc_prio > rx_node->tc_prio) {
+            list_add_tail(&rx_node->node, ptr);
+            return;
+        }
+    }
+    list_add_tail(&rx_node->node, &ioss_qos_table.qos_rx_pending_table);
+}
+
+static void add_tx_tc_by_priority(struct qos_routing_tx *tx_node)
+{
+	struct list_head *ptr;
+    struct qos_routing_tx *entry;
+
+    for (ptr = ioss_qos_table.qos_tx_pending_table.next; ptr != &ioss_qos_table.qos_tx_pending_table; ptr = ptr->next) {
+        entry = to_qos_routing_tx(ptr);
+        if (entry->tc_prio > tx_node->tc_prio) {
+            list_add_tail(&tx_node->node, ptr);
+            return;
+        }
+    }
+    list_add_tail(&tx_node->node, &ioss_qos_table.qos_tx_pending_table);
+}
+
+static void copy_rx_node(struct qos_routing_rx *src, struct qos_routing_rx *dest)
+{
+	size_t i = 0;
+	size_t j = 0;
+
+	pr_debug("[ioss qos] %s : copying prio = %u\n", __func__, src->tc_prio);
+
+	dest->tc_prio = src->tc_prio;
+	dest->committed = src->committed;
+	dest->action = src->action;
+	pr_debug("[ioss qos] %s : copied tc_prio, committed, action\n", __func__);
+
+	dest->pcp.len = src->pcp.len;
+	dest->pcp.arr = kzalloc(sizeof(u8) * dest->pcp.len, GFP_KERNEL);
+	for (i = 0; i < src->pcp.len; i++)
+		dest->pcp.arr[i] = src->pcp.arr[i];
+	pr_debug("[ioss qos] %s : copied pcp\n", __func__);
+
+	dest->vlan_ids.len = src->vlan_ids.len;
+	dest->vlan_ids.arr = kzalloc(sizeof(u16) * dest->vlan_ids.len, GFP_KERNEL);
+	for (i = 0; i < src->vlan_ids.len; i++)
+		dest->vlan_ids.arr[i] = src->vlan_ids.arr[i];
+	pr_debug("[ioss qos] %s : copied vlan\n", __func__);
+
+	dest->src.len = src->src.len;
+	dest->src.arr = kzalloc(sizeof(struct qos_filters) * dest->src.len, GFP_KERNEL);
+	for (i = 0; i < src->src.len; i++) {
+		pr_debug("[ioss qos] %s : memcopying src %lu\n", __func__, i);
+		memcpy(&dest->src.arr[i].address, &src->src.arr[i].address, sizeof(dest->src.arr[i].address));
+		pr_debug("[ioss qos] %s : copying address %lu\n", __func__, i);
+		dest->src.arr[i].mask_length = src->src.arr[i].mask_length;
+		pr_debug("[ioss qos] %s : copying src mask %lu\n", __func__, i);
+		dest->src.arr[i].port_num = src->src.arr[i].port_num;
+		pr_debug("[ioss qos] %s : copying src port_num %lu\n", __func__, i);
+		if (src->src.arr[i].proto != NULL)
+			dest->src.arr[i].proto = kstrdup(src->src.arr[i].proto, GFP_KERNEL);
+		pr_debug("[ioss qos] %s : copying src proto %lu\n", __func__, i);
+	}
+	pr_debug("[ioss qos] %s : copied src\n", __func__);
+
+	dest->dst.len = src->dst.len;
+	dest->dst.arr = kzalloc(sizeof(struct qos_filters) * dest->dst.len, GFP_KERNEL);
+	for (i = 0; i < src->dst.len; i++) {
+		pr_debug("[ioss qos] %s : memcopying dst %lu\n", __func__, i);
+		memcpy(&dest->dst.arr[i].address, &src->dst.arr[i].address, sizeof(dest->dst.arr[i].address));
+		dest->dst.arr[i].mask_length = src->dst.arr[i].mask_length;
+		dest->dst.arr[i].port_num = src->dst.arr[i].port_num;
+		if (src->dst.arr[i].proto != NULL)
+			dest->dst.arr[i].proto = kstrdup(src->dst.arr[i].proto, GFP_KERNEL);
+	}
+	pr_debug("[ioss qos] %s : copied dst\n", __func__);
+
+	dest->smac.len = src->smac.len;
+	dest->smac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * dest->smac.len, GFP_KERNEL);
+	for (i = 0; i < src->smac.len; i++) {
+		for (j = 0; j < ETH_ALEN; j++)
+			dest->smac.arr[i][j] = src->smac.arr[i][j];
+	}
+	pr_debug("[ioss qos] %s : copied smac\n", __func__);
+
+	dest->dmac.len = src->dmac.len;
+	dest->dmac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * dest->dmac.len, GFP_KERNEL);
+	for (i = 0; i < src->dmac.len; i++) {
+		for (j = 0; j < ETH_ALEN; j++)
+			dest->dmac.arr[i][j] = src->dmac.arr[i][j];
+	}
+	pr_debug("[ioss qos] %s : copied dmac\n", __func__);
+}
+
+static void copy_rx_table(struct list_head *src, struct list_head *dest)
+{
+	struct list_head *ptr;
+	struct qos_routing_rx *new_node;
+
+	list_for_each(ptr, src) {
+		new_node = kzalloc(sizeof(struct qos_routing_rx), GFP_KERNEL);
+		copy_rx_node(to_qos_routing_rx(ptr), new_node);
+		list_add_tail(&new_node->node, dest);
+	}
+}
+
+static void copy_tx_node(struct qos_routing_tx *src, struct qos_routing_tx *dest)
+{
+	dest->tc_prio = src->tc_prio;
+	dest->committed = src->committed;
+	dest->action = src->action;
+	dest->cbs_bw.low_bw = src->cbs_bw.low_bw;
+	dest->cbs_bw.high_bw = src->cbs_bw.high_bw;
+}
+
+static void copy_tx_table(struct list_head *src, struct list_head *dest)
+{
+	struct list_head *ptr;
+	struct qos_routing_tx *new_node;
+
+	list_for_each(ptr, src) {
+		new_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
+		copy_tx_node(to_qos_routing_tx(ptr), new_node);
+		list_add_tail(&new_node->node, dest);
+	}
+}
+
+static void clean_rx_node(struct qos_routing_rx *ptr)
+{
+	int i = 0;
+
+	kfree(ptr->pcp.arr);
+	kfree(ptr->vlan_ids.arr);
+
+	for (i = 0; i < ptr->src.len; i++)
+		kfree(ptr->src.arr[i].proto);
+	kfree(ptr->src.arr);
+
+	for (i = 0; i < ptr->dst.len; i++)
+		kfree(ptr->dst.arr[i].proto);
+	kfree(ptr->dst.arr);
+
+	kfree(ptr->smac.arr);
+	kfree(ptr->dmac.arr);
+}
+
+static void delete_rx_table(struct list_head *table)
+{
+	struct list_head *ptr;
+	struct list_head *temp;
+	struct qos_routing_rx *del_node;
+
+	list_for_each_safe(ptr, temp, table) {
+		list_del(ptr);
+		del_node = to_qos_routing_rx(ptr);
+		clean_rx_node(del_node);
+		kfree(del_node);
+	}
+}
+
+static void delete_tx_table(struct list_head *table)
+{
+	struct list_head *ptr;
+	struct list_head *temp;
+	struct qos_routing_tx *del_node;
+
+	list_for_each_safe(ptr, temp, table) {
+		list_del(ptr);
+		del_node = to_qos_routing_tx(ptr);
+		kfree(del_node);
+	}
+}
+
+static u16 get_node_count(struct list_head *table)
+{
+	u16 count = 0;
+	struct list_head* ptr;
+
+	list_for_each(ptr, table)
+		count++;
+
+	return count;
+}
+
+static bool has_qos_table_changed(void)
+{
+	struct list_head *ptr;
+	struct qos_routing_rx *rx_node;
+	struct qos_routing_tx *tx_node;
+
+	if (get_node_count(&ioss_qos_table.qos_rx_pending_table) != get_node_count(&ioss_qos_table.qos_rx_committed_table))
+		return true;
+	if (get_node_count(&ioss_qos_table.qos_tx_pending_table) != get_node_count(&ioss_qos_table.qos_tx_committed_table))
+		return true;
+
+	list_for_each(ptr, &ioss_qos_table.qos_rx_pending_table) {
+		rx_node = to_qos_routing_rx(ptr);
+		if (rx_node->committed == false)
+			return true;
+	}
+
+	list_for_each(ptr, &ioss_qos_table.qos_tx_pending_table) {
+		tx_node = to_qos_routing_tx(ptr);
+		if (tx_node->committed == false)
+			return true;
+	}
+
+	return false;
+}
+
+void delete_qos_channels(struct ioss_interface *iface)
+{
+	struct ioss_channel *ch, *tmp_ch;
+	/* Free QOS channels */
+	list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
+		if (ch->tc_mapping != 0) {
+			list_del(&ch->node);
+			kfree_sensitive(ch->ioss_priv);
+			kfree_sensitive(ch);
+		}
+	}
+}
+
+/* Utils End */
+
+static ssize_t show_add_tc(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_add_tc(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	/*
+	* Four options
+	* 1. rx <prio>
+	* 2. tx <prio>
+	* 3. rx done
+	* 4. tx done
+	*/
+
+	char *token;
+	u8 prio = 0;
+	u16 len = 0;
+	size_t i = 0;
+	char *tmp = NULL;
+	bool is_dir_rx = false;
+	bool add_to_list = false;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (len != 2)
+		return -EINVAL;
+
+	tmp = buf;
+	while ( (token = strsep(&buf, " ")) ) {
+		if (0 == strlen(token))
+			continue;
+
+		if (i == 0) {
+			if (!strncmp(token, "rx", 2))
+				is_dir_rx = true;
+			else if (!strncmp(token, "tx", 2))
+				is_dir_rx = false;
+			else
+				goto add_err;
+		}
+		else {
+			if (!strncmp(token, "done", 4))
+				add_to_list = true;
+			else if (kstrtou8(token, 10, &prio) < 0)
+				goto add_err;
+		}
+		i++;
+	}
+
+	if (is_dir_rx) {
+		if (add_to_list) {
+			if (!ioss_qos_new_nodes.rx_node)
+				goto add_err;
+			// Check if mandatory action param is provided
+			if (ioss_qos_new_nodes.rx_node->action == NOT_DEFINED) {
+				ioss_dev_err(NULL, "[ioss qos] action is a mandatory parameter\n");
+				goto add_err;
+			}
+			add_rx_tc_by_priority(ioss_qos_new_nodes.rx_node);
+			ioss_qos_new_nodes.rx_node = NULL;
+		}
+		else {
+			// Check if same prio already exists
+			if (rx_tc_already_exists(prio)) {
+				ioss_dev_err(NULL, "[ioss qos] : rx tc prio already exists");
+				goto add_err;
+			}
+			ioss_qos_new_nodes.rx_node = kzalloc(sizeof(struct qos_routing_rx), GFP_KERNEL);
+			ioss_qos_new_nodes.rx_node->tc_prio = prio;
+		}
+	}
+	else {
+		if (add_to_list) {
+			if (!ioss_qos_new_nodes.tx_node)
+				goto add_err;
+			// Check if mandatory action param is provided
+			if (ioss_qos_new_nodes.tx_node->action == NOT_DEFINED) {
+				ioss_dev_err(NULL, "[ioss qos] action is mandatory parameter\n");
+				goto add_err;
+			}
+			add_tx_tc_by_priority(ioss_qos_new_nodes.tx_node);
+			ioss_qos_new_nodes.tx_node = NULL;
+		}
+		else {
+			// Check if same prio already exists
+			if (tx_tc_already_exists(prio)) {
+				ioss_dev_err(NULL, "[ioss qos] : tx tc prio already exists");
+				goto add_err;
+			}
+			ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
+			ioss_qos_new_nodes.tx_node->tc_prio = prio;
+		}
+	}
+
+	kfree(tmp);
+
+	return size;
+
+add_err:
+	ioss_dev_err(NULL, "[qos ioss] add tc failed\n");
+	kfree(tmp);
+	if (ioss_qos_new_nodes.rx_node) {
+		clean_rx_node(ioss_qos_new_nodes.rx_node);
+		ioss_qos_new_nodes.rx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add_tc failure\n");
+	}
+	else if (ioss_qos_new_nodes.tx_node) {
+		kfree(ioss_qos_new_nodes.tx_node);
+		ioss_qos_new_nodes.tx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned tx node due to add_tc failure\n");
+	}
+	return -EINVAL;
+}
+
+static ssize_t show_qos_table(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	size_t i;
+	struct list_head *ptr = NULL;
+	char *table = NULL;
+	char *row = NULL;
+	const int ROW_BUFFER = 60;
+	const int TABLE_BUFFER = 4095;
+	struct qos_routing_rx *rx_node;
+	struct qos_routing_tx *tx_node;
+	struct sockaddr_storage *ss;
+
+	row = kzalloc(sizeof(char) * ROW_BUFFER, GFP_KERNEL);
+	table = kzalloc(sizeof(char) * TABLE_BUFFER, GFP_KERNEL);
+
+	scnprintf(row, ROW_BUFFER, "\t\t\t\t# QOS Rx Committed Table #\n\n");
+	strlcat(table, row, TABLE_BUFFER);
+	list_for_each(ptr, &ioss_qos_table.qos_rx_committed_table) {
+		rx_node = to_qos_routing_rx(ptr);
+		scnprintf(row, ROW_BUFFER, "\n\t%3u:\n", rx_node->tc_prio);
+		strlcat(table, row, TABLE_BUFFER);
+
+		scnprintf(row, ROW_BUFFER, "\t\tAction: %s\n", (rx_node->action == IOSS_QOS_HW_PATH)? "HW" : "SW");
+		strlcat(table, row, TABLE_BUFFER);
+
+		scnprintf(row, ROW_BUFFER, "\t\tPCP:\n");
+		strlcat(table, row, TABLE_BUFFER);
+		for (i = 0; i < rx_node->pcp.len; i++) {
+			scnprintf(row, ROW_BUFFER, "\t\t\t%3u\n", rx_node->pcp.arr[i]);
+			strlcat(table, row, TABLE_BUFFER);
+		}
+
+		scnprintf(row, ROW_BUFFER, "\t\tVLAN:\n");
+		strlcat(table, row, TABLE_BUFFER);
+		for (i = 0; i < rx_node->vlan_ids.len; i++) {
+			scnprintf(row, ROW_BUFFER, "\t\t\t%3u\n", rx_node->vlan_ids.arr[i]);
+			strlcat(table, row, TABLE_BUFFER);
+		}
+
+		scnprintf(row, ROW_BUFFER, "\t\tSRC:\n");
+		strlcat(table, row, TABLE_BUFFER);
+		for (i = 0; i < rx_node->src.len; i++) {
+			ss = &rx_node->src.arr[i].address;
+			if (ss->ss_family == AF_INET) {
+				scnprintf(row, ROW_BUFFER, "\t\t\t%pI4/%u[%s/%u]\n",
+					&(((struct sockaddr_in *)ss)->sin_addr),
+					rx_node->src.arr[i].mask_length,
+					rx_node->src.arr[i].proto,
+					rx_node->src.arr[i].port_num);
+			}
+			else if (ss->ss_family == AF_INET6) {
+				scnprintf(row, ROW_BUFFER, "\t\t\t%pI6/%u[%s/%u]\n",
+					&(((struct sockaddr_in6 *)ss)->sin6_addr),
+					rx_node->src.arr[i].mask_length,
+					rx_node->src.arr[i].proto,
+					rx_node->src.arr[i].port_num);
+			}
+			else {
+				scnprintf(row, ROW_BUFFER, "\t\t\t[%s/%u]\n",
+					rx_node->src.arr[i].proto,
+					rx_node->src.arr[i].port_num);
+			}
+
+			strlcat(table, row, TABLE_BUFFER);
+		}
+
+		scnprintf(row, ROW_BUFFER, "\t\tDST:\n");
+		strlcat(table, row, TABLE_BUFFER);
+		for (i = 0; i < rx_node->dst.len; i++) {
+			ss = &rx_node->dst.arr[i].address;
+			if (ss->ss_family == AF_INET) {
+				scnprintf(row, ROW_BUFFER, "\t\t\t%pI4/%u[%s/%u]\n",
+					&(((struct sockaddr_in *)ss)->sin_addr),
+					rx_node->dst.arr[i].mask_length,
+					rx_node->dst.arr[i].proto,
+					rx_node->dst.arr[i].port_num);
+			}
+			else if (ss->ss_family == AF_INET6) {
+				scnprintf(row, ROW_BUFFER, "\t\t\t%pI6/%u[%s/%u]\n",
+					&(((struct sockaddr_in6 *)ss)->sin6_addr),
+					rx_node->dst.arr[i].mask_length,
+					rx_node->dst.arr[i].proto,
+					rx_node->dst.arr[i].port_num);
+			}
+			else {
+				scnprintf(row, ROW_BUFFER, "\t\t\t[%s/%u]\n",
+					rx_node->dst.arr[i].proto,
+					rx_node->dst.arr[i].port_num);
+			}
+
+			strlcat(table, row, TABLE_BUFFER);
+		}
+
+		scnprintf(row, ROW_BUFFER, "\t\tSMAC:\n");
+		strlcat(table, row, TABLE_BUFFER);
+		for (i = 0; i < rx_node->smac.len; i++) {
+			scnprintf(row, ROW_BUFFER, "\t\t\t%02x:%02x:%02x:%02x:%02x:%02x\n",
+					rx_node->smac.arr[i][0],
+					rx_node->smac.arr[i][1],
+					rx_node->smac.arr[i][2],
+					rx_node->smac.arr[i][3],
+					rx_node->smac.arr[i][4],
+					rx_node->smac.arr[i][5]);
+			strlcat(table, row, TABLE_BUFFER);
+		}
+
+		scnprintf(row, ROW_BUFFER, "\t\tDMAC:\n");
+		strlcat(table, row, TABLE_BUFFER);
+		for (i = 0; i < rx_node->dmac.len; i++) {
+			scnprintf(row, ROW_BUFFER, "\t\t\t%02x:%02x:%02x:%02x:%02x:%02x\n",
+					rx_node->dmac.arr[i][0],
+					rx_node->dmac.arr[i][1],
+					rx_node->dmac.arr[i][2],
+					rx_node->dmac.arr[i][3],
+					rx_node->dmac.arr[i][4],
+					rx_node->dmac.arr[i][5]);
+			strlcat(table, row, TABLE_BUFFER);
+		}
+	}
+
+	scnprintf(row, ROW_BUFFER, "\n\n\t\t\t\t# QOS Tx Committed Table #\n\n");
+	strlcat(table, row, TABLE_BUFFER);
+	list_for_each(ptr, &ioss_qos_table.qos_tx_committed_table) {
+		tx_node = to_qos_routing_tx(ptr);
+		scnprintf(row, ROW_BUFFER, "\t%3u:\n", tx_node->tc_prio);
+		strlcat(table, row, TABLE_BUFFER);
+
+		scnprintf(row, ROW_BUFFER, "\t\tAction: %s\n", (tx_node->action == IOSS_QOS_HW_PATH)? "HW" : "SW");
+		strlcat(table, row, TABLE_BUFFER);
+
+		scnprintf(row, ROW_BUFFER, "\t\tCBS BW:\n");
+		strlcat(table, row, TABLE_BUFFER);
+		scnprintf(row, ROW_BUFFER, "\t\t\t%u:%u\n", tx_node->cbs_bw.low_bw, tx_node->cbs_bw.high_bw);
+		strlcat(table, row, TABLE_BUFFER);
+	}
+
+	return snprintf(user_buf, TABLE_BUFFER, "%s\n", table);
+}
+
+static ssize_t store_qos_table(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	struct device *parent = NULL;
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+	struct ioss_device *idev = NULL;
+
+	pr_debug("[ioss qos] : converting to parent device\n");
+	parent = kobj_to_dev(dev->kobj.parent);
+
+	pr_debug("[ioss qos] : checking if parent is not NULL\n");
+	if (!parent)
+		return -EINVAL;
+
+	pr_debug("[ioss qos] : extracting parent netdev\n");
+	net_dev = to_net_dev(parent);
+	if (!net_dev)
+		return -EINVAL;
+
+	pr_debug("[ioss qos] : extracting iface\n");
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	pr_debug("[ioss qos] : extracting idev\n");
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
+
+	if (sysfs_streq(user_buf, "clear-pending")) {
+		delete_rx_table(&ioss_qos_table.qos_rx_pending_table);
+		INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
+		copy_rx_table(&ioss_qos_table.qos_rx_committed_table, &ioss_qos_table.qos_rx_pending_table);
+
+		delete_tx_table(&ioss_qos_table.qos_tx_pending_table);
+		INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
+		copy_tx_table(&ioss_qos_table.qos_tx_committed_table, &ioss_qos_table.qos_tx_pending_table);
+
+		ioss_dev_log(NULL, "[ioss qos] : cleared pending nodes\n");
+
+		idev->clear_qos_hw = false;
+	}
+	else if (sysfs_streq(user_buf, "clear")) {
+		delete_rx_table(&ioss_qos_table.qos_rx_pending_table);
+		INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
+		copy_rx_table(&ioss_qos_table.qos_rx_committed_table, &ioss_qos_table.qos_rx_pending_table);
+
+		delete_tx_table(&ioss_qos_table.qos_tx_pending_table);
+		INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
+		copy_tx_table(&ioss_qos_table.qos_tx_committed_table, &ioss_qos_table.qos_tx_pending_table);
+
+		ioss_dev_log(NULL, "[ioss qos] : cleared pending nodes and set clear HW flag\n");
+
+		idev->clear_qos_hw = true;
+	}
+	else {
+		ioss_dev_err(NULL, "[ioss qos] : clear qos table : invalid argument\n");
+		return -EINVAL;
+	}
+
+	return size;
+}
+
+static ssize_t show_del_tc(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_del_tc(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	/*
+	* rx 2
+	* tx 3
+	*/
+	char *token;
+	u8 prio = 0;
+	u16 len = 0;
+	size_t i = 0;
+	char *tmp = NULL;
+	bool is_dir_rx = false;
+	struct list_head *ptr;
+	struct list_head *temp;
+	struct qos_routing_rx *rx_node;
+	struct qos_routing_tx *tx_node;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (len != 2)
+		return -EINVAL;
+
+	tmp = buf;
+	while ( (token = strsep(&buf, " ")) ) {
+		if (0 == strlen(token))
+			continue;
+
+		if (i == 0) {
+			if (!strncmp(token, "rx", 2))
+				is_dir_rx = true;
+			else if (!strncmp(token, "tx", 2))
+				is_dir_rx = false;
+			else
+				goto del_err;
+		}
+		else {
+			if (kstrtou8(token, 10, &prio) < 0)
+				goto del_err;
+		}
+		i++;
+	}
+
+	if (is_dir_rx) {
+		if (!rx_tc_already_exists(prio)) {
+			ioss_dev_err(NULL, "[ioss qos] : entered tc priority not present in rx table\n");
+			return -EINVAL;
+		}
+
+		list_for_each_safe(ptr, temp, &ioss_qos_table.qos_rx_pending_table) {
+			rx_node = to_qos_routing_rx(ptr);
+			if (rx_node->tc_prio == prio) {
+				list_del(ptr);
+				clean_rx_node(rx_node);
+				kfree(rx_node);
+			}
+		}
+	}
+	else {
+		if (!tx_tc_already_exists(prio)) {
+			ioss_dev_err(NULL, "[ioss qos] : entered tc priority not present in tx table\n");
+			return -EINVAL;
+		}
+
+		list_for_each_safe(ptr, temp, &ioss_qos_table.qos_tx_pending_table) {
+			tx_node = to_qos_routing_tx(ptr);
+			if (tx_node->tc_prio == prio) {
+				list_del(ptr);
+				kfree(rx_node);
+			}
+		}
+	}
+
+	kfree(tmp);
+
+	return size;
+del_err:
+	ioss_dev_err(NULL, "[qos ioss] del tc failed\n");
+	kfree(tmp);
+	return -EINVAL;
+}
+
+static ssize_t show_commit(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_commit(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	struct list_head *ptr;
+	struct device *parent = NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_driver *idrv = NULL;
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+	struct qos_routing_rx *rx_node = NULL;
+	struct qos_routing_tx *tx_node = NULL;
+
+	size_t i;
+	u8 option;
+	int ret = 0;
+	struct response res;
+
+	u32 inst_id;
+	enum ipa_eth_client_type ct;
+	struct ioss_iface_priv *ifp;
+	struct ipa_eth_config *ipa_config;
+
+	u8 rx_qos_channels = 0;
+	u8 tx_qos_channels = 0;
+
+	pr_debug("[ioss qos] : inside store_commit\n");
+	if (kstrtou8(user_buf, 10, &option) < 0)
+		return -EINVAL;
+	if (option != 1)
+		return -EINVAL;
+
+	pr_debug("[ioss qos] : converting to parent device\n");
+	parent = kobj_to_dev(dev->kobj.parent);
+
+	pr_debug("[ioss qos] : checking if parent is not NULL\n");
+	if (!parent)
+		return -EINVAL;
+
+	pr_debug("[ioss qos] : extracting parent netdev\n");
+	net_dev = to_net_dev(parent);
+	if (!net_dev)
+		return -EINVAL;
+
+	pr_debug("[ioss qos] : extracting iface\n");
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	pr_debug("[ioss qos] : extracting idev\n");
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
+
+	pr_debug("[ioss qos] : extracting ioss driver\n");
+	idrv = to_ioss_driver(idev->dev.driver);
+	if (!idrv)
+		return -EINVAL;
+
+	inst_id = iface->instance_id;
+	ct = ioss_ipa_hal_get_ctype(idev);
+	ifp = iface->ioss_priv;
+	ipa_config = &ifp->ipa_config;
+
+	if (has_qos_table_changed() == false) {
+		if (idev->clear_qos_hw == true) {
+			ioss_dev_log(NULL, "[ioss qos] : deleting qos tables and clearing qos filters from HW\n");
+			ret = idrv->qos_ops->clear_qos(idev);
+			ioss_dev_log(NULL, "[ioss qos] : clear_qos returned %d\n", ret);
+
+			delete_rx_table(&ioss_qos_table.qos_rx_pending_table);
+			INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
+			delete_rx_table(&ioss_qos_table.qos_rx_committed_table);
+			INIT_LIST_HEAD(&ioss_qos_table.qos_rx_committed_table);
+
+			delete_tx_table(&ioss_qos_table.qos_tx_pending_table);
+			INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
+			delete_tx_table(&ioss_qos_table.qos_tx_committed_table);
+			INIT_LIST_HEAD(&ioss_qos_table.qos_tx_committed_table);
+
+			idev->clear_qos_hw = false;
+			idev->qos_enabled = false;
+			disable_qos_ipa_channels(idev);
+			ioss_dev_log(NULL, "[ioss qos] : qos disabled\n");
+
+			return size;
+		}
+		else {
+			ioss_dev_err(NULL, "[ioss qos] : commit fail : trying to perform empty commit\n");
+			return -EINVAL;
+		}
+	}
+
+	// Get IPA Config
+	iface->ipa_config = NULL;
+
+	memset(ipa_config, 0, sizeof(*ipa_config));
+#if IPA_ETH_API_VER >= 4
+	ret = ipa_eth_get_config_type(ct, inst_id, ipa_config);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to get IPA config for %u.%u", ct, inst_id);
+		return ret;
+	}
+#endif
+	iface->ipa_config = ipa_config->config;
+	ioss_dev_log(idev, "[ioss qos] : IPA config = %s", iface->ipa_config);
+
+	if (strnstr(iface->ipa_config, "qos", IPA_ETH_CONFIG_LEN)) {
+		ioss_dev_log(idev, "[ioss qos] : Setting IOSS-IPA config to QOS");
+	}
+	else {
+		ioss_dev_err(idev, "[ioss qos] : Received default/invalid IPA config. EMAC QOS Failed, routing all traffic to BE");
+		return -EINVAL;
+	}
+
+	for (i = 0; i < ipa_config->num_dma_channel; i++) {
+		if (ipa_config->dma_config[i].traffic_type != IPA_ETH_PIPE_TRAFFIC_TYPE_QOS)
+			continue;
+		if (ipa_config->dma_config[i].dir == IPA_ETH_PIPE_DIR_RX)
+			rx_qos_channels++;
+		else if (ipa_config->dma_config[i].dir == IPA_ETH_PIPE_DIR_TX)
+			tx_qos_channels++;
+	}
+
+	idev->qos_rx_channels = rx_qos_channels;
+	idev->qos_tx_channels = tx_qos_channels;
+	ioss_dev_log(NULL, "[ioss qos] : set idev qos_rx_channels=%u and qos_tx_channels=%u",
+			 idev->qos_rx_channels, idev->qos_tx_channels);
+
+	// idev ops
+	pr_debug("[ioss qos] : calling glue prepare qos function\n");
+	if (idrv->qos_ops->clear_qos) {
+		ret = idrv->qos_ops->clear_qos(idev);
+		ioss_dev_log(NULL, "[ioss qos] clear_qos returned %d\n", ret);
+	}
+
+	pr_debug("[ioss qos] : calling glue prepare qos function\n");
+	if (idrv->qos_ops->prepare_qos) {
+		res = idrv->qos_ops->prepare_qos(idev, &ioss_qos_table.qos_rx_pending_table, &ioss_qos_table.qos_tx_pending_table);
+		ioss_dev_log(NULL, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
+					res.err, res.num_tx_pipes, res.num_rx_pipes);
+	}
+
+	ret = enable_qos_ipa_channels(idev, res);
+
+	pr_debug("[ioss qos] : setting pending nodes to committed");
+	list_for_each(ptr, &ioss_qos_table.qos_rx_pending_table) {
+		rx_node = to_qos_routing_rx(ptr);
+		rx_node->committed = true;
+	}
+	list_for_each(ptr, &ioss_qos_table.qos_tx_pending_table) {
+		tx_node = to_qos_routing_tx(ptr);
+		tx_node->committed = true;
+	}
+
+	pr_debug("[ioss qos] : copying pending to committed table");
+	if (!list_empty(&ioss_qos_table.qos_rx_committed_table)) {
+		delete_rx_table(&ioss_qos_table.qos_rx_committed_table);
+		INIT_LIST_HEAD(&ioss_qos_table.qos_rx_committed_table);
+	}
+	copy_rx_table(&ioss_qos_table.qos_rx_pending_table, &ioss_qos_table.qos_rx_committed_table);
+	if (!list_empty(&ioss_qos_table.qos_tx_committed_table)) {
+		delete_tx_table(&ioss_qos_table.qos_tx_committed_table);
+		INIT_LIST_HEAD(&ioss_qos_table.qos_tx_committed_table);
+	}
+	copy_tx_table(&ioss_qos_table.qos_tx_pending_table, &ioss_qos_table.qos_tx_committed_table);
+
+	idev->qos_enabled = true;
+	ioss_dev_log(NULL, "[ioss qos] : set idev->qos_enabled to true\n");
+
+	return size;
+}
+
+static ssize_t show_action(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_action(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *token;
+	u16 len = 0;
+	size_t i = 0;
+	char *tmp = NULL;
+	bool is_dir_rx = false;
+	bool is_action_sw = false;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (len != 2)
+		return -EINVAL;
+
+	tmp = buf;
+	while ( (token = strsep(&buf, " ")) ) {
+		if (0 == strlen(token))
+			continue;
+
+		if (i == 0) {
+			if (!strncmp(token, "rx", 2))
+				is_dir_rx = true;
+			else if (!strncmp(token, "tx", 2))
+				is_dir_rx = false;
+			else
+				goto action_err;
+		}
+		else {
+			if (!strncmp(token, "sw", 2))
+				is_action_sw = true;
+			else if (!strncmp(token, "hw", 2))
+				is_action_sw = false;
+			else
+				goto action_err;
+		}
+		i++;
+	}
+
+	if (is_dir_rx && ioss_qos_new_nodes.rx_node) {
+		if (is_action_sw)
+			ioss_qos_new_nodes.rx_node->action = IOSS_QOS_SW_PATH;
+		else
+			ioss_qos_new_nodes.rx_node->action = IOSS_QOS_HW_PATH;
+	}
+	else if (!is_dir_rx && ioss_qos_new_nodes.tx_node) {
+		if (is_action_sw)
+			ioss_qos_new_nodes.tx_node->action = IOSS_QOS_SW_PATH;
+		else
+			ioss_qos_new_nodes.tx_node->action = IOSS_QOS_HW_PATH;
+	}
+	else {
+		goto action_err;
+	}
+
+	kfree(tmp);
+
+	return size;
+
+action_err:
+	ioss_dev_err(NULL, "[ioss qos] : invalid direction/action pair entered\n");
+	kfree(tmp);
+	if (ioss_qos_new_nodes.rx_node) {
+		clean_rx_node(ioss_qos_new_nodes.rx_node);
+		ioss_qos_new_nodes.rx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add action failure\n");
+	}
+	else if (ioss_qos_new_nodes.tx_node) {
+		kfree(ioss_qos_new_nodes.tx_node);
+		ioss_qos_new_nodes.tx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned tx node due to add action failure\n");
+	}
+	return -EINVAL;
+}
+
+static ssize_t show_bw(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_bw(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *bw;
+	int i = 0;
+	u16 bw_val;
+	u16 len = 0;
+	char *tmp = NULL;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " :");
+	kfree(tmp);
+
+	if (!ioss_qos_new_nodes.tx_node)
+		return -EINVAL;
+
+	if (len != 2)
+		return -EINVAL;
+
+	tmp = buf;
+	while ( (bw = strsep(&buf, " :")) ) {
+		if (0 == strlen(bw))
+			continue;
+		if (kstrtou16(bw, 10, &bw_val) < 0)
+			return -EINVAL;
+		if (i == 0)
+			ioss_qos_new_nodes.tx_node->cbs_bw.low_bw = bw_val;
+		else
+			ioss_qos_new_nodes.tx_node->cbs_bw.high_bw = bw_val;
+		i++;
+	}
+
+	kfree(tmp);
+
+	if (!is_valid_bw(ioss_qos_new_nodes.tx_node->cbs_bw.low_bw)) {
+		ioss_dev_err(NULL, "[ioss qos] Low BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
+		goto bw_err;
+	}
+
+	if (!is_valid_bw(ioss_qos_new_nodes.tx_node->cbs_bw.high_bw)) {
+		ioss_dev_err(NULL, "[ioss qos] High BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
+		goto bw_err;
+	}
+
+	if (ioss_qos_new_nodes.tx_node->cbs_bw.low_bw > ioss_qos_new_nodes.tx_node->cbs_bw.high_bw) {
+		ioss_dev_err(NULL, "[ioss qos] Low BW must be <= High BW\n");
+		goto bw_err;
+	}
+
+	return size;
+
+bw_err:
+	ioss_dev_err(NULL, "[ioss qos] : invalid direction/action pair entered\n");
+	if (ioss_qos_new_nodes.tx_node) {
+		kfree(ioss_qos_new_nodes.tx_node);
+		ioss_qos_new_nodes.tx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned tx node due to add bw failure\n");
+	}
+	return -EINVAL;
+}
+
+static ssize_t show_pcp(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_pcp(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *pcp;
+	int i = 0;
+	u16 len = 0;
+	char *tmp = NULL;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (!ioss_qos_new_nodes.rx_node)
+		return -EINVAL;
+
+	if (ioss_qos_new_nodes.rx_node->pcp.arr)
+		kfree(ioss_qos_new_nodes.rx_node->pcp.arr);
+
+	ioss_qos_new_nodes.rx_node->pcp.arr = kzalloc(sizeof(u8) * len, GFP_KERNEL);
+	ioss_qos_new_nodes.rx_node->pcp.len = len;
+
+	tmp = buf;
+	while ( (pcp = strsep(&buf, " ")) ) {
+		if (0 == strlen(pcp))
+			continue;
+		if (kstrtou8(pcp, 10, &ioss_qos_new_nodes.rx_node->pcp.arr[i]) < 0)
+			goto pcp_err;
+		if (!is_valid_pcp(ioss_qos_new_nodes.rx_node->pcp.arr[i]))
+			goto pcp_err;
+		i++;
+	}
+
+	kfree(tmp);
+
+	return size;
+
+pcp_err:
+	ioss_dev_err(NULL, "[qos ioss] : invalid pcp value entered\n");
+	if (ioss_qos_new_nodes.rx_node) {
+		clean_rx_node(ioss_qos_new_nodes.rx_node);
+		ioss_qos_new_nodes.rx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add pcp failure\n");
+	}
+	kfree(tmp);
+	return -EINVAL;
+}
+
+static ssize_t show_vlan_id(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_vlan_id(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *vid;
+	int i = 0;
+	u16 len = 0;
+	char *tmp = NULL;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (!ioss_qos_new_nodes.rx_node)
+		return -EINVAL;
+
+	if (ioss_qos_new_nodes.rx_node->vlan_ids.arr)
+		kfree(ioss_qos_new_nodes.rx_node->vlan_ids.arr);
+
+	ioss_qos_new_nodes.rx_node->vlan_ids.arr = kzalloc(sizeof(u16) * len, GFP_KERNEL);
+	ioss_qos_new_nodes.rx_node->vlan_ids.len = len;
+
+	tmp = buf;
+	while ( (vid = strsep(&buf, " ")) ) {
+		if (0 == strlen(vid))
+			continue;
+		if (kstrtou16(vid, 10, &ioss_qos_new_nodes.rx_node->vlan_ids.arr[i]) < 0)
+			goto vlan_err;
+		if (!is_valid_vlan_id(ioss_qos_new_nodes.rx_node->vlan_ids.arr[i]))
+			goto vlan_err;
+		i++;
+	}
+
+	kfree(tmp);
+
+	return size;
+
+vlan_err:
+	ioss_dev_err(NULL, "[qos ioss] : invalid vlan id entered \n");
+	if (ioss_qos_new_nodes.rx_node) {
+		clean_rx_node(ioss_qos_new_nodes.rx_node);
+		ioss_qos_new_nodes.rx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add vlan id failure\n");
+	}
+	kfree(tmp);
+	return -EINVAL;
+}
+
+
+static ssize_t show_src(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_src(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *src;
+	int i = 0;
+	u16 len = 0;
+	char *tmp = NULL;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+	buf = strim(buf);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (!ioss_qos_new_nodes.rx_node)
+		goto src_err;
+
+	if (ioss_qos_new_nodes.rx_node->src.arr)
+		kfree(ioss_qos_new_nodes.rx_node->src.arr);
+
+	ioss_qos_new_nodes.rx_node->src.arr = kzalloc(sizeof(struct qos_filters) * len, GFP_KERNEL);
+	ioss_qos_new_nodes.rx_node->src.len = len;
+
+	tmp = buf;
+	while ( (src = strsep(&buf, " ")) ) {
+		if (0 == strlen(src))
+			continue;
+		pr_debug("%s : %s", __func__, src);
+		if (extract_qos_filters(src, &(ioss_qos_new_nodes.rx_node->src.arr[i])))
+			goto src_err;
+		i++;
+	}
+
+	kfree(tmp);
+
+	return size;
+src_err:
+	if (ioss_qos_new_nodes.rx_node) {
+		clean_rx_node(ioss_qos_new_nodes.rx_node);
+		ioss_qos_new_nodes.rx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add src failure\n");
+	}
+	kfree(tmp);
+	return -EINVAL;
+}
+
+static ssize_t show_dst(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_dst(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *src;
+	int i = 0;
+	u16 len = 0;
+	char *tmp = NULL;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+	buf = strim(buf);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (!ioss_qos_new_nodes.rx_node)
+		goto dst_err;
+
+	if (ioss_qos_new_nodes.rx_node->dst.arr)
+		kfree(ioss_qos_new_nodes.rx_node->dst.arr);
+
+	ioss_qos_new_nodes.rx_node->dst.arr = kzalloc(sizeof(struct qos_filters) * len, GFP_KERNEL);
+	ioss_qos_new_nodes.rx_node->dst.len = len;
+
+	tmp = buf;
+	while ( (src = strsep(&buf, " ")) ) {
+		if (0 == strlen(src))
+			continue;
+		pr_debug("%s : %s", __func__, src);
+		if (extract_qos_filters(src, &(ioss_qos_new_nodes.rx_node->dst.arr[i])))
+			goto dst_err;
+		i++;
+	}
+
+	kfree(tmp);
+
+	return size;
+dst_err:
+	if (ioss_qos_new_nodes.rx_node) {
+		clean_rx_node(ioss_qos_new_nodes.rx_node);
+		ioss_qos_new_nodes.rx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add dst failure\n");
+	}
+	kfree(tmp);
+	return -EINVAL;
+}
+
+static ssize_t show_smac(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_smac(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *mac;
+	u16 i = 0;
+	u16 len = 0;
+	char *tmp = NULL;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (!ioss_qos_new_nodes.rx_node)
+		goto smac_err;
+
+	if (ioss_qos_new_nodes.rx_node->smac.arr)
+		kfree(ioss_qos_new_nodes.rx_node->smac.arr);
+
+	ioss_qos_new_nodes.rx_node->smac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * len, GFP_KERNEL);
+	ioss_qos_new_nodes.rx_node->smac.len = len;
+
+	tmp = buf;
+	while ( (mac = strsep(&buf, " ")) ) {
+		if (0 == strlen(mac))
+			continue;
+		if (!mac_pton(mac, ioss_qos_new_nodes.rx_node->smac.arr[i])) {
+			ioss_dev_err(NULL, "[ioss qos] : invalid smac address entered\n");
+			goto smac_err;
+		}
+		i++;
+	}
+
+	kfree(tmp);
+
+	return size;
+
+smac_err:
+	if (ioss_qos_new_nodes.rx_node) {
+		clean_rx_node(ioss_qos_new_nodes.rx_node);
+		ioss_qos_new_nodes.rx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add smac failure\n");
+	}
+	return -EINVAL;
+}
+
+static ssize_t show_dmac(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_dmac(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *mac;
+	u16 i = 0;
+	u16 len = 0;
+	char *tmp = NULL;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (!ioss_qos_new_nodes.rx_node)
+		goto dmac_err;
+
+	if (ioss_qos_new_nodes.rx_node->dmac.arr)
+		kfree(ioss_qos_new_nodes.rx_node->dmac.arr);
+
+	ioss_qos_new_nodes.rx_node->dmac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * len, GFP_KERNEL);
+	ioss_qos_new_nodes.rx_node->dmac.len = len;
+
+	tmp = buf;
+	while ( (mac = strsep(&buf, " ")) ) {
+		if (0 == strlen(mac))
+			continue;
+		if (!mac_pton(mac, ioss_qos_new_nodes.rx_node->dmac.arr[i])) {
+			ioss_dev_err(NULL, "[ioss qos] : invalid dmac address entered\n");
+			goto dmac_err;
+		}
+		i++;
+	}
+
+	kfree(tmp);
+
+	return size;
+
+dmac_err:
+	if (ioss_qos_new_nodes.rx_node) {
+		clean_rx_node(ioss_qos_new_nodes.rx_node);
+		ioss_qos_new_nodes.rx_node = NULL;
+		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add dmac failure\n");
+	}
+	return -EINVAL;
+}
+
+static int qos_id = 0;
+module_param(qos_id, int, 0);
+MODULE_PARM_DESC(qos_id, "The uid/gid to assign to the qos sysfs nodes\n");
+
+static DEVICE_ATTR(add_tc, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_add_tc, store_add_tc);
+static DEVICE_ATTR(qos_table, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_qos_table, store_qos_table);
+static DEVICE_ATTR(del_tc, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_del_tc, store_del_tc);
+static DEVICE_ATTR(commit, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_commit, store_commit);
+
+static DEVICE_ATTR(vlan_id, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_vlan_id, store_vlan_id);
+static DEVICE_ATTR(pcp, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_pcp, store_pcp);
+static DEVICE_ATTR(src, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_src, store_src);
+static DEVICE_ATTR(dst, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_dst, store_dst);
+static DEVICE_ATTR(bw, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_bw, store_bw);
+static DEVICE_ATTR(action, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_action, store_action);
+static DEVICE_ATTR(smac, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_smac, store_smac);
+static DEVICE_ATTR(dmac, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_dmac, store_dmac);
+
+int create_qos_sysfs_nodes(struct device *dev)
+{
+	int ret;
+	struct ioss_device *idev = to_ioss_device(dev);
+
+	INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
+	INIT_LIST_HEAD(&ioss_qos_table.qos_rx_committed_table);
+	INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
+	INIT_LIST_HEAD(&ioss_qos_table.qos_tx_committed_table);
+
+	qos_kobj = kobject_create_and_add("qos", &idev->net_dev->dev.kobj);
+	if (!qos_kobj) {
+		ioss_dev_err(idev, "Unable to create qos kobject");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_change_owner(qos_kobj,  KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs qos kobj\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_kobj, &dev_attr_add_tc.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_kobj, "add_tc", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_kobj, &dev_attr_qos_table.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create qos-table node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_kobj, "qos_table", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_kobj, &dev_attr_del_tc.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create del_tc node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_kobj, "del_tc", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_kobj, &dev_attr_commit.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create commit node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_kobj, "commit", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	qos_tc_params_kobj = kobject_create_and_add("add_tc_params", qos_kobj);
+	if (!qos_tc_params_kobj) {
+		ioss_dev_err(idev, "Unable to create qos-add_tc_params kobject");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_change_owner(qos_tc_params_kobj,  KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs kobj\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_vlan_id.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc_params/vlan_id node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_tc_params_kobj, "vlan_id", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_pcp.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc_params/pcp node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_tc_params_kobj, "pcp", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_src.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc_params/src node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_tc_params_kobj, "src", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_dst.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc_params/dst node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_tc_params_kobj, "dst", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_bw.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc_params/bw node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_tc_params_kobj, "bw", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_action.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc_params/action node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_tc_params_kobj, "action", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_smac.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc_params/smac node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_tc_params_kobj, "smac", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_dmac.attr);
+	if (ret) {
+		ioss_dev_err(idev, "unable to create add_tc_params/dmac node");
+		goto err_qos_sysfs;
+	}
+	ret = sysfs_file_change_owner(qos_tc_params_kobj, "dmac", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
+	if (ret) {
+		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
+		goto err_qos_sysfs;
+	}
+
+	return 0;
+
+err_qos_sysfs:
+	kobject_put(qos_kobj);
+	kobject_put(qos_tc_params_kobj);
+	return -EINVAL;
+}
+EXPORT_SYMBOL_GPL(create_qos_sysfs_nodes);
+
+
+void remove_qos_sysfs_nodes(struct device *dev)
+{
+	kobject_del(qos_kobj);
+	kobject_del(qos_tc_params_kobj);
+	kobject_put(qos_kobj);
+	kobject_put(qos_tc_params_kobj);
+}
+EXPORT_SYMBOL_GPL(remove_qos_sysfs_nodes);
+
+static int ioss_parse_qos_channel(struct ioss_device *idev,
+		struct device_node *np, u32 tc_mapping, int ch_num)
+{
+	const char *key;
+	struct ioss_channel *ch = NULL;
+	struct ioss_interface *iface = &idev->interface;
+
+	ch = kzalloc(sizeof(*ch), GFP_KERNEL);
+	if (!ch)
+		return -ENOMEM;
+
+	ch->ioss_priv = kzalloc(sizeof(struct ioss_ch_priv), GFP_KERNEL);
+	if (!ch->ioss_priv) {
+		kfree_sensitive(ch);
+		return -ENOMEM;
+	}
+
+	INIT_LIST_HEAD(&ch->node);
+	INIT_LIST_HEAD(&ch->desc_mem);
+	INIT_LIST_HEAD(&ch->buff_mem);
+
+	ch->iface = iface;
+
+	if (!!of_find_property(np, "qcom,dir-rx", NULL))
+		ch->direction = IOSS_CH_DIR_RX;
+	else if (!!of_find_property(np, "qcom,dir-tx", NULL))
+		ch->direction = IOSS_CH_DIR_TX;
+	else
+		goto err;
+
+	key = kstrdup("qcom,ring-size", GFP_KERNEL);
+	if (of_property_read_u32(np, key, &ch->default_config.ring_size)) {
+		ioss_dev_err(idev, "Failed to parse key %s", key);
+		goto err;
+	}
+	kfree(key);
+
+	key = kstrdup("qcom,buff-size", GFP_KERNEL);
+	if (of_property_read_u32(np, key, &ch->default_config.buff_size)) {
+		ioss_dev_err(idev, "Failed to parse key %s", key);
+		goto err;
+	}
+	kfree(key);
+
+	key = kstrdup("qcom,mod-count-min", GFP_KERNEL);
+	if (of_property_read_u32(np, key, &ch->event.mod_count_min)) {
+		ioss_dev_err(idev, "Failed to parse key %s", key);
+		goto err;
+	}
+	kfree(key);
+
+	key = kstrdup("qcom,mod-count-max", GFP_KERNEL);
+	if (of_property_read_u32(np, key, &ch->event.mod_count_max)) {
+		ioss_dev_err(idev, "Failed to parse key %s", key);
+		goto err;
+	}
+	kfree(key);
+
+	key = kstrdup("qcom,mod-usecs-min", GFP_KERNEL);
+	if (of_property_read_u32(np, key, &ch->event.mod_usecs_min)) {
+		ioss_dev_err(idev, "Failed to parse key %s", key);
+		goto err;
+	}
+
+	key = kstrdup("qcom,mod-usecs-max", GFP_KERNEL);
+	if (of_property_read_u32(np, key, &ch->event.mod_usecs_max)) {
+		ioss_dev_err(idev, "Failed to parse key %s", key);
+		goto err;
+	}
+	kfree(key);
+
+	if (!!of_find_property(np, "qcom,rx-filter-be", NULL))
+		ch->filter_types |= IOSS_RXF_F_BE;
+
+	if (!!of_find_property(np, "qcom,rx-filter-ip", NULL))
+		ch->filter_types |= IOSS_RXF_F_IP;
+
+	ch->default_config.desc_alctr = &ioss_default_alctr;
+	ch->default_config.buff_alctr = &ioss_default_alctr;
+
+	ch->tc_mapping = tc_mapping;
+	ch->channel_num = ch_num;
+
+	list_add_tail(&ch->node, &iface->channels);
+
+	ioss_dev_log(NULL, "Alloc new channel with direction = %d bitmask = %x id=%d",
+				ch->direction, ch->tc_mapping, ch->id);
+
+	return 0;
+
+err:
+	kfree(key);
+	kfree_sensitive(ch->ioss_priv);
+	kfree_sensitive(ch);
+
+	return -EINVAL;
+}
+
+int ioss_alloc_qos_ch(struct ioss_device *idev, struct response resp)
+{
+	int i;
+	struct ioss_interface *iface = &idev->interface;
+	struct device_node *np = dev_of_node(idev->dev.parent);
+
+	struct device_node *n = of_parse_phandle(np,
+					"qcom,ioss_qos_channels", 1);
+
+	/* Clean previously allocated channels */
+	delete_qos_channels(iface);
+
+	/* Allocate QOS channels */
+	for (i = resp.num_tx_pipes - 1; i >= 0; i--) {
+		ioss_dev_log(NULL, "[ioss] tx, bmap=%X, id=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i], i);
+		if (resp.qos_pipe_mapping.is_tx_tc_sw[i] || resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i] == 0)
+			continue;
+		if (ioss_parse_qos_channel(idev, n, resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i], i)) {
+			ioss_dev_err(idev, "Failed to parse qos tx channel[%d]", i);
+			goto err;
+		}
+	}
+
+	n = of_parse_phandle(np,"qcom,ioss_qos_channels", 0);
+
+	/* Allocate QOS channels */
+	for (i = resp.num_rx_pipes - 1; i >= 0; i--) {
+		ioss_dev_log(NULL, "[ioss qos] rx, bmap=%X, id=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i], i);
+		if (resp.qos_pipe_mapping.is_rx_tc_sw[i] || resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i] == 0)
+			continue;
+		if (ioss_parse_qos_channel(idev, n, resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i], i)) {
+			ioss_dev_err(idev, "Failed to parse qos rx channel[%d]", i);
+			goto err;
+		}
+	}
+
+	return 0;
+
+err:
+	return -EINVAL;
+}
+
+int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
+{
+	int ret = 0;
+	struct ioss_driver *idrv = NULL;
+	struct ioss_interface *iface = &idev->interface;
+
+	idev->dev.offline = 1;
+
+	ioss_iface_queue_refresh(iface, true);
+
+	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+
+	idrv = to_ioss_driver(idev->dev.driver);
+	if (!idrv)
+		return -EINVAL;
+
+	ret = idrv->qos_ops->request_qos(idev);
+	ret = ioss_alloc_qos_ch(idev, resp);
+
+	idev->dev.offline = 0;
+	ioss_iface_queue_refresh(iface, true);
+	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+
+	ret = idrv->qos_ops->enable_qos(idev);
+
+	return ret;
+}
+
+void disable_qos_ipa_channels(struct ioss_device *idev)
+{
+	struct ioss_interface *iface = &idev->interface;
+
+	idev->dev.offline = 1;
+	ioss_iface_queue_refresh(iface, true);
+	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+
+	delete_qos_channels(iface);
+
+	idev->dev.offline = 0;
+	ioss_iface_queue_refresh(iface, true);
+	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+}
+
+int ioss_request_qos(struct ioss_device *idev)
+{
+	int ret = 0;
+	struct ioss_driver *idrv = NULL;
+
+	idrv = to_ioss_driver(idev->dev.driver);
+	if (!idrv)
+		return -EINVAL;
+
+	ret = idrv->qos_ops->request_qos(idev);
+
+	return ret;
+}
+
+int ioss_enable_qos(struct ioss_device *idev)
+{
+	int ret = 0;
+	struct ioss_driver *idrv = NULL;
+
+	idrv = to_ioss_driver(idev->dev.driver);
+	if (!idrv)
+		return -EINVAL;
+
+	ret = idrv->qos_ops->enable_qos(idev);
+
+	return ret;
+}
+
+

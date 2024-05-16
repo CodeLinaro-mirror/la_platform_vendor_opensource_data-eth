@@ -8,14 +8,13 @@
 
 #include <linux/stat.h>
 #include <linux/module.h>
-
 #include <linux/if_vlan.h>
 #include <linux/platform_device.h>
-
 #include <linux/ipa_eth.h>
+#include <linux/panic_notifier.h>
 
 #include "include/linux/msm/ioss.h"
-#include <linux/panic_notifier.h>
+#include "include/linux/msm/ioss_qos.h"
 
 #if IS_ENABLED(CONFIG_QCOM_LLCC)
 #define LLCC_ENABLE
@@ -51,6 +50,7 @@ struct ioss_iface_priv {
 	union ioss_ipa_eth_hdr ipa_hdr_v4;
 	union ioss_ipa_eth_hdr ipa_hdr_v6;
 #endif
+	struct ipa_eth_config ipa_config;
 };
 
 extern struct ioss_mem_allocator ioss_default_alctr;
@@ -154,5 +154,11 @@ static inline void ioss_debugfs_remove_channel(struct ioss_channel *ch)
 {
 }
 #endif
+
+int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp);
+void disable_qos_ipa_channels(struct ioss_device *idev);
+int ioss_request_qos(struct ioss_device *idev);
+int ioss_enable_qos(struct ioss_device *idev);
+
 
 #endif /* _IOSS_I_H_ */

@@ -32,9 +32,10 @@
  *   6      - Change one-to-many mapping to one-to-one mapping from ioss_device to
  *            ioss_interface
  *   7	    - Added API to update skb coming in UL exception path
+ *   8	    - Added QOS Support
  */
 
-#define IOSS_API_VER 7
+#define IOSS_API_VER 8
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -173,6 +174,8 @@ struct ioss_interface {
 	struct notifier_block net_dev_nb;
 	struct work_struct refresh;
 	struct list_head channels;
+
+	const char *ipa_config; /* currently selected IPA config type */
 
 	void *ioss_priv;
 
@@ -315,6 +318,9 @@ struct ioss_channel {
 	bool enabled;
 
 	void *ioss_priv;
+
+	int channel_num;
+	u32 tc_mapping;
 };
 
 struct ioss_device {
@@ -341,6 +347,11 @@ struct ioss_device {
 		u64 system_suspend;
 		u64 system_resume;
 	} pm_stats;
+
+	bool qos_enabled;
+	bool clear_qos_hw;
+	u8 qos_rx_channels;
+	u8 qos_tx_channels;
 };
 
 #define to_ioss_device(device) \
@@ -602,6 +613,7 @@ struct ioss_driver {
 	bool (*match)(struct device *dev);
 
 	struct ioss_driver_ops *ops;
+	struct ioss_qos_ops *qos_ops;
 	enum ioss_filter_types filter_types;
 
 	/* IOSS managed */
