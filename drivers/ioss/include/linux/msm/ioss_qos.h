@@ -132,6 +132,19 @@ struct ioss_qos_ops {
 	int (*clear_qos)(struct ioss_device *idev);
 };
 
+#define create_qos_sysfs_node(idev, qos_kobj, qos_node, uid, gid, qos_sysfs_err) \
+	do { \
+		if (sysfs_create_file(qos_kobj, &dev_attr_##qos_node.attr)) { \
+			ioss_dev_err(idev, "unable to create " #qos_node " node"); \
+			goto qos_sysfs_err; \
+		} \
+		if (sysfs_file_change_owner(qos_kobj, #qos_node, KUIDT_INIT(uid), KGIDT_INIT(gid))) { \
+			ioss_dev_err(idev, "unable to change owner of " #qos_node " sysfs node"); \
+			goto qos_sysfs_err; \
+		} \
+	} while(0)
+
+
 #define QOS_TABLE_ROW_BUFFER 16
 #define QOS_TABLE_BUFFER 2048
 

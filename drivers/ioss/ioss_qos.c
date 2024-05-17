@@ -1502,7 +1502,6 @@ static DEVICE_ATTR(dmac, S_IRWXU | S_IRUGO | S_IRWXG,
 
 int create_qos_sysfs_nodes(struct device *dev)
 {
-	int ret;
 	struct ioss_device *idev = to_ioss_device(dev);
 
 	INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
@@ -1515,154 +1514,27 @@ int create_qos_sysfs_nodes(struct device *dev)
 		ioss_dev_err(idev, "Unable to create qos kobject");
 		goto err_qos_sysfs;
 	}
-	ret = sysfs_change_owner(qos_kobj,  KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs qos kobj\n");
-		goto err_qos_sysfs;
-	}
 
-	ret = sysfs_create_file(qos_kobj, &dev_attr_add_tc.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_kobj, "add_tc", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_kobj, &dev_attr_qos_table.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create qos-table node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_kobj, "qos_table", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_kobj, &dev_attr_del_tc.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create del_tc node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_kobj, "del_tc", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_kobj, &dev_attr_commit.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create commit node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_kobj, "commit", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
+	create_qos_sysfs_node(idev, qos_kobj, add_tc, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_kobj, qos_table, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_kobj, del_tc, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_kobj, commit, 0, qos_id, err_qos_sysfs);
 
 	qos_tc_params_kobj = kobject_create_and_add("add_tc_params", qos_kobj);
 	if (!qos_tc_params_kobj) {
 		ioss_dev_err(idev, "Unable to create qos-add_tc_params kobject");
 		goto err_qos_sysfs;
 	}
-	ret = sysfs_change_owner(qos_tc_params_kobj,  KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs kobj\n");
-		goto err_qos_sysfs;
-	}
 
-	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_vlan_id.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc_params/vlan_id node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_tc_params_kobj, "vlan_id", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
 
-	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_pcp.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc_params/pcp node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_tc_params_kobj, "pcp", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_src.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc_params/src node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_tc_params_kobj, "src", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_dst.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc_params/dst node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_tc_params_kobj, "dst", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_bw.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc_params/bw node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_tc_params_kobj, "bw", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_action.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc_params/action node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_tc_params_kobj, "action", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_smac.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc_params/smac node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_tc_params_kobj, "smac", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
-
-	ret = sysfs_create_file(qos_tc_params_kobj, &dev_attr_dmac.attr);
-	if (ret) {
-		ioss_dev_err(idev, "unable to create add_tc_params/dmac node");
-		goto err_qos_sysfs;
-	}
-	ret = sysfs_file_change_owner(qos_tc_params_kobj, "dmac", KUIDT_INIT(qos_id), KGIDT_INIT(qos_id));
-	if (ret) {
-		ioss_dev_err(idev, "unable to change owner of sysfs node\n");
-		goto err_qos_sysfs;
-	}
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, vlan_id, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, pcp, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, src, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, dst, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, bw, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, action, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, smac, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, dmac, 0, qos_id, err_qos_sysfs);
 
 	return 0;
 
