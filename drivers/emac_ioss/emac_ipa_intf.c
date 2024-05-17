@@ -1417,6 +1417,467 @@ int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 ind
 }
 EXPORT_SYMBOL_GPL(set_mac_addr);
 
+void stmmac_config_qos_cbs(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
+{
+	int i = 0;
+
+	for (i = 2; i < priv->plat->tx_queues_to_use; i++) {
+		/* Configure queues for CBS*/
+		ioss_qos_dev_log(NULL, "[ioss qos]: queue %d config = %d\n",
+			         i, qos_table_info->tx_routing_info[i].mode_to_use);
+		if (qos_table_info->tx_routing_info[i].mode_to_use == MTL_QUEUE_AVB) {
+			stmmac_config_cbs(priv, priv->hw,
+					  qos_table_info->tx_routing_info[i].send_slope,
+					  qos_table_info->tx_routing_info[i].idle_slope,
+					  qos_table_info->tx_routing_info[i].hi_credit,
+					  qos_table_info->tx_routing_info[i].low_credit,
+					  i);
+			priv->plat->tx_queues_cfg[i].send_slope = qos_table_info->tx_routing_info[i].send_slope;
+			priv->plat->tx_queues_cfg[i].idle_slope = qos_table_info->tx_routing_info[i].idle_slope;
+			priv->plat->tx_queues_cfg[i].high_credit = qos_table_info->tx_routing_info[i].hi_credit;
+			priv->plat->tx_queues_cfg[i].low_credit = qos_table_info->tx_routing_info[i].low_credit;
+			priv->tx_ch_bw[i] = qos_table_info->tx_routing_info[i].acc_bw;
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(stmmac_config_qos_cbs);
+
+void stmmac_restore_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
+{
+	int queue = 0;
+	u32 rxmode = priv->plat->rx_queues_cfg[queue].mode_to_use;
+	for (queue = 0; queue < 5; queue++) {
+		/* Enable the disabled queues */
+		if (priv->queue_dis[queue]) {
+			stmmac_rx_queue_enable(priv, priv->hw, rxmode, queue);
+			priv->queue_dis[queue] = false;
+		}
+		/* Restore the pcp queue routing */
+		priv->plat->rx_queues_cfg[queue].prio = qos_table_info->backup_pcp_map[queue];
+		ioss_qos_dev_log(NULL, "[ioss qos]: Restore pcp routing pcp = %d, queue = %d\n",
+			       	 qos_table_info->backup_pcp_map[queue], queue);
+		priv->queue_pcp_map[queue] = qos_table_info->backup_pcp_map[queue];
+		stmmac_rx_queue_prio(priv, priv->hw, qos_table_info->backup_pcp_map[queue], queue);
+		stmmac_map_mtl_to_dma(priv, priv->hw, queue, queue);
+	}
+}
+EXPORT_SYMBOL_GPL(stmmac_restore_qos_queue_cfg);
+
+void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
+{
+	u8 prio = 0;
+	u32 queue = 0, rxmode = 0, thresh_rx_mode = 0, queue_cnt = 0;
+	int rxfifosz = 0;
+	u32 read_value = 0;
+
+	if (priv->plat->enable_pfc && !priv->plat->qos_active)
+		stmmac_mac_config_pfc(priv);
+
+	for (queue = 1; queue < priv->plat->rx_qos_queues_to_use; queue++) {
+		/* Check number of queues used */
+		if (qos_table_info->queue_to_pcp_map[queue])
+			queue_cnt++;
+	}
+	/* divide fifo size equally  among remaining queues*/
+	rxfifosz = 12288/queue_cnt;
+	/*pcp routing*/
+	for (queue = 0; queue < 5; queue++) {
+		rxmode = priv->plat->rx_queues_cfg[queue].mode_to_use;
+		thresh_rx_mode = priv->plat->rx_queues_cfg[queue].threshold_byte;
+		if (queue && !qos_table_info->queue_to_pcp_map[queue]) {
+			/* Disable queues which aren't used */
+			if (!priv->queue_dis[queue]) {
+				stmmac_rx_queue_disable(priv, priv->hw, queue);
+				priv->queue_dis[queue] = true;
+			}
+			continue;
+		} else if (queue && qos_table_info->queue_to_pcp_map[queue]) {
+			/* Enable the queues which are needed */
+			if (priv->queue_dis[queue]) {
+				stmmac_rx_queue_enable(priv, priv->hw, rxmode, queue);
+				priv->queue_dis[queue] = false;
+			}
+		}
+
+		if (qos_table_info->queue_to_pcp_map[queue] != priv->queue_pcp_map[queue]) {
+			stmmac_rx_queue_prio(priv, priv->hw, qos_table_info->queue_to_pcp_map[queue], queue);
+			/* Copy new pcp_map to priv */
+			priv->queue_pcp_map[queue] = qos_table_info->queue_to_pcp_map[queue];
+			ioss_qos_dev_log(NULL, "[ioss qos]: Install pcp routing pcp = %d, queue = %d\n",
+				         qos_table_info->queue_to_pcp_map[queue], queue);
+			ioss_qos_dev_log(NULL, "[ioss qos]: rxmode = %d, rxfifosz = %d thresh_rx_mode = %d\n",
+					 rxmode, rxfifosz, thresh_rx_mode);
+		}
+
+		if (queue != 0)
+			stmmac_dma_rx_mode(priv, priv->ioaddr, thresh_rx_mode, queue, rxfifosz, rxmode);
+
+		stmmac_pfc_tx_flow_ctrl(priv, queue);
+		if (priv->unique_filter_new != PCP && queue == 0) {
+			/*enable dynamic mapping for queue0*/
+			read_value = (u32)readl_relaxed(priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
+			read_value |= XGMAC_QDDMACH;
+			writel(read_value, priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
+		}
+
+		if (queue)
+			stmmac_map_mtl_to_dma(priv, priv->hw, queue, qos_table_info->queue_to_ch_map[queue]);
+	}
+}
+EXPORT_SYMBOL_GPL(stmmac_enable_qos_queue_cfg);
+
+void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos_table_info)
+{
+	int i = 0, j = 0;
+	int ret = 0;
+	u32 read_value = 0;
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct dma_filter_table *dma_filter_node;
+	struct list_head *filter_ptr;
+
+	/* Clear the filters which aren't needed */
+	for (i = 0; i < 32; i++) {
+		if (priv->app_filters[i].action != IDX_CLEAR)
+			continue;
+		switch (priv->unique_filter_old) {
+		case VLAN_ID:
+			ret = priv->hw->mac->del_hw_vlan_rx_fltr(ndev, priv->hw, 0, priv->app_filters[i].vlan_id);
+			if (ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting vlan %d filter failed\n",
+					         priv->app_filters[i].vlan_id);
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: Vlan filter %d deleted, ch = %d\n",
+						 priv->app_filters[i].vlan_id, priv->app_filters[i].dma_ch);
+			}
+			break;
+		case SRC_IP:
+			priv->qos_l3_l4_filter_end--;
+			ret = priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, false,
+									priv->app_filters[i].ip_src.ipv6_src, true, false,
+									priv->app_filters[i].ip_src.ipv4_src_addr,
+									priv->app_filters[i].ip_src.ipv6_src_addr,
+									priv->app_filters[i].ip_src.src_mask_length,
+									priv->app_filters[i].dma_ch);
+			if(ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting src ip filter failed\n");
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: src ip filter deleted\n");
+			}
+			break;
+		case DEST_IP:
+			priv->qos_l3_l4_filter_end--;
+			ret = priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, false,
+									priv->app_filters[i].ip_dest.ipv6_dst, false, false,
+									priv->app_filters[i].ip_dest.ipv4_dst_addr,
+									priv->app_filters[i].ip_dest.ipv6_dst_addr,
+									priv->app_filters[i].ip_dest.dst_mask_length,
+									priv->app_filters[i].dma_ch);
+			if(ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting dest ip filter failed\n");
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: dest ip filter deleted\n");
+			}
+			break;
+		case SRC_PORT:
+			priv->qos_l3_l4_filter_end--;
+			ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, i, false, priv->app_filters[i].src_port.proto,
+									 true, false, priv->app_filters[i].src_port.port_num,
+									 priv->app_filters[i].dma_ch);
+			if(ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting src port filter failed\n");
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: src port filter deleted = %d\n",
+					         priv->app_filters[i].src_port.port_num);
+			}
+			break;
+		case DEST_PORT:
+			priv->qos_l3_l4_filter_end--;
+			ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, i, false, priv->app_filters[i].dst_port.proto,
+									 false, false, priv->app_filters[i].dst_port.port_num,
+									 priv->app_filters[i].dma_ch);
+			if(ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting dest port filter failed\n");
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: dest port filter deleted = %d\n",
+					         priv->app_filters[i].dst_port.port_num);
+			}
+			break;
+		case INVALID_FILTER:
+		default:
+			break;
+		}
+	}
+
+	/* Apply the new filters to be installed */
+
+	if (priv->unique_filter_new != priv->unique_filter_old)
+		filter_ptr = &qos_table_info->dma_filter_table;
+	else
+		filter_ptr = &qos_table_info->flt_to_app;
+
+	priv->unique_filter_old = priv->unique_filter_new;
+	/*config to receive unmatched packets too*/
+	read_value = (u32)readl(priv->ioaddr + XGMAC_PACKET_FILTER);
+	read_value |= XGMAC_FILTER_RA;
+	writel(read_value, priv->ioaddr + XGMAC_PACKET_FILTER);
+
+	list_for_each_entry(dma_filter_node, filter_ptr, node) {
+		switch (priv->unique_filter_new) {
+		case VLAN_ID:
+			ret = priv->hw->mac->add_hw_vlan_rx_fltr_with_route(ndev, priv->hw, dma_filter_node->vlan_id,
+									    dma_filter_node->dma_ch);
+			if (ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: couldn't apply vlan filter %d\n",
+					       	 dma_filter_node->vlan_id);
+				dma_filter_node->applied = false;
+			} else {
+				dma_filter_node->applied = true;
+				ioss_qos_dev_log(NULL, "[ioss qos]: vlan filter %d applied, ch = %d\n",
+					         dma_filter_node->vlan_id, dma_filter_node->dma_ch);
+				for (i = 0; i < 32; i++) {
+					if(priv->app_filters[i].action == IDX_UNUSED) {
+						priv->app_filters[i].vlan_id = dma_filter_node->vlan_id;
+						priv->app_filters[i].dma_ch = dma_filter_node->dma_ch;
+						priv->app_filters[i].action = IDX_USED;
+						break;
+					}
+				}
+			}
+			break;
+		case SRC_IP:
+			for (i = 0; i < 32; i++) {
+				if (priv->app_filters[i].action == IDX_UNUSED) {
+					if (dma_filter_node->ip_src.ipv6_src) {
+						for (j = 0; j < 16; j++)
+							priv->app_filters[i].ip_src.ipv6_src_addr[j] = dma_filter_node->ip_src.ipv6_src_addr[j];
+					} else {
+						priv->app_filters[i].ip_src.ipv4_src_addr = dma_filter_node->ip_src.ipv4_src_addr;
+					}
+					priv->app_filters[i].ip_src.ipv6_src = dma_filter_node->ip_src.ipv6_src;
+					priv->app_filters[i].ip_src.src_mask_length = dma_filter_node->ip_src.src_mask_length;
+					priv->app_filters[i].dma_ch = dma_filter_node->dma_ch;
+					priv->app_filters[i].action = IDX_USED;
+					break;
+				}
+			}
+			if (i < 32) {
+				ioss_qos_dev_log(NULL, "[ioss qos]: filter num = %d, is_ipv6 = %d, mask_len = %d, dma_ch = %d, idx = %d\n",
+							priv->qos_l3_l4_filter_end,
+						 dma_filter_node->ip_src.ipv6_src, dma_filter_node->ip_src.src_mask_length,
+						 dma_filter_node->dma_ch, i);
+				priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, true,
+									  dma_filter_node->ip_src.ipv6_src, true, false,
+									  dma_filter_node->ip_src.ipv4_src_addr, dma_filter_node->ip_src.ipv6_src_addr,
+									  dma_filter_node->ip_src.src_mask_length, dma_filter_node->dma_ch);
+				priv->qos_l3_l4_filter_end++;
+				dma_filter_node->applied = true;
+				ioss_qos_dev_log(NULL, "[ioss qos]: src ip filter applied\n");
+			} else {
+				dma_filter_node->applied = false;
+				ioss_qos_dev_err(NULL, "[ioss qos]: src ip filters exhausted\n");
+			}
+			break;
+		case DEST_IP:
+			for (i = 0; i < 32; i++) {
+				if (priv->app_filters[i].action == IDX_UNUSED) {
+					if (dma_filter_node->ip_dest.ipv6_dst) {
+						for (j = 0; j < 16; j++)
+							priv->app_filters[i].ip_dest.ipv6_dst_addr[j] = dma_filter_node->ip_dest.ipv6_dst_addr[j];
+					} else {
+						priv->app_filters[i].ip_dest.ipv4_dst_addr = dma_filter_node->ip_dest.ipv4_dst_addr;
+					}
+					priv->app_filters[i].ip_dest.ipv6_dst = dma_filter_node->ip_dest.ipv6_dst;
+					priv->app_filters[i].ip_dest.dst_mask_length = dma_filter_node->ip_dest.dst_mask_length;
+					priv->app_filters[i].dma_ch = dma_filter_node->dma_ch;
+					priv->app_filters[i].action = IDX_USED;
+					break;
+				}
+			}
+			if (i < 32) {
+				priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, true,
+									  dma_filter_node->ip_dest.ipv6_dst, false, false,
+									  dma_filter_node->ip_dest.ipv4_dst_addr, dma_filter_node->ip_dest.ipv6_dst_addr,
+									  dma_filter_node->ip_dest.dst_mask_length, dma_filter_node->dma_ch);
+				priv->qos_l3_l4_filter_end++;
+				dma_filter_node->applied = true;
+				ioss_qos_dev_log(NULL, "[ioss qos]: dest ip filter applied\n");
+			} else {
+				dma_filter_node->applied = false;
+				ioss_qos_dev_err(NULL, "[ioss qos]: dest ip filters exhausted\n");
+			}
+			break;
+		case SRC_PORT:
+			for (i = 0; i < 32; i++) {
+				if (priv->app_filters[i].action == IDX_UNUSED) {
+					priv->app_filters[i].src_port.port_num = dma_filter_node->src_port.port_num;
+					priv->app_filters[i].src_port.proto = dma_filter_node->src_port.proto;
+					priv->app_filters[i].dma_ch = dma_filter_node->dma_ch;
+					priv->app_filters[i].action = IDX_USED;
+					break;
+				}
+			}
+			if (i < 32) {
+				priv->hw->mac->config_l4_filter_with_route(priv->hw, i, true, dma_filter_node->src_port.proto,
+									   true, false, dma_filter_node->src_port.port_num,
+									   dma_filter_node->dma_ch);
+				priv->qos_l3_l4_filter_end++;
+				dma_filter_node->applied = true;
+				ioss_qos_dev_log(NULL, "[ioss qos]: applied src port %d filter, proto = %d, ch = %d, idx = %d\n",
+						 dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto,
+						 dma_filter_node->dma_ch, i);
+			} else {
+				dma_filter_node->applied = false;
+				ioss_qos_dev_err(NULL, "[ioss qos]: filters exhausted, couldn't apply filter for src port = %d, proto = %d, ch = %d\n",
+						dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto, dma_filter_node->dma_ch);
+			}
+			break;
+		case DEST_PORT:
+			for (i = 0; i < 32; i++) {
+				if (priv->app_filters[i].action == IDX_UNUSED) {
+					priv->app_filters[i].dst_port.port_num = dma_filter_node->dst_port.port_num;
+					priv->app_filters[i].dst_port.proto = dma_filter_node->dst_port.proto;
+					priv->app_filters[i].dma_ch = dma_filter_node->dma_ch;
+					priv->app_filters[i].action = IDX_USED;
+					break;
+				}
+			}
+			if (i < 32) {
+				priv->hw->mac->config_l4_filter_with_route(priv->hw, i, true, dma_filter_node->dst_port.proto,
+									   false, false, dma_filter_node->dst_port.port_num,
+									   dma_filter_node->dma_ch);
+				priv->qos_l3_l4_filter_end++;
+				dma_filter_node->applied = true;
+				ioss_qos_dev_log(NULL, "[ioss qos]: applied dest port %d filter, proto = %d, ch = %d idx = %d\n",
+						 dma_filter_node->dst_port.port_num, dma_filter_node->dst_port.proto,
+						 dma_filter_node->dma_ch, i);
+			} else {
+				ioss_qos_dev_err(NULL, "[ioss qos]: filters exhausted, couldn't apply filter for dest port %d\n",
+					       	 dma_filter_node->dst_port.port_num);
+			}
+			break;
+		case INVALID_FILTER:
+		default:
+			break;
+		}
+	}
+
+}
+EXPORT_SYMBOL_GPL(stmmac_enable_qos_filtering);
+
+void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos_table_info)
+{
+	int i = 0;
+	int ret = 0;
+	struct stmmac_priv *priv = netdev_priv(ndev);
+
+	/* Clear the filters which aren't needed */
+	for (i = 0; i < 32; i++) {
+		if (priv->app_filters[i].action == IDX_UNUSED)
+			continue;
+		switch (priv->unique_filter_new) {
+		case VLAN_ID:
+			ret = priv->hw->mac->del_hw_vlan_rx_fltr(ndev, priv->hw, 0, priv->app_filters[i].vlan_id);
+			if (ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting vlan %d filter failed\n",
+					        	priv->app_filters[i].vlan_id);
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: vlan filter %d deleted, ch = %d\n",
+					         priv->app_filters[i].vlan_id, priv->app_filters[i].dma_ch);
+			}
+			break;
+		case SRC_IP:
+			priv->qos_l3_l4_filter_end--;
+			ret = priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, false,
+									priv->app_filters[i].ip_src.ipv6_src, true, false,
+									priv->app_filters[i].ip_src.ipv4_src_addr, priv->app_filters[i].ip_src.ipv6_src_addr,
+									priv->app_filters[i].ip_src.src_mask_length, priv->app_filters[i].dma_ch);
+			if(ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting src ip filter failed\n");
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: src ip filter deleted\n");
+			}
+			break;
+		case DEST_IP:
+			priv->qos_l3_l4_filter_end--;
+			ret = priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, false,
+									priv->app_filters[i].ip_dest.ipv6_dst, false, false,
+									priv->app_filters[i].ip_dest.ipv4_dst_addr, priv->app_filters[i].ip_dest.ipv6_dst_addr,
+									priv->app_filters[i].ip_dest.dst_mask_length, priv->app_filters[i].dma_ch);
+			if(ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting dest ip filter failed\n");
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: dest ip filter deleted\n");
+			}
+			break;
+		case SRC_PORT:
+			priv->qos_l3_l4_filter_end--;
+			ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, i, false, priv->app_filters[i].src_port.proto,
+									 true, false, priv->app_filters[i].src_port.port_num,
+									 priv->app_filters[i].dma_ch);
+
+			if(ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting src port filter failed\n");
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: src port filter deleted\n");
+			}
+			break;
+		case DEST_PORT:
+			priv->qos_l3_l4_filter_end--;
+			ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, i, false, priv->app_filters[i].dst_port.proto,
+									 false, false, priv->app_filters[i].dst_port.port_num,
+									 priv->app_filters[i].dma_ch);
+			if(ret) {
+				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting dest port filter failed\n");
+			} else {
+				priv->app_filters[i].action = IDX_UNUSED;
+				ioss_qos_dev_log(NULL, "[ioss qos]: dest port filter deleted\n");
+			}
+			break;
+		case INVALID_FILTER:
+		default:
+			break;
+		}
+	}
+
+}
+EXPORT_SYMBOL_GPL(stmmac_remove_qos_filtering);
+
+void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_table_info)
+{
+	int i = 0;
+	struct stmmac_priv *priv = netdev_priv(ndev);
+
+	for (i = 1; i < priv->plat->rx_queues_to_use; i++) {
+		if (qos_table_info->rx_channel_info[i] == IOSS_QOS_HW_PATH) {
+			ioss_qos_dev_log(NULL, "[ioss qos]: Move CH %d to SW\n", i);
+			stmmac_config_rx_queue(ndev, i, false);
+		}
+          	stmmac_map_mtl_to_dma(priv, priv->hw, i, i);
+	}
+
+	for (i = 2; i < priv->plat->tx_queues_to_use; i++) {
+		if (qos_table_info->tx_channel_info[i] == IOSS_QOS_HW_PATH)
+			stmmac_config_tx_queue(ndev, i, false);
+
+		/*Change mode to use for TX queues*/
+		if (i != 5)
+			priv->plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_AVB;
+		else
+			priv->plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_DCB;
+		stmmac_configure_tx_queue(priv);
+	}
+}
+EXPORT_SYMBOL_GPL(stmmac_restore_dma_config);
+
 void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
 {
 	u32 reg_val = 0;
@@ -1431,391 +1892,36 @@ void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_in
 }
 EXPORT_SYMBOL_GPL(stmmac_backup_pcp);
 
-void stmmac_reconfigure_dma_resources(struct net_device *ndev, u32 queue_cnt, struct qos_struct *qos_table_info)
+void stmmac_configure_tx_queue(struct stmmac_priv *priv)
 {
-	int i=0, ret=0;
-	u32 avail_queue_size = 0x3000;
-	u32 per_queue_size = 0;
-	struct stmmac_priv *priv = netdev_priv(ndev);
-
-	/*cleanup and reconfigure DMA channels*/
-	ret = stmmac_release_dma_resources(ndev);
-
-	per_queue_size = avail_queue_size/queue_cnt;
-	for (i=1; i<priv->plat->rx_qos_queues_to_use; i++) {
-		qos_table_info->backup_rx_fifo_size[i] = priv->plat->rx_queues_cfg[i].fifo_sz_bytes;
-		if(priv->plat->rx_qos_queues_to_use - i <= queue_cnt)
-			priv->plat->rx_queues_cfg[i].fifo_sz_bytes = per_queue_size;
-		else
-			priv->plat->rx_queues_cfg[i].fifo_sz_bytes = 0;
-	}
-	for (i=2; i<priv->plat->tx_queues_to_use; i++) {
-		if(qos_table_info->tx_channel_info[i] == IOSS_QOS_HW_PATH)
-			priv->plat->tx_queues_cfg[i].skip_sw = true;
-
-		priv->plat->tx_queues_cfg[i].mode_to_use = qos_table_info->tx_routing_info[i].mode_to_use;
-	}
-	for (i=2; i<priv->plat->rx_queues_to_use; i++) {
-		if(qos_table_info->rx_channel_info[i] == IOSS_QOS_HW_PATH) {
-			priv->plat->rx_queues_cfg[i].skip_sw = true;
-			priv->plat->rx_queues_cfg[i].chan = ALL_OTHER_TRAFFIC_TX_CHANNEL;
-		}
-	}
-	ret = stmmac_request_dma_resources(ndev, queue_cnt);
-
-	/*MAP RX MTL to DMA_CH0*/
-	for (i=0; i<5; i++)
-		stmmac_map_mtl_to_dma(priv, priv->hw, i, IPA_QUEUE_BE);
-}
-EXPORT_SYMBOL_GPL(stmmac_reconfigure_dma_resources);
-
-void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
-{
-	struct pcp_routing *pcp_node;
-	u8 pcp_mask = 0;
-	u8 prio = 0;
-	u32 i = 0, rxmode = 0, thresh_rx_mode = 0;
-	int rxfifosz = 0;
-
-	if (priv->plat->enable_pfc)
-		stmmac_mac_config_pfc(priv);
-
-	/*pcp routing*/
-	list_for_each_entry(pcp_node, &qos_table_info->pcp_route_table, node) {
-		prio = 1 << pcp_node->pcp;
-		if((pcp_mask | prio) != pcp_mask) {
-			rxmode = priv->plat->rx_queues_cfg[pcp_node->queue].mode_to_use;
-			rxfifosz = priv->plat->rx_queues_cfg[pcp_node->queue].fifo_sz_bytes;
-			thresh_rx_mode = priv->plat->rx_queues_cfg[pcp_node->queue].threshold_byte;
-			ETHQOSINFO("Install pcp routing rxmode = %d, rxfifosz = %d thresh_rx_mode = %d\n",
-					   rxmode, rxfifosz, thresh_rx_mode);
-			priv->plat->rx_queues_cfg[pcp_node->queue].prio = prio;
-			ETHQOSINFO("Install pcp routing pcp = %d, queue = %d\n", pcp_node->pcp, pcp_node->queue);
-			stmmac_rx_queue_prio(priv, priv->hw, prio, pcp_node->queue);
-			stmmac_dma_rx_mode(priv, priv->ioaddr, thresh_rx_mode, pcp_node->queue,
-					   rxfifosz, rxmode);
-			stmmac_pfc_tx_flow_ctrl(priv, pcp_node->queue);
-			/*this is needed for one-one map between ch and queue if pcp is unique*/
-			/* if it gives any issue, can add priv->unique_filter check*/
-			if (priv->unique_filter == PCP)
-				stmmac_map_mtl_to_dma(priv, priv->hw, pcp_node->queue, pcp_node->dma_ch);
-			pcp_mask |= prio;
-		}
+	u8 txmode = 0;
+	int queue = 0;
+	int txfifosz = priv->plat->tx_fifo_size/priv->plat->tx_queues_to_use;
+	for (queue = 2; queue < priv->plat->tx_queues_to_use; queue++)  {
+		txmode = priv->plat->tx_queues_cfg[queue].mode_to_use;
+		/* define macro for 64(threshold mode) */
+		stmmac_dma_tx_mode(priv, priv->ioaddr, 64, queue, txfifosz, txmode);
 	}
 }
-EXPORT_SYMBOL_GPL(stmmac_enable_qos_queue_cfg);
+EXPORT_SYMBOL_GPL(stmmac_configure_tx_queue);
 
-void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos_table_info)
+int config_rx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw)
 {
-	struct stmmac_priv *priv = netdev_priv(ndev);
-	struct dma_filter_table *dma_filter_node;
-	u32 read_value = 0;
-	int ret = 0;
-	int i = 0;
-
-	/*config to receive unmatched packets too*/
-	read_value = (u32)readl(priv->ioaddr + XGMAC_PACKET_FILTER);
-	read_value |= XGMAC_FILTER_RA;
-	writel(read_value, priv->ioaddr + XGMAC_PACKET_FILTER);
-
-	for (i=0; i<5; i++) {
-		if(i<4) {
-			read_value = (u32)readl(priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
-			read_value |= (XGMAC_QDDMACH << XGMAC_QxMDMACH_SHIFT(i));
-			writel(read_value, priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
-		} else {
-			read_value = (u32)readl(priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP1);
-			read_value |= (XGMAC_QDDMACH << XGMAC_QxMDMACH_SHIFT(4 - i));
-			writel(read_value, priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP1);
-		}
-	}
-
-	priv->qos_l3_l4_filter_start = priv->dma_cap.num_l3_l4_filters;
-	priv->qos_l3_l4_filter_end = priv->dma_cap.num_l3_l4_filters;
-	list_for_each_entry(dma_filter_node, &qos_table_info->dma_filter_table, node) {
-		switch (priv->unique_filter) {
-		case VLAN_ID:
-			{
-				ret = priv->hw->mac->add_hw_vlan_rx_fltr_with_route(ndev, priv->hw, dma_filter_node->vlan_id,
-														dma_filter_node->dma_ch);
-				if (ret) {
-					ETHQOSINFO("vlan filters exhausted, couldn't apply vlan filter %d\n", dma_filter_node->vlan_id);
-					dma_filter_node->applied = false;
-				} else {
-					dma_filter_node->applied = true;
-					ETHQOSINFO("vlan filter %d applied, ch = %d\n", dma_filter_node->vlan_id, dma_filter_node->dma_ch);
-				}
-			}
-			break;
-		case SRC_IP:
-			{
-				if (priv->qos_l3_l4_filter_end < 32) {
-					ETHQOSINFO("filter num = %d, is_ipv6 = %d,  mask_len = %d, dma_ch = %d\n", priv->qos_l3_l4_filter_end,
-						dma_filter_node->ip_src.ipv6_src, dma_filter_node->ip_src.src_mask_length,
-						dma_filter_node->dma_ch);
-					priv->hw->mac->config_l3_filter_with_mask(priv->hw, priv->qos_l3_l4_filter_end, true,
-																		dma_filter_node->ip_src.ipv6_src, true, false,
-																		dma_filter_node->ip_src.ipv4_src_addr, dma_filter_node->ip_src.ipv6_src_addr,
-																		dma_filter_node->ip_src.src_mask_length, dma_filter_node->dma_ch);
-					priv->qos_l3_l4_filter_end++;
-					dma_filter_node->applied = true;
-					ETHQOSINFO("src ip filter applied\n");
-				} else {
-					dma_filter_node->applied = false;
-					ETHQOSINFO("SRC_IP filters exhausted\n");
-				}
-			}
-			break;
-		case DEST_IP:
-			{
-				if (priv->qos_l3_l4_filter_end < 32) {
-					priv->hw->mac->config_l3_filter_with_mask(priv->hw, priv->qos_l3_l4_filter_end, true,
-																	dma_filter_node->ip_dest.ipv6_dst, false, false,
-																	dma_filter_node->ip_dest.ipv4_dst_addr, dma_filter_node->ip_dest.ipv6_dst_addr,
-																	dma_filter_node->ip_dest.dst_mask_length, dma_filter_node->dma_ch);
-					priv->qos_l3_l4_filter_end++;
-					dma_filter_node->applied = true;
-					ETHQOSINFO("dest ip filter applied\n");
-				} else {
-					dma_filter_node->applied = false;
-					ETHQOSINFO("DEST_IP filters exhausted\n");
-				}
-			}
-			break;
-		case SRC_PORT:
-			{
-				if (priv->qos_l3_l4_filter_end < 32) {
-					if(dma_filter_node->src_port.proto == IOSS_IPPROTO_TCP_UDP) {
-						priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, true, true,
-															true, false, dma_filter_node->src_port.port_num,
-															dma_filter_node->dma_ch);
-						priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, true, false,
-															true, false, dma_filter_node->src_port.port_num,
-															dma_filter_node->dma_ch);
-						priv->qos_l3_l4_filter_end += 2;
-					} else {
-						priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, true, dma_filter_node->src_port.proto,
-														true, false, dma_filter_node->src_port.port_num,
-														dma_filter_node->dma_ch);
-						priv->qos_l3_l4_filter_end++;
-					}
-					dma_filter_node->applied = true;
-					ETHQOSINFO("applied src port %d filter, ch = %d\n", dma_filter_node->src_port.port_num, dma_filter_node->dma_ch);
-				} else {
-					dma_filter_node->applied = false;
-					ETHQOSINFO("filters exhausted, couldn't apply filter for src port %d, proto = %d, ch = %d\n", dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto, dma_filter_node->dma_ch);
-				}
-			}
-			break;
-		case DEST_PORT:
-			{
-				if (priv->qos_l3_l4_filter_end < 32) {
-					ETHQOSINFO("filters available\n");
-					if(dma_filter_node->dst_port.proto == IOSS_IPPROTO_TCP_UDP) {
-						priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, true, true,
-														false, false, dma_filter_node->dst_port.port_num,
-														dma_filter_node->dma_ch);
-						priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, true, false,
-															false, false, dma_filter_node->dst_port.port_num,
-															dma_filter_node->dma_ch);
-						priv->qos_l3_l4_filter_end += 2;
-					} else {
-						priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, true, dma_filter_node->dst_port.proto,
-														false, false, dma_filter_node->dst_port.port_num,
-														dma_filter_node->dma_ch);
-						priv->qos_l3_l4_filter_end++;
-					}
-					dma_filter_node->applied = true;
-					ETHQOSINFO("applied dest port %d filter, proto = %d, ch = %d\n", dma_filter_node->dst_port.port_num, dma_filter_node->dst_port.proto, dma_filter_node->dma_ch);
-				} else {
-					ETHQOSINFO("filters exhausted, couldn't apply filter for dest port %d\n", dma_filter_node->dst_port.port_num);
-				}
-			}
-			break;
-		case INVALID_FILTER:
-			default:
-			{
-
-			}
-			break;
-		}
-
-	}
-}
-EXPORT_SYMBOL_GPL(stmmac_enable_qos_filtering);
-
-void stmmac_config_qos_cbs(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
-{
-	int i=0;
-
-	for(i=2; i<priv->plat->tx_queues_to_use; i++) {
-		/* Configure queues for CBS*/
-		ETHQOSINFO("queue %d config = %d\n", i, qos_table_info->tx_routing_info[i].mode_to_use);
-		if (qos_table_info->tx_routing_info[i].mode_to_use == MTL_QUEUE_AVB) {
-			stmmac_config_cbs(priv, priv->hw,
-						  qos_table_info->tx_routing_info[i].send_slope,
-						  qos_table_info->tx_routing_info[i].idle_slope,
-						  qos_table_info->tx_routing_info[i].hi_credit,
-						  qos_table_info->tx_routing_info[i].low_credit,
-						  i);
-		}
-	}
-}
-EXPORT_SYMBOL_GPL(stmmac_config_qos_cbs);
-
-void stmmac_restore_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
-{
-	int i = 0;
-
-	for(i=0; i<5; i++) {
-		priv->plat->rx_queues_cfg[i].prio = qos_table_info->backup_pcp_map[i];
-		ETHQOSINFO("Restore pcp routing pcp = %d, queue = %d\n", qos_table_info->backup_pcp_map[i], i);
-		stmmac_rx_queue_prio(priv, priv->hw, qos_table_info->backup_pcp_map[i], i);
-	}
-}
-EXPORT_SYMBOL_GPL(stmmac_restore_qos_queue_cfg);
-
-void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos_table_info)
-{
-	struct stmmac_priv *priv = netdev_priv(ndev);
-	struct dma_filter_table *dma_filter_node;
 	int ret = 0;
 
-	list_for_each_entry(dma_filter_node, &qos_table_info->dma_filter_table, node) {
-		/*TODO: Do we need to remove dynamic mapping?? */
-		switch (priv->unique_filter) {
-		case VLAN_ID:
-			{
-					if(dma_filter_node->applied) {
-						ret = priv->hw->mac->del_hw_vlan_rx_fltr(ndev, priv->hw, 0, dma_filter_node->vlan_id);
-						if (ret) {
-							ETHQOSINFO("Deleting vlan %d filter failed\n", dma_filter_node->vlan_id);
-						} else {
-							dma_filter_node->applied = false;
-							ETHQOSINFO("vlan filter %d deleted, ch = %d\n", dma_filter_node->vlan_id, dma_filter_node->dma_ch);
-						}
-					}
-			}
-			break;
-		case SRC_IP:
-			{
-				if(dma_filter_node->applied) {
-					 priv->qos_l3_l4_filter_end--;
-					 ret = priv->hw->mac->config_l3_filter_with_mask(priv->hw, priv->qos_l3_l4_filter_end, false,
-																	dma_filter_node->ip_src.ipv6_src, true, false,
-																	dma_filter_node->ip_src.ipv4_src_addr, dma_filter_node->ip_src.ipv6_src_addr,
-																	dma_filter_node->ip_src.src_mask_length, dma_filter_node->dma_ch);
-					if(ret) {
-						ETHQOSINFO("Deleting src ip filter failed\n");
-					} else {
-						dma_filter_node->applied = false;
-						ETHQOSINFO("src ip filter deleted\n");
-					}
-				}
-			}
-			break;
-		case DEST_IP:
-			{
-				if(dma_filter_node->applied) {
-					priv->qos_l3_l4_filter_end--;
-					ret = priv->hw->mac->config_l3_filter_with_mask(priv->hw, priv->qos_l3_l4_filter_end, false,
-																	dma_filter_node->ip_dest.ipv6_dst, false, false,
-																	dma_filter_node->ip_dest.ipv4_dst_addr, dma_filter_node->ip_dest.ipv6_dst_addr,
-																	dma_filter_node->ip_dest.dst_mask_length, dma_filter_node->dma_ch);
-					if(ret) {
-						ETHQOSINFO("Deleting dest ip filter failed\n");
-					} else {
-						dma_filter_node->applied = false;
-						ETHQOSINFO("dest ip filter deleted\n");
-					}
-				}
-			}
-			break;
-		case SRC_PORT:
-			{
-				if(dma_filter_node->applied) {
-					if(dma_filter_node->src_port.proto == IOSS_IPPROTO_TCP_UDP) {
-							priv->qos_l3_l4_filter_end--;
-							ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, false, true,
-															true, false, dma_filter_node->src_port.port_num,
-															dma_filter_node->dma_ch);
-							priv->qos_l3_l4_filter_end--;
-							ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, false, false,
-															true, false, dma_filter_node->src_port.port_num,
-															dma_filter_node->dma_ch);
-						} else {
-							priv->qos_l3_l4_filter_end--;
-							ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, false, dma_filter_node->src_port.proto,
-															true, false, dma_filter_node->src_port.port_num,
-															dma_filter_node->dma_ch);
-					}
-					if(ret) {
-						ETHQOSINFO("Deleting src port filter failed\n");
-					} else {
-						dma_filter_node->applied = false;
-						ETHQOSINFO("src port filter deleted\n");
-					}
-				}
+	ret = stmmac_config_rx_queue(ndev, queue, skip_sw);
 
-			}
-			break;
-		case DEST_PORT:
-			{
-				if(dma_filter_node->applied) {
-					if(dma_filter_node->dst_port.proto == IOSS_IPPROTO_TCP_UDP) {
-							priv->qos_l3_l4_filter_end--;
-							ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, false, true,
-															false, false, dma_filter_node->dst_port.port_num,
-															dma_filter_node->dma_ch);
-							priv->qos_l3_l4_filter_end--;
-							ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, false, false,
-															false, false, dma_filter_node->dst_port.port_num,
-															dma_filter_node->dma_ch);
-					} else {
-							priv->qos_l3_l4_filter_end--;
-							ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, priv->qos_l3_l4_filter_end, false, dma_filter_node->dst_port.proto,
-															false, false, dma_filter_node->dst_port.port_num,
-															dma_filter_node->dma_ch);
-					}
-					if(ret) {
-						ETHQOSINFO("Deleting dest port filter failed\n");
-					} else {
-						dma_filter_node->applied = false;
-						ETHQOSINFO("dest port filter deleted\n");
-					}
-				}
-			}
-			break;
-		case INVALID_FILTER:
-		default:
-			{
-
-			}
-			break;
-		}
-	}
+	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_remove_qos_filtering);
+EXPORT_SYMBOL_GPL(config_rx_queue_path);
 
-void stmmac_restore_dma_config(struct net_device *ndev, u32 q_cnt, struct qos_struct *qos_table_info)
+int config_tx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw)
 {
-	struct stmmac_priv *priv = netdev_priv(ndev);
 	int ret = 0;
-	int i = 0;
 
-		ret = stmmac_release_dma_resources(ndev);
+	stmmac_config_tx_queue(ndev, queue, skip_sw);
 
-		/*remove cbs algorithm and program back to dcb*/
-		for (i=1; i<priv->plat->tx_queues_to_use; i++) {
-			priv->plat->tx_queues_cfg[i].skip_sw = false;
-			priv->plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_DCB;
-		}
-
-		for (i=1; i<priv->plat->rx_queues_to_use; i++) {
-			priv->plat->rx_queues_cfg[i].skip_sw = false;
-			priv->plat->rx_queues_cfg[i].chan = i;
-			priv->plat->rx_queues_cfg[i].fifo_sz_bytes = qos_table_info->backup_rx_fifo_size[i];
-		}
-		ret = stmmac_request_dma_resources(ndev, priv->plat->rx_queues_to_use - 1);
+	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_restore_dma_config);
+EXPORT_SYMBOL_GPL(config_tx_queue_path);
+

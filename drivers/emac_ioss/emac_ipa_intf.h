@@ -174,14 +174,22 @@ struct tx_route_info {
 struct qos_struct {
 	struct list_head pcp_route_table;
 	struct list_head dma_filter_table;
+	struct list_head flt_to_app;
 	struct tx_route_info tx_routing_info[6];
 	struct qos_pipe_mapping pipe_map;
 	enum action rx_channel_info[5];
 	enum action tx_channel_info[5];
 	u8 backup_pcp_map[5];
 	u16 backup_rx_fifo_size[5];
+	u8 queue_to_pcp_map[5];
+	u8 queue_to_ch_map[5];
+	u8 tc_to_queue_map[8];
 	u8 filter_cnt;
 	u8 queue_cnt;
+	int asgn_sw_queue;
+	int asgn_hw_queue;
+	u8 ipa_qos_rx_ch;
+	u8 ipa_qos_tx_ch;
 };
 
 enum data_path {
@@ -209,6 +217,7 @@ struct pcp_routing {
 	u8 pcp;
 	u8 queue;
 	u8 dma_ch;
+	enum action path;
 	struct list_head node;
 };
 #define to_pcp_routing(ptr) list_entry(ptr, struct pcp_routing, node)
@@ -437,20 +446,6 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel);
  */
 int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 index);
 
-/* Backup pcp routing before applying qos config
- * \param[in] qos_table_info : qos_struct which contains required qos_info post
- * qos_table processing
- */
-void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_info);
-
-/* Reconfigure DMA channels as per qos table
- * param[in] ndev : stmmac netdev data structure
- * param[in] queue_cnt : No. of queues required
- * \param[in] qos_table_info : qos_struct which contains required qos_info post
- * qos_table processing
- */
-void stmmac_reconfigure_dma_resources(struct net_device *ndev, u32 q_cnt, struct qos_struct *qos_table_info);
-
 /* Enable PFC and queue routing for QOS
  *param[in] priv : stmmac priv data structure
  * \param[in] qos_table_info : qos_struct which contains required qos_info post
@@ -488,8 +483,34 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 
 /* Restore DMA configuration after disabling QOS
  * param[in] ndev : stmmac netdev data structure
- * param[in] queue_cnt : No. of queues required
  * \param[in] qos_table_info : qos_struct which contains required qos_info post
  * qos_table processing
  */
-void stmmac_restore_dma_config(struct net_device *ndev, u32 q_cnt, struct qos_struct *qos_table_info);
+void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_table_info);
+
+/* Backup pcp routing before applying qos config
+ * \param[in] qos_table_info : qos_struct which contains required qos_info post
+ * qos_table processing
+ */
+void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_info);
+
+/* Configure tx queue
+ * param[in] priv : stmmac priv data structure
+ */
+void stmmac_configure_tx_queue(struct stmmac_priv *priv);
+
+/* Configure RX queue path in SW/HW
+ * param[in] ndev : stmmac netdev data structure
+ * param[in] queue number
+ * skip_sw : Queue is for SW/HW
+ */
+int config_rx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
+
+/* Configure TX queue path is SW/HW
+ * param[in] ndev : stmmac netdev data structure
+ * param[in] queue number
+ * skip_sw : Queue is for SW/HW
+ */
+int config_tx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
+
+

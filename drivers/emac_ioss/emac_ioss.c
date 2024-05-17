@@ -15,18 +15,15 @@
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include "stmmac.h"
+#include "ioss/include/linux/msm/ioss.h"
 #include "ioss/include/linux/msm/ioss_qos.h"
 #include "emac_ipa_intf.h"
 #include "dwmac-qcom-ethqos.h"
 #include "common.h"
-#include "stmmac.h"
-#include "dwxgmac2.h"
 
 void *ipc_stmmac_log_ctxt;
 struct qos_struct qos_tables;
-u32 queue_cnt = 0;
 
-	
 struct stmmac_ioss_device {
 	struct ioss_device *idev;
 	struct stmmac_priv *_priv;
@@ -477,18 +474,33 @@ static int stmmac_ioss_update_skb(struct ioss_channel *ch, struct sk_buff *skb)
 	return 0;
 }
 
-static int stmmac_get_rx_tc_count(struct list_head *rx_qos, enum data_path path)
+static int stmmac_get_rx_tc_info(struct list_head *rx_qos, enum data_path path)
 {
 	int tc_cnt = 0;
+	int i = 0;
 
 	struct qos_routing_rx *temp;
 	list_for_each_entry(temp, rx_qos, node) {
 		if (path == SW_PATH) {
-			if (temp->tc_prio >= 0 && (temp->action == IOSS_QOS_SW_PATH))
+			if (temp->tc_prio >= 0 && (temp->action == IOSS_QOS_SW_PATH)) {
 				tc_cnt++;
+				for (i = 0; i < temp->pcp.len; i++) {
+					if (temp->pcp.arr[i]) {
+						qos_tables.asgn_sw_queue = true;
+						break;
+					}
+				}
+			}
 		} else if (path == HW_PATH) {
-			if (temp->tc_prio >= 0 && (temp->action == IOSS_QOS_HW_PATH))
+			if (temp->tc_prio >= 0 && (temp->action == IOSS_QOS_HW_PATH)) {
 				tc_cnt++;
+				for (i = 0; i < temp->pcp.len; i++) {
+					if (temp->pcp.arr[i]) {
+						qos_tables.asgn_hw_queue = true;
+						break;
+					}
+				}
+			}
 		} else if (path == SW_HW_PATH) {
 			tc_cnt++;
 		}
@@ -523,12 +535,12 @@ static bool compare_ipv6(unsigned char *curr, unsigned char next[16], u8 prefix)
 	u8 bitmask = 0xFF >> bits;
 
 	for (i=0; i < 16 - bytes; i++) {
-		if(curr[i] != next[i])
+		if (curr[i] != next[i])
 			return false;
 	}
 
 	if (bits) {
-		if((curr[i] | bitmask) != (next[i] | bitmask))
+		if ((curr[i] | bitmask) != (next[i] | bitmask))
 			return false;
 	}
 
@@ -557,108 +569,104 @@ static void delete_filter_table(struct list_head *filter_table)
 	}
 }
 
+static void delete_route_table(struct list_head *filter_table)
+{
+	struct pcp_routing *filter_node, *filter_node_next;
+
+	list_for_each_entry_safe(filter_node, filter_node_next, filter_table, node) {
+		list_del(&filter_node->node);
+		kfree(filter_node);
+	}
+}
+
+
 static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type filter)
 {
 	struct list_head *filter_node1, *filter_node2;
 	struct list_head *filter_node3, *filter_node4;
 	struct dma_filter_table *filter_node_curr, *filter_node_next;
-	struct pcp_routing *pcp_node_curr, *pcp_node_next;
 	u8 mask_len;
 	bool is_last = false;
 
-	/*TODO: add some logic to cnt no. of unique filters to be applied*/
 	list_for_each_safe(filter_node1, filter_node2, filter_table) {
-		if(filter!=PCP)
-			filter_node_curr = to_dma_filter_table(filter_node1);
-		else if(filter == PCP)
-			pcp_node_curr = to_pcp_routing(filter_node1);
+		filter_node_curr = to_dma_filter_table(filter_node1);
 		list_for_each_safe(filter_node3, filter_node4, filter_node1) {
-			if (filter != PCP)
-				filter_node_next = to_dma_filter_table(filter_node3);
-			else
-				pcp_node_next = to_pcp_routing(filter_node3);
+			filter_node_next = to_dma_filter_table(filter_node3);
 
-			if(list_is_last(filter_node3, filter_table)) {
+			if (list_is_last(filter_node3, filter_table)) {
 				is_last = true;
 			} else {
 				is_last = false;
 			}
-			if(!list_is_last(filter_node1, filter_table)) {
-				if (filter == PCP) {
-					if ((pcp_node_curr->pcp == pcp_node_next->pcp) && 
-                                            (pcp_node_curr->dma_ch == pcp_node_next->dma_ch)) {
-						list_del(&pcp_node_next->node);
-						if(is_last)
-							break;
-					} else if ((pcp_node_curr->pcp == pcp_node_next->pcp) &&
-                                                   (pcp_node_curr->dma_ch != pcp_node_next->dma_ch))
-						return false;				
-				} else if (filter == DEST_PORT) {
-					if (filter_node_curr->dst_port.proto == 
+			if (!list_is_last(filter_node1, filter_table)) {
+				if (filter == DEST_PORT) {
+					if (filter_node_curr->dst_port.proto ==
                                             filter_node_next->dst_port.proto &&
-                                            filter_node_curr->dst_port.port_num == 
+                                            filter_node_curr->dst_port.port_num ==
                                             filter_node_next->dst_port.port_num &&
                                             filter_node_curr->dma_ch != filter_node_next->dma_ch) {
 						list_del(&filter_node_next->node);
-						if(is_last)
+						if (is_last)
 							break;
-					} else if (filter_node_curr->dst_port.proto == 
+					} else if (filter_node_curr->dst_port.proto ==
                                                    filter_node_next->dst_port.proto &&
-                                                   filter_node_curr->dst_port.port_num == 
+                                                   filter_node_curr->dst_port.port_num ==
                                                    filter_node_next->dst_port.port_num &&
-                                                   filter_node_curr->dma_ch != filter_node_next->dma_ch)
+                                                   filter_node_curr->dma_ch != filter_node_next->dma_ch) {
 						return false;
+					}
 				} else if (filter == SRC_PORT) {
-					if (filter_node_curr->src_port.proto == 
+					if (filter_node_curr->src_port.proto ==
                                             filter_node_next->src_port.proto &&
-                                            filter_node_curr->src_port.port_num == 
+                                            filter_node_curr->src_port.port_num ==
                                             filter_node_next->src_port.port_num  &&
                                             filter_node_curr->dma_ch == filter_node_next->dma_ch) {
 						list_del(&filter_node_next->node);
-						if(is_last)
+						if (is_last)
 							break;
 					} else if (filter_node_curr->src_port.proto == filter_node_next->src_port.proto &&
-						filter_node_curr->src_port.port_num == filter_node_next->src_port.port_num  &&
-						(filter_node_curr->dma_ch != filter_node_next->dma_ch))
+						   filter_node_curr->src_port.port_num == filter_node_next->src_port.port_num  &&
+						   (filter_node_curr->dma_ch != filter_node_next->dma_ch)) {
 						return false;
+					}
 				} else if (filter == VLAN_ID) {
 					if (filter_node_curr->vlan_id == filter_node_next->vlan_id &&
-						(filter_node_curr->dma_ch == filter_node_next->dma_ch)) {
+					    (filter_node_curr->dma_ch == filter_node_next->dma_ch)) {
 						list_del(&filter_node_next->node);
-						if(is_last)
+						if (is_last)
 							break;
 					} else if (filter_node_curr->vlan_id == filter_node_next->vlan_id &&
-						(filter_node_curr->dma_ch != filter_node_next->dma_ch))
+						   (filter_node_curr->dma_ch != filter_node_next->dma_ch))
 						return false;
 				} else if (filter == DEST_IP) {
 					 mask_len = filter_node_curr->ip_dest.dst_mask_length > filter_node_next->ip_dest.dst_mask_length?
-								filter_node_next->ip_dest.dst_mask_length: filter_node_curr->ip_dest.dst_mask_length;
-					 if(filter_node_curr->dma_ch != filter_node_next->dma_ch) {
-						 if(filter_node_curr->ip_dest.ipv6_dst == filter_node_next->ip_dest.ipv6_dst) {
+						filter_node_next->ip_dest.dst_mask_length: filter_node_curr->ip_dest.dst_mask_length;
+					 if (filter_node_curr->dma_ch != filter_node_next->dma_ch) {
+						 if (filter_node_curr->ip_dest.ipv6_dst == filter_node_next->ip_dest.ipv6_dst) {
 							 if (filter_node_curr->ip_dest.ipv6_dst) {
-								 if(compare_ipv6(filter_node_curr->ip_dest.ipv6_dst_addr,
-												filter_node_next->ip_dest.ipv6_dst_addr, 128 - mask_len))
+								 if (compare_ipv6(filter_node_curr->ip_dest.ipv6_dst_addr,
+										  filter_node_next->ip_dest.ipv6_dst_addr, 128 - mask_len))
 									 return false;
 							 } else {
-								 if(compare_ipv4(filter_node_curr->ip_dest.ipv4_dst_addr,
-									filter_node_next->ip_dest.ipv4_dst_addr, mask_len))
+								 if (compare_ipv4(filter_node_curr->ip_dest.ipv4_dst_addr,
+										  filter_node_next->ip_dest.ipv4_dst_addr, mask_len))
 									 return false;
 							 }
 						 }
 					 } else {
-						 if(filter_node_curr->ip_dest.ipv6_dst == filter_node_next->ip_dest.ipv6_dst) {
+						 if (filter_node_curr->ip_dest.ipv6_dst == filter_node_next->ip_dest.ipv6_dst) {
 							 if (filter_node_curr->ip_dest.ipv6_dst) {
-								 if(compare_ipv6(filter_node_curr->ip_dest.ipv6_dst_addr,
-												filter_node_next->ip_dest.ipv6_dst_addr, 128 - mask_len)) {
-									 list_del(&filter_node_next->node);
-									if(is_last)
+								 if (compare_ipv6(filter_node_curr->ip_dest.ipv6_dst_addr,
+										  filter_node_next->ip_dest.ipv6_dst_addr, 128 - mask_len)) {
+									list_del(&filter_node_next->node);
+									if (is_last)
 										break;
 								 }
 							 } else {
-								 if(compare_ipv4(filter_node_curr->ip_dest.ipv4_dst_addr,
-												filter_node_next->ip_dest.ipv4_dst_addr, mask_len)) {
-									 list_del(&filter_node_next->node);
-									if(is_last)
+								 if (compare_ipv4(filter_node_curr->ip_dest.ipv4_dst_addr,
+										  filter_node_next->ip_dest.ipv4_dst_addr, mask_len)) {
+									list_del(&filter_node_next->node);
+									if (is_last)
 										break;
 								 }
 							 }
@@ -668,32 +676,32 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
 				} else if (filter == SRC_IP) {
 					mask_len = filter_node_curr->ip_src.src_mask_length > filter_node_next->ip_src.src_mask_length?
 						filter_node_next->ip_src.src_mask_length: filter_node_curr->ip_src.src_mask_length;
-					if(filter_node_curr->dma_ch != filter_node_next->dma_ch) {
-						if(filter_node_curr->ip_src.ipv6_src == filter_node_next->ip_src.ipv6_src) {
+					if (filter_node_curr->dma_ch != filter_node_next->dma_ch) {
+						if (filter_node_curr->ip_src.ipv6_src == filter_node_next->ip_src.ipv6_src) {
 							if (filter_node_curr->ip_src.ipv6_src) {
-								if(compare_ipv6(filter_node_curr->ip_src.ipv6_src_addr,
-									filter_node_next->ip_src.ipv6_src_addr, 128 - mask_len))
+								if (compare_ipv6(filter_node_curr->ip_src.ipv6_src_addr,
+										 filter_node_next->ip_src.ipv6_src_addr, 128 - mask_len))
 				  					return false;
 							} else {
-								if(compare_ipv4(filter_node_curr->ip_src.ipv4_src_addr,
-									filter_node_next->ip_src.ipv4_src_addr, mask_len))
+								if (compare_ipv4(filter_node_curr->ip_src.ipv4_src_addr,
+										 filter_node_next->ip_src.ipv4_src_addr, mask_len))
 				  					return false;
 							}
 						}
 					} else {
-						if(filter_node_curr->ip_src.ipv6_src == filter_node_next->ip_src.ipv6_src) {
+						if (filter_node_curr->ip_src.ipv6_src == filter_node_next->ip_src.ipv6_src) {
 							if (filter_node_curr->ip_src.ipv6_src) {
-								if(compare_ipv6(filter_node_curr->ip_src.ipv6_src_addr,
-									filter_node_next->ip_src.ipv6_src_addr,128 - mask_len)) {
+								if (compare_ipv6(filter_node_curr->ip_src.ipv6_src_addr,
+										 filter_node_next->ip_src.ipv6_src_addr,128 - mask_len)) {
 				  					list_del(&filter_node_next->node);
-									if(is_last)
+									if (is_last)
 										break;
 								}
 							} else {
-								if(compare_ipv4(filter_node_curr->ip_src.ipv4_src_addr,
-									filter_node_next->ip_src.ipv4_src_addr, mask_len)) {
+								if (compare_ipv4(filter_node_curr->ip_src.ipv4_src_addr,
+										 filter_node_next->ip_src.ipv4_src_addr, mask_len)) {
 				  					list_del(&filter_node_next->node);
-									if(is_last)
+									if (is_last)
 										break;
 								}
 							}
@@ -701,7 +709,7 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
 					}
 				}
 				if (filter_node3) {
-					if(list_is_last(filter_node3, filter_table)) {
+					if (list_is_last(filter_node3, filter_table)) {
 						break;
 					}
 				} else {
@@ -711,7 +719,7 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
 			}
 		}
 		if (filter_node1) {
-			if(list_is_last(filter_node1, filter_table)) {
+			if (list_is_last(filter_node1, filter_table)) {
 				break;
 			}
 		} else {
@@ -724,19 +732,19 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
 
 void convert_ip_addr_to_str(struct sockaddr_storage *addr, u32 *ipv4_addr, unsigned char *ipv6_addr)
 {
-	if(addr->ss_family == AF_INET) {
+	if (addr->ss_family == AF_INET) {
 		*ipv4_addr = ntohl(((struct sockaddr_in *)addr)->sin_addr.s_addr);
-	} else if(addr->ss_family == AF_INET6) {
+	} else if (addr->ss_family == AF_INET6) {
 		memcpy(ipv6_addr, &((struct sockaddr_in6 *)addr)->sin6_addr, 16);
 	}
 }
 
 enum protocol get_proto(char *s) {
-	if(!s)
+	if (!s)
 		return IOSS_IPPROTO_TCP_UDP;
 	else if (!strncmp(s, "udp", 3))
 		return IOSS_IPPROTO_UDP;
-    else if (!strncmp(s, "tcp", 3))
+    	else if (!strncmp(s, "tcp", 3))
 		return IOSS_IPPROTO_TCP;
 	else
 		return IOSS_IPPROTO_INVALID_PROTO;
@@ -746,10 +754,7 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 {
 	enum qos_filter_type filter = INVALID_FILTER;
 	struct qos_routing_rx *temp;
-	struct qos_routing_rx *rx_node;
-	struct list_head *ptr = NULL;
 	struct dma_filter_table *filter_node, *filter_node_temp;
-	struct pcp_routing *filter_node_pcp;
 	struct filter_map_info *filter_map;
 	int count = 0;
 	int i=0;
@@ -758,72 +763,65 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	u32 ipv4_addr;
 	unsigned char ipv6_addr[16];
 	int cnt = 0, cnt1=0;
-	struct sockaddr_storage *ss;
-
+	enum protocol tmp_proto;
 
 	INIT_LIST_HEAD(&qos_tables.dma_filter_table);
-	INIT_LIST_HEAD(&qos_tables.pcp_route_table);
-
-	list_for_each_entry(temp, qos_rx, node){
-		filter_map = (struct filter_map_info *)(temp->filter_info);
-	}
-	/*check if PCP is unique in filter table*/
-	list_for_each_entry(temp, qos_rx, node) {
-		/*for some TC if pcp is not given, we can't use it as unique param*/
-		if (temp->pcp.len) {
-			for(i=0; i< temp->pcp.len; i++) {
-				filter_node_pcp = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
-				filter_node_pcp->pcp = temp->pcp.arr[i];
-				filter_map = (struct filter_map_info *)(temp->filter_info);
-				filter_node_pcp->dma_ch = filter_map->channel;
-				filter_node_pcp->queue = filter_map->queue;
-				filter_node_pcp->tc_prio = temp->tc_prio;
-				INIT_LIST_HEAD(&filter_node_pcp->node);
-				list_add_tail(&filter_node_pcp->node, &qos_tables.pcp_route_table);
-			}
-		} else {
-			/* create an array with this incase we need to apply filter when no unique param is found*/
-			not_a_filter = true;
-		}
-	}
-	
-	if (not_a_filter)
-		unique = false;
-	else
-		unique = is_param_unique(&qos_tables.pcp_route_table, PCP);
-	if(unique) {
-		filter = PCP;
-		goto filter_found;
-	}
 
 	/*check if dest port is unique in filter table*/
 	not_a_filter = false;
 	count = 0;
+
 	list_for_each_entry(temp, qos_rx, node) {
+		/* if queue is assigned don't do pcp filtering */
+		filter_map = (struct filter_map_info *)(temp->filter_info);
+		if (filter_map->queue)
+			continue;
+		/* If TC is for HW path and no IPA ch are available don't add to the filter table*/
+		if (temp->action == IOSS_QOS_HW_PATH && !qos_tables.ipa_qos_rx_ch)
+			continue;
 		/* dest_port */
 		if (temp->dst.len) {
 			for(i=0; i< temp->dst.len; i++) {
 				cnt++;
 				if (temp->dst.arr[i].port_num) {
-					filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
-					filter_node->dst_port.port_num = temp->dst.arr[i].port_num;
-					filter_node->dst_port.proto = get_proto(temp->dst.arr[i].proto);
-					if (filter_node->dst_port.proto == IOSS_IPPROTO_INVALID_PROTO) {
-						pr_err("invalid proto for tc = %d\n", temp->tc_prio);
-						//return INVALID_FILTER;
+					tmp_proto = get_proto(temp->dst.arr[i].proto);
+					if (tmp_proto == IOSS_IPPROTO_INVALID_PROTO) {
+						ioss_qos_dev_err(NULL, "[ioss qos] Invalid dest proto for TC = %d\n", temp->tc_prio);
+						continue;
+					} else if (tmp_proto == IOSS_IPPROTO_TCP_UDP) {
+						/* Add filter for TCP */
+						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						filter_node->dst_port.port_num = temp->dst.arr[i].port_num;
+						filter_node->dst_port.proto = IOSS_IPPROTO_TCP;
+						filter_node->dma_ch = filter_map->channel;
+						filter_node->tc_prio = temp->tc_prio;
+						INIT_LIST_HEAD(&filter_node->node);
+						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
+						/* Add filter for UDP */
+						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						filter_node->dst_port.port_num = temp->dst.arr[i].port_num;
+						filter_node->dst_port.proto = IOSS_IPPROTO_UDP;
+						filter_node->dma_ch = filter_map->channel;
+						filter_node->tc_prio = temp->tc_prio;
+						INIT_LIST_HEAD(&filter_node->node);
+						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
+					} else {
+						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						filter_node->dst_port.port_num = temp->dst.arr[i].port_num;
+						filter_node->dst_port.proto = tmp_proto;
+
+						filter_node->dma_ch = filter_map->channel;
+						filter_node->tc_prio = temp->tc_prio;
+						INIT_LIST_HEAD(&filter_node->node);
+						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
 					}
-					filter_map = (struct filter_map_info *)(temp->filter_info);
-					filter_node->dma_ch = filter_map->channel;
-					filter_node->tc_prio = temp->tc_prio;
-					INIT_LIST_HEAD(&filter_node->node);
-					list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
 				}
 				else {
 					cnt1++;
 				}
 
 			}
-			if(cnt == cnt1) {
+			if (cnt == cnt1) {
 				not_a_filter = true;
 				break;
 			} else {
@@ -843,6 +841,7 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 		unique = is_param_unique(&qos_tables.dma_filter_table, DEST_PORT);
 	if(unique) {
 		filter = DEST_PORT;
+		ioss_qos_dev_log(NULL, "[ioss qos] Unique filter DEST PORT\n");
 		goto filter_found;
 	} else {
 		/* do cleanup*/
@@ -855,23 +854,48 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	count = 0;
 	not_a_filter = false;
 	list_for_each_entry(temp, qos_rx, node) {
+		/* if queue is assigned don't do dma filtering */
+		filter_map = (struct filter_map_info *)(temp->filter_info);
+		if (filter_map->queue)
+			continue;
 		/* src_port */
 		if (temp->src.len) {
-			for(i=0; i< temp->src.len; i++) {
+			for(i = 0; i < temp->src.len; i++) {
 				cnt++;
 				if (temp->src.arr[i].port_num) {
-					filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
-					filter_node->src_port.port_num = temp->src.arr[i].port_num;
-					filter_node->src_port.proto = get_proto(temp->src.arr[i].proto);
-					if (filter_node->src_port.proto == IOSS_IPPROTO_INVALID_PROTO) {
-						pr_err("invalid proto for tc = %d\n", temp->tc_prio);
+					tmp_proto = get_proto(temp->src.arr[i].proto);
+					if (tmp_proto == IOSS_IPPROTO_INVALID_PROTO) {
+						ioss_qos_dev_err(NULL, "[ioss qos] Invalid src proto for TC = %d\n", temp->tc_prio);
+						continue;
+					} else if (tmp_proto == IOSS_IPPROTO_TCP_UDP) {
+						/* Add filter for TCP */
+						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						filter_node->src_port.port_num = temp->src.arr[i].port_num;
+						filter_node->src_port.proto = IOSS_IPPROTO_TCP;
+						filter_node->dma_ch = filter_map->channel;
+						filter_node->tc_prio = temp->tc_prio;
+						INIT_LIST_HEAD(&filter_node->node);
+						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
+						/* Add filter for UDP */
+						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						filter_node->src_port.port_num = temp->src.arr[i].port_num;
+						filter_node->src_port.proto = IOSS_IPPROTO_UDP;
+						filter_node->dma_ch = filter_map->channel;
+						filter_node->tc_prio = temp->tc_prio;
+						INIT_LIST_HEAD(&filter_node->node);
+						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
+					} else {
+						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						filter_node->src_port.port_num = temp->src.arr[i].port_num;
+						filter_node->src_port.proto = tmp_proto;
+
+						filter_node->dma_ch = filter_map->channel;
+						filter_node->tc_prio = temp->tc_prio;
+						INIT_LIST_HEAD(&filter_node->node);
+						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
 					}
-					filter_map = (struct filter_map_info *)(temp->filter_info);
-					filter_node->dma_ch = filter_map->channel;
-					filter_node->tc_prio = temp->tc_prio;
-					INIT_LIST_HEAD(&filter_node->node);
-					list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
-				} else{
+
+				} else {
 					cnt1++;
 				}
 			}
@@ -884,7 +908,7 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 				cnt1 = 0;
 			}
 		} else {
-			not_a_filter = true;	
+			not_a_filter = true;
 			break;
 		}
 	}
@@ -895,6 +919,7 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 		unique = is_param_unique(&qos_tables.dma_filter_table, SRC_PORT);
 	if(unique) {
 		filter = SRC_PORT;
+		ioss_qos_dev_log(NULL, "[ioss qos] Unique filter SRC_PORT\n");
 		goto filter_found;
 	} else {
 		/* do cleanup*/
@@ -905,9 +930,12 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	count = 0;
 	not_a_filter = false;
 	list_for_each_entry(temp, qos_rx, node) {
-		/* src_port */
+		/* if queue is assigned don't do dma filtering */
+		filter_map = (struct filter_map_info *)(temp->filter_info);
+		if (filter_map->queue)
+			continue;
 		if (temp->vlan_ids.len) {
-			for(i=0; i< temp->vlan_ids.len; i++) {
+			for(i = 0; i < temp->vlan_ids.len; i++) {
 				if (temp->vlan_ids.arr[i]) {
 					filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 					filter_node->vlan_id = temp->vlan_ids.arr[i];
@@ -930,6 +958,7 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 		unique = is_param_unique(&qos_tables.dma_filter_table, VLAN_ID);
 	if(unique) {
 		filter = VLAN_ID;
+		ioss_qos_dev_log(NULL, "[ioss qos] Unique filter VLAN_ID\n");
 		goto filter_found;
 	} else {
 		/* do cleanup*/
@@ -942,23 +971,26 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	count = 0;
 	not_a_filter = false;
 	list_for_each_entry(temp, qos_rx, node) {
-		if(temp->dst.len) {
-			for(i=0; i< temp->dst.len; i++) {
+		/* if queue is assigned don't do dma filtering */
+		filter_map = (struct filter_map_info *)(temp->filter_info);
+		if (filter_map->queue)
+			continue;
+		if (temp->dst.len) {
+			for(i = 0; i < temp->dst.len; i++) {
 				cnt++;
 				if (temp->dst.arr[i].address.ss_family) {
 					filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 					convert_ip_addr_to_str(&(temp->dst.arr[i].address), &ipv4_addr, ipv6_addr);
 					filter_node->ip_dest.dst_mask_length = temp->dst.arr[i].mask_length;
-					if(temp->dst.arr[i].address.ss_family == AF_INET6) {
-						for (i=0; i<16; i++)
+					if (temp->dst.arr[i].address.ss_family == AF_INET6) {
+						for (i = 0; i < 16; i++)
 							filter_node->ip_dest.ipv6_dst_addr[i] = ipv6_addr[i];
 						filter_node->ip_dest.ipv6_dst = true;
 					} else {
 						filter_node->ip_dest.ipv4_dst_addr = ipv4_addr;
 						filter_node->ip_dest.ipv6_dst = false;
 					}
-					//filter_node->ip_dest.dst_mask_length = temp->dst.arr[i].mask_length;
-					filter_map = (struct filter_map_info *)(temp->filter_info);
+
 					filter_node->dma_ch = filter_map->channel;
 					filter_node->tc_prio = temp->tc_prio;
 					INIT_LIST_HEAD(&filter_node->node);
@@ -985,8 +1017,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 		unique = false;
 	else
 		unique = is_param_unique(&qos_tables.dma_filter_table, DEST_IP);
-	if(unique) {
+	if (unique) {
 		filter = DEST_IP;
+		ioss_qos_dev_log(NULL, "[ioss qos] Unique filter DEST_IP\n");
 		goto filter_found;
 	} else {
 		/* do cleanup*/
@@ -999,31 +1032,34 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	count = 0;
 	not_a_filter = false;
 	list_for_each_entry(temp, qos_rx, node) {
-		if(temp->src.len) {
-			for(i=0; i< temp->src.len; i++) {
+		/* if queue is assigned don't do dma filtering */
+		filter_map = (struct filter_map_info *)(temp->filter_info);
+		if (filter_map->queue)
+			continue;
+		if (temp->src.len) {
+			for(i = 0; i < temp->src.len; i++) {
 				cnt++;
 				if (temp->src.arr[i].address.ss_family) {
 					filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 					convert_ip_addr_to_str(&(temp->src.arr[i].address), &ipv4_addr, ipv6_addr);
 					filter_node->ip_src.src_mask_length = temp->src.arr[i].mask_length;
-					if(temp->src.arr[i].address.ss_family == AF_INET6) {
-						for (i=0; i<16; i++)
+					if (temp->src.arr[i].address.ss_family == AF_INET6) {
+						for (i = 0; i < 16; i++)
 							filter_node->ip_src.ipv6_src_addr[i] = ipv6_addr[i];
 						filter_node->ip_src.ipv6_src = true;
 					} else {
 						filter_node->ip_src.ipv4_src_addr = ipv4_addr;
 						filter_node->ip_src.ipv6_src = false;
 					}
-					filter_map = (struct filter_map_info *)(temp->filter_info);
 					filter_node->dma_ch = filter_map->channel;
 					filter_node->tc_prio = temp->tc_prio;
 					INIT_LIST_HEAD(&filter_node->node);
 					list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
 				} else {
-					cnt1++; 
+					cnt1++;
 				}
 			}
-			if(cnt1 == cnt) {
+			if (cnt1 == cnt) {
 				not_a_filter = true;
 				break;
 			} else {
@@ -1041,8 +1077,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 		unique = false;
 	else
 		unique = is_param_unique(&qos_tables.dma_filter_table, SRC_IP);
-	if(unique) {
+	if (unique) {
 		filter = SRC_IP;
+		ioss_qos_dev_log(NULL, "[ioss qos] Unique filter SRC_IP\n");
 		goto filter_found;
 	} else {
 		/* do cleanup*/
@@ -1057,148 +1094,269 @@ filter_found:
 			qos_tables.filter_cnt++;
 		}
 	}
-	pr_info("No. of filters to be installed = %d\n", qos_tables.filter_cnt);
+	ioss_qos_dev_log(NULL, "[ioss qos] No. of filters to be installed = %d\n\n", qos_tables.filter_cnt);
 	return filter;
 }
 
 static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx)
 {
-	enum qos_filter_type filter;
+	enum qos_filter_type filter = INVALID_FILTER;
 	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
 	struct filter_map_info *filter_info;
-	int i=0;
+	int i = 0, j = 0, k = 0;
 	int num_rx_tc = 0, num_tx_tc = 0;
 	int num_rx_sw_tc = 0, num_tx_sw_tc = 0;
 	int num_rx_hw_tc = 0, num_tx_hw_tc = 0;
-	u8 sw_ch = 0, hw_ch = 0, rx_avail = 0, tx_avail = 0;
+	u8 sw_ch = 0, hw_ch = 0, rx_ch_avail = 0, tx_avail = 0, rx_queue_avail = 0;
+	u8 sw_queue = 0, hw_queue = 0;
 	u8 channel = 0;
-	struct qos_routing_rx *temp, *temp1;
+	struct qos_routing_rx *temp_rx;
 	struct qos_routing_tx *temp_tx;
 	int qos_rx_queues = priv->plat->rx_qos_queues_to_use;
 	int qos_tx_queues = priv->plat->tx_qos_queues_to_use;
 	u8 pcp_mask = 0, pcp_mask_old = 0;;
-	int temp_rx_queues = 0;
 	int bw_avail = 1000;
-	u32 reg_val = 0;
 	struct response map_info;
+	struct filter_map_info *filter_map;
+	struct pcp_routing *filter_node_pcp, *temp_pcp_node;
+	struct dma_filter_table *temp_filter_node, *filter_node;
+	bool pcp_not_unique = false;
+	bool flt_appd = false;
 
-	map_info.err = 0;
-	if (qos_rx_queues <= 3 || qos_tx_queues <= 3) {
-		pr_err("No. of TX/RX queues not sufficient for QOS\n");
-		map_info.err = 1;
+	if (!priv->plat->qos_config) {
+		map_info.qos_response_status  = QOS_COMMIT_FAIL;
+		ioss_qos_dev_err(idev, "%s: EMAC QOS not enabled\n", __func__);
+		return map_info;
+	}
+
+	memset(&qos_tables, 0, sizeof(struct qos_struct));
+	INIT_LIST_HEAD(&qos_tables.pcp_route_table);
+	INIT_LIST_HEAD(&qos_tables.flt_to_app);
+	map_info.qos_response_status = QOS_COMMIT_EMPTY;
+
+	/* First time initialization before enabling qos (after clear qos) */
+	if (!priv->plat->qos_active) {
+		for (i = 0; i < priv->plat->rx_qos_queues_to_use; i++) {
+			if (i == 0) {
+				priv->is_rx_sw[i] = 0;
+				qos_tables.rx_channel_info[i] = 2;
+			} else {
+				priv->is_rx_sw[i] = 1;
+				qos_tables.rx_channel_info[i] = 1;
+			}
+		}
+
+		for (i = 0; i < priv->plat->tx_qos_queues_to_use; i++) {
+			if (i == 0) {
+				priv->is_tx_sw[i] = 0;
+				qos_tables.tx_channel_info[i] = 2;
+			} else {
+				priv->is_tx_sw[i] = 1;
+				qos_tables.tx_channel_info[i] = 1;
+			}
+		}
+	}
+
+	if (qos_rx_queues < 3 || qos_tx_queues < 3) {
+		ioss_qos_dev_err(idev, "%s: No. of TX/RX queues not sufficient for QOS\n", __func__);
+		map_info.qos_response_status = QOS_COMMIT_FAIL;
 	} else {
 		/*start rx aggr and filter*/
 		/* Get no. of qos queues available and aggregation logic */
-		num_rx_tc = stmmac_get_rx_tc_count(qos_rx, SW_HW_PATH);
-		ioss_dev_dbg(idev, "%s: num_rx_tc = %d\n", __func__, num_rx_tc);
-		num_rx_sw_tc = stmmac_get_rx_tc_count(qos_rx, SW_PATH);
-		ioss_dev_dbg(idev, "%s: num_rx_sw_tc = %d\n", __func__, num_rx_sw_tc);
-		num_rx_hw_tc = stmmac_get_rx_tc_count(qos_rx, HW_PATH);
-		ioss_dev_dbg(idev, "%s: num_rx_hw_tc = %d\n", __func__, num_rx_hw_tc);
+		qos_tables.ipa_qos_rx_ch = idev->qos_rx_channels;
+		num_rx_tc = stmmac_get_rx_tc_info(qos_rx, SW_HW_PATH);
+		ioss_qos_dev_log(idev, "%s: num_rx_tc = %d\n", __func__, num_rx_tc);
+		num_rx_sw_tc = stmmac_get_rx_tc_info(qos_rx, SW_PATH);
+		ioss_qos_dev_log(idev, "%s: num_rx_sw_tc = %d\n", __func__, num_rx_sw_tc);
+		num_rx_hw_tc = stmmac_get_rx_tc_info(qos_rx, HW_PATH);
+		ioss_qos_dev_log(idev, "%s: num_rx_hw_tc = %d\n", __func__, num_rx_hw_tc);
 
-		rx_avail = qos_rx_queues - 2;
-		if (num_rx_sw_tc) {
-			sw_ch = rx_avail + 1;
-			hw_ch = rx_avail;
-		} else {
-			hw_ch = rx_avail + 1;
-		}
-		/*no. of hw tc's > 3*/
-		temp_rx_queues = qos_rx_queues - 1;
-		list_for_each_entry(temp1, qos_rx, node) {
+		/* Defualt pcp 0 goes to queue 0. We will be left with 4 queues. We need to 
+		 * seperate these 4 queues among all HW and SW TCs.
+		 * Assumptions: 
+		 * 1.Each TC can have multiple PCP's
+		 * 2.Multiple TC can share same PCP
+		 * 3.HW and SW TC's will not share same PCP value
+		 */
+
+		rx_ch_avail = qos_rx_queues - 2;	
+		rx_queue_avail = qos_rx_queues - 1;
+
+		list_for_each_entry(temp_rx, qos_rx, node)	{
 			filter_info = kzalloc(sizeof(struct filter_map_info), GFP_KERNEL);
-			if(temp1->action == IOSS_QOS_SW_PATH) {
-				filter_info->channel = sw_ch;
-			} else {
-				filter_info->channel = hw_ch;
-				if(hw_ch > 2)
-					hw_ch --;
-			}
+			filter_node_pcp = kzalloc(sizeof(struct pcp_routing), GFP_KERNEL);
+			if (rx_queue_avail) {
+				if (temp_rx->pcp.len) {
+					/*PCP exists, check if its non-zero*/
+					pcp_mask_old = pcp_mask;
+					for (i = 0; i < temp_rx->pcp.len; i++) {
+						if (temp_rx->pcp.arr[i]) {
+							if (pcp_mask & (1 << temp_rx->pcp.arr[i])) {
+								ioss_qos_dev_log(idev, "%s: pcp %d for TC %d already used by other high priority TC\n",
+									         __func__, temp_rx->pcp.arr[i], temp_rx->tc_prio);
+							} else {
+								pcp_mask |= 1 << temp_rx->pcp.arr[i];
+								filter_node_pcp->pcp |= 1 << temp_rx->pcp.arr[i];
+							}
+						} else {
+							pcp_not_unique = true;
+                                                  	if (temp_rx->action == IOSS_QOS_SW_PATH)
+                                                          	filter_info->channel = 3;
+                                                  	else if (temp_rx->action == IOSS_QOS_HW_PATH)
+                                                          	filter_info->channel = 2;
+						}
+					}
 
-			qos_tables.pipe_map.pipe_to_tc_mapping_rx[filter_info->channel] |= (1 << temp1->tc_prio);
-			/* We are assigning queues from higher to lower starting from higher TC to lower TC
-			* if higher TC and lower TC share a PCP value then the lower TC traffic can go on
-			* higher TC queue. If multiple pcp's given and only one pcp is common, we can still add
-			* pcp routing to make sure lower TC with other pcp goes to lower queues
-			*/
-			if (temp_rx_queues) {
-				pcp_mask_old = pcp_mask;
-				if ((pcp_mask != 0xFE) && temp1->pcp.len) {
-					for (i=0; i<temp1->pcp.len; i++) {
-						/*pcp=0, BMW scenario*/
-						if (temp1->pcp.arr[i] != 0) {
-							if(pcp_mask & (1 << temp1->pcp.arr[i])) {
-								ioss_dev_dbg(idev, "%s: pcp %d already used by other high priority TC\n",
-										__func__, temp1->pcp.arr[i]);
-								} else {
-									pcp_mask |= 1 << temp1->pcp.arr[i];
-									filter_info->queue = temp_rx_queues;
+					/* Assign queue if pcp is not used already */
+					if (pcp_mask != pcp_mask_old) {
+						if (temp_rx->action == IOSS_QOS_HW_PATH && qos_tables.ipa_qos_rx_ch) {
+							 if (rx_queue_avail == 1 && (hw_queue <= 1 || !qos_tables.asgn_sw_queue)) {
+								/* Only one queue left and no queue is assigned for HW TC yet*/
+								hw_queue = 1;
+							 } else if (rx_queue_avail == 1 && sw_queue == 1) {
+								/* No more queues are available, aggregate in last assigned hw_queue*/
+								filter_info->queue = hw_queue;
+							 } else if (rx_queue_avail > 1) {
+								/* queues are available, so assign one */
+								hw_queue = rx_queue_avail;
+								rx_queue_avail--;
+							 }
+							filter_info->queue = hw_queue;
+							filter_info->channel = 2;
+							filter_node_pcp->path = IOSS_QOS_HW_PATH;
+
+						} else if (temp_rx->action == IOSS_QOS_SW_PATH) {
+							if (rx_queue_avail == 1 && (sw_queue <= 1 || !qos_tables.asgn_hw_queue)) {
+								/* Only one queue left and no queue is assigned for SW TC yet*/
+								sw_queue = 1;
+							 } else if (rx_queue_avail == 1 && hw_queue == 1) {
+								/* No more queues are available, aggregate in last assigned hw_queue*/
+								filter_info->queue = sw_queue;
+							 } else if (rx_queue_avail > 1) {
+								/* queues are available, so assign one */
+								sw_queue = rx_queue_avail;
+								rx_queue_avail--;
+							 }
+							filter_info->queue = sw_queue;
+							if (qos_tables.queue_to_ch_map[sw_queue]) {
+								for (i = 1; i < priv->plat->rx_qos_queues_to_use; i++) {
+									if (i == filter_info->queue ) {
+										filter_info->channel = qos_tables.queue_to_ch_map[i];
+									}
 								}
 							}
+							/*If no HW TC's, we can assign CH2 to SW as well*/
+							if (rx_ch_avail == 3 || (rx_ch_avail == 2 && !num_rx_hw_tc)) {
+								/* Assign CH4 to High prio SW TC */
+								filter_info->channel = rx_ch_avail + 1;
+								rx_ch_avail--;
+							} else {
+								/* Assign CH3 for all other SW TC's */
+								filter_info->channel = rx_ch_avail + 1;
+							}
+							filter_node_pcp->path = IOSS_QOS_SW_PATH;
 						}
-						if ((pcp_mask != pcp_mask_old) && (temp_rx_queues > 0))
-							temp_rx_queues--;
+					} else {
+						/* go over existing pcp route table to match the pcp mask
+						 * and assign queue-ch info accordingly for the tc*/
+						 list_for_each_entry(temp_pcp_node, &qos_tables.pcp_route_table, node) {
+							if(temp_pcp_node->pcp & filter_node_pcp->pcp) {
+								filter_info->queue = temp_pcp_node->queue;
+								filter_info->channel = temp_pcp_node->dma_ch;
+								filter_node_pcp->path = temp_pcp_node->path;
+								break;
+							}
+						 }
 					}
+				} else {
+					/* for a TC if PCP is not given queue will be zero
+					 * if HW TC, we can assign CH2, for SW TC assign CH 3
+					 * as no priority at CH level for SW traffic
+					 */
+					filter_info->queue = 0;
+					if (temp_rx->action == IOSS_QOS_HW_PATH && qos_tables.ipa_qos_rx_ch) {
+						filter_info->channel = 2;
+					} else if (temp_rx->action == IOSS_QOS_SW_PATH) {
+						filter_info->channel = 3;
+					}
+					pcp_not_unique = true;
 				}
-				qos_tables.rx_channel_info[filter_info->channel] = temp1->action;
-				temp1->filter_info = (void *)(filter_info);
 			}
-			queue_cnt = qos_rx_queues - temp_rx_queues - 1;
-
-		ioss_dev_dbg(idev, "%s: RX aggregation done\n", __func__);
-
-		filter = find_filter(qos_rx);
-		if (filter == INVALID_FILTER) {
-			ioss_dev_dbg(idev, "%s: No unique param\n", __func__);
-			map_info.err = 1;
-			goto err_inval_filter;
-		} else {
-			ioss_dev_dbg(idev, "%s: %d is unique param\n\n", __func__, filter);
-			priv->unique_filter = filter;
+			qos_tables.pipe_map.pipe_to_tc_mapping_rx[filter_info->channel] |= (1 << temp_rx->tc_prio);
+			qos_tables.rx_channel_info[filter_info->channel] = temp_rx->action;
+			qos_tables.queue_to_ch_map[filter_info->queue] = filter_info->channel;
+			temp_rx->filter_info = (void *)(filter_info);
+			filter_node_pcp->queue = filter_info->queue;
+			filter_node_pcp->dma_ch = filter_info->channel;
+			filter_node_pcp->tc_prio = temp_rx->tc_prio;
+			INIT_LIST_HEAD(&filter_node_pcp->node);
+			list_add_tail(&filter_node_pcp->node, &qos_tables.pcp_route_table);
 		}
 
-		/*end of RX aggr and filtering*/
+		list_for_each_entry(temp_rx, qos_rx, node) {
+			filter_map = (struct filter_map_info *)(temp_rx->filter_info);
+			qos_tables.tc_to_queue_map[temp_rx->tc_prio] = filter_map->queue;
 
+			ioss_qos_dev_log(idev, "%s: TC = %d, action = %d, queue = %d, ch = %d\n", 
+					 __func__, temp_rx->tc_prio, temp_rx->action,
+					 filter_map->queue, filter_map->channel);
+		}
+
+		/*prepare queue_to_ch map*/
+		list_for_each_entry(temp_pcp_node, &qos_tables.pcp_route_table, node) {
+			qos_tables.queue_to_ch_map[temp_pcp_node->queue] = temp_pcp_node->dma_ch;
+		}
+
+		ioss_qos_dev_log(idev, "%s: RX aggregation done\n", __func__);
+
+		if (pcp_not_unique) {
+			priv->unique_filter_new = find_filter(qos_rx);
+		} else {
+			filter = PCP;
+		}
+		
 		/*start tx aggr*/
+		qos_tables.ipa_qos_tx_ch = idev->qos_tx_channels;
 		num_tx_tc = stmmac_get_tx_tc_count(qos_tx, SW_HW_PATH);
-		ioss_dev_dbg(idev, "%s: num_tx_tc = %d\n", __func__, num_tx_tc);
+		ioss_qos_dev_log(idev, "%s: num_tx_tc = %d\n", __func__, num_tx_tc);
 		num_tx_sw_tc = stmmac_get_tx_tc_count(qos_tx, SW_PATH);
-		ioss_dev_dbg(idev, "%s: num_tx_sw_tc = %d\n", __func__, num_tx_sw_tc);
+		ioss_qos_dev_log(idev, "%s: num_tx_sw_tc = %d\n", __func__, num_tx_sw_tc);
 		num_tx_hw_tc = stmmac_get_tx_tc_count(qos_tx, HW_PATH);
-		ioss_dev_dbg(idev, "%s: num_tx_hw_tc = %d\n", __func__, num_tx_hw_tc);
-		ioss_dev_dbg(idev, "%s: tx qos queues = %d\n", __func__, qos_tx_queues);
+		ioss_qos_dev_log(idev, "%s: num_tx_hw_tc = %d\n", __func__, num_tx_hw_tc);
 
 		sw_ch = 0;
 		hw_ch = 0;
 		tx_avail = qos_tx_queues - 1;
 		list_for_each_entry(temp_tx, qos_tx, node) {
-			if(tx_avail == 2) {
-				if(num_tx_sw_tc && sw_ch == 0 && temp_tx->action == IOSS_QOS_HW_PATH) {
+			if (tx_avail == 2) {
+				if (num_tx_sw_tc && sw_ch == 0 && temp_tx->action == IOSS_QOS_HW_PATH && 
+				    qos_tables.ipa_qos_tx_ch) {
 					sw_ch = 2;
 					tx_avail --;
-				} else if(num_tx_hw_tc && hw_ch == 0 && temp_tx->action == IOSS_QOS_SW_PATH) {
+				} else if (num_tx_hw_tc && hw_ch == 0 && temp_tx->action == IOSS_QOS_SW_PATH) {
 					hw_ch = 2;
 					tx_avail --;
 				}
 			}
-			if(tx_avail > 1) {
+			if (tx_avail > 1) {
 				channel = tx_avail;
 				if(temp_tx->action == IOSS_QOS_SW_PATH)
 					sw_ch = tx_avail;
-				else if (temp_tx->action == IOSS_QOS_HW_PATH)
+				else if (temp_tx->action == IOSS_QOS_HW_PATH && qos_tables.ipa_qos_tx_ch)
 					hw_ch = tx_avail;
 				tx_avail--;
 			} else {
-				if(temp_tx->action == IOSS_QOS_SW_PATH)
+				if (temp_tx->action == IOSS_QOS_SW_PATH)
 					channel = sw_ch;
-				else if (temp_tx->action == IOSS_QOS_HW_PATH)
+				else if (temp_tx->action == IOSS_QOS_HW_PATH && qos_tables.ipa_qos_tx_ch)
 					channel = hw_ch;
 			}
 
 			qos_tables.pipe_map.pipe_to_tc_mapping_tx[channel] |= (1 << temp_tx->tc_prio);
 			qos_tables.tx_routing_info[channel].acc_bw += temp_tx->cbs_bw.high_bw;
 			/* As qos_tables is global and we are memsetting to 0 after clear, default mode to use should be MTL_QUEUE_AVB*/
-			if (qos_tables.tx_routing_info[channel].acc_bw && (qos_tables.tx_routing_info[channel].mode_to_use != MTL_QUEUE_DCB))
+			if (qos_tables.tx_routing_info[channel].acc_bw &&
+			    (qos_tables.tx_routing_info[channel].mode_to_use != MTL_QUEUE_DCB))
 				qos_tables.tx_routing_info[channel].mode_to_use = MTL_QUEUE_AVB;
 			else
 				qos_tables.tx_routing_info[channel].mode_to_use = MTL_QUEUE_DCB;
@@ -1206,7 +1364,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			qos_tables.tx_channel_info[channel] = temp_tx->action;
 		}
 		/*CBS claculation*/
-		switch(priv->speed) {
+		switch (priv->speed) {
 			case SPEED_100000:
 				bw_avail = 10000;
 				break;
@@ -1223,8 +1381,8 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				bw_avail = 10;
 				break;
 			default:
-				map_info.err = 1;
-				ioss_dev_dbg(idev, "%s: Invalid Speed\n", __func__);
+				map_info.qos_response_status = QOS_COMMIT_FAIL;
+				ioss_qos_dev_err(idev, "%s: Invalid Speed\n", __func__);
 				goto err_inval_speed;
 		}
 
@@ -1234,9 +1392,9 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				qos_tables.tx_routing_info[i].mode_to_use = MTL_QUEUE_DCB;
 			}
 
-			ioss_dev_dbg(idev, "%s: acc_bw for ch %d = %d\n", __func__, i, qos_tables.tx_routing_info[i].acc_bw);
+			ioss_qos_dev_err(idev, "%s: acc_bw for ch %d = %d\n", __func__, i, qos_tables.tx_routing_info[i].acc_bw);
 			if (qos_tables.tx_routing_info[i].mode_to_use == MTL_QUEUE_AVB) {
-				switch(priv->plat->interface) {
+				switch (priv->plat->interface) {
 					case PHY_INTERFACE_MODE_RGMII:
 					case PHY_INTERFACE_MODE_RGMII_ID:
 					case PHY_INTERFACE_MODE_RGMII_RXID:
@@ -1255,8 +1413,8 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 						qos_tables.tx_routing_info[i].low_credit = (-1)*MAX_FRAME_SIZE*8*1024;
 						break;
 					default:
-						ioss_dev_dbg(idev, "%s: Invalid interface\n", __func__);
-						map_info.err = 1;
+						ioss_qos_dev_err(idev, "%s: Invalid interface\n", __func__);
+						map_info.qos_response_status = QOS_COMMIT_FAIL;
 						goto err_inval_interface;
 						break;
 					}
@@ -1264,9 +1422,10 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			}
 		/*end tx aggr*/
 
-		stmmac_backup_pcp(priv, &qos_tables);
+		if (!priv->plat->qos_active)
+			stmmac_backup_pcp(priv, &qos_tables);
 
-		for (i=0; i<priv->plat->tx_queues_to_use; i++) {
+		for (i = 0; i < priv->plat->tx_queues_to_use; i++) {
 			if (i < 2) {
 				map_info.qos_pipe_mapping.pipe_to_tc_mapping_tx[0] = 0;
 				map_info.qos_pipe_mapping.pipe_to_tc_mapping_tx[1] = 0;
@@ -1274,16 +1433,18 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				map_info.qos_pipe_mapping.is_tx_tc_sw[1] = 1;
 			} else {
 				map_info.qos_pipe_mapping.pipe_to_tc_mapping_tx[i] = qos_tables.pipe_map.pipe_to_tc_mapping_tx[i];
-				map_info.qos_pipe_mapping.is_tx_tc_sw[i] = qos_tables.tx_channel_info[i] == IOSS_QOS_SW_PATH? 1: 0;
+				map_info.qos_pipe_mapping.is_tx_tc_sw[i] = qos_tables.tx_channel_info[i] == IOSS_QOS_HW_PATH? 0: 1;
 				priv->plat->qos_ch_map.ch_to_tc_map_tx[i] = qos_tables.pipe_map.pipe_to_tc_mapping_tx[i];
 				priv->plat->qos_ch_map.tc_tx_info[i] = qos_tables.tx_channel_info[i] == IOSS_QOS_SW_PATH? 1: 0;
 			}
 
-			ioss_dev_dbg(idev, "%s: tx ch = %d pipe map = %d\n", __func__, i, map_info.qos_pipe_mapping.pipe_to_tc_mapping_tx[i]);
-			ioss_dev_dbg(idev, "%s: tx ch = %d\n info = %d\n\n", __func__, i, map_info.qos_pipe_mapping.is_tx_tc_sw[i]);
+			ioss_qos_dev_log(idev, "%s: tx ch = %d pipe map = %d\n",
+				       	 __func__, i, map_info.qos_pipe_mapping.pipe_to_tc_mapping_tx[i]);
+			ioss_qos_dev_log(idev, "%s: tx ch = %d\n info = %d\n\n",
+				       	 __func__, i, map_info.qos_pipe_mapping.is_tx_tc_sw[i]);
 		}
 
-		for (i=0; i<priv->plat->rx_queues_to_use; i++){
+		for (i = 0; i < priv->plat->rx_queues_to_use; i++){
 			if (i < 2) {
 				map_info.qos_pipe_mapping.pipe_to_tc_mapping_rx[0] = 0;
 				map_info.qos_pipe_mapping.pipe_to_tc_mapping_rx[1] = 0;
@@ -1291,20 +1452,439 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				map_info.qos_pipe_mapping.is_rx_tc_sw[1] = 1;
 			} else {
 				map_info.qos_pipe_mapping.pipe_to_tc_mapping_rx[i] = qos_tables.pipe_map.pipe_to_tc_mapping_rx[i];
-				map_info.qos_pipe_mapping.is_rx_tc_sw[i] = qos_tables.rx_channel_info[i] == IOSS_QOS_SW_PATH? 1: 0;
+				map_info.qos_pipe_mapping.is_rx_tc_sw[i] = qos_tables.rx_channel_info[i] == IOSS_QOS_HW_PATH? 0: 1;
 				priv->plat->qos_ch_map.ch_to_tc_map_rx[i] = qos_tables.pipe_map.pipe_to_tc_mapping_rx[i];
 				priv->plat->qos_ch_map.tc_rx_info[i] = qos_tables.rx_channel_info[i] == IOSS_QOS_SW_PATH? 1: 0;
 			}
-			ioss_dev_dbg(idev, "%s: rx ch = %d pipe map = %d\n", __func__, i, map_info.qos_pipe_mapping.pipe_to_tc_mapping_rx[i]);
-			ioss_dev_dbg(idev, "%s: rx ch = %d info = %d\n", __func__, i, map_info.qos_pipe_mapping.is_rx_tc_sw[i]);
+			ioss_qos_dev_log(idev, "%s: rx ch = %d pipe map = %d\n",
+				       	 __func__, i, map_info.qos_pipe_mapping.pipe_to_tc_mapping_rx[i]);
+			ioss_qos_dev_log(idev, "%s: rx ch = %d info = %d\n",
+				       	 __func__, i, map_info.qos_pipe_mapping.is_rx_tc_sw[i]);
 		}
 
 		map_info.num_tx_pipes = qos_tx_queues;
 		map_info.num_rx_pipes = qos_rx_queues;
-
 	}
+
+	/* Add comparison table here */
+	/* first check SW/HW channels changed which needs pipe connect and disconnect */
+	/* Alloc and dealloc in request ch */
+	/* comment: add error code enum for map_info.err*/
+	for (i = 2; i < priv->plat->rx_queues_to_use; i++) {
+		/* A new RX TC might be added or deleted*/
+		if ((map_info.qos_pipe_mapping.is_rx_tc_sw[i] != priv->is_rx_sw[i]) &&
+		    map_info.qos_pipe_mapping.pipe_to_tc_mapping_rx[i]) {
+			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+			ioss_qos_dev_log(idev, "%s: Response TC change for RX = %d, acc = %d, curr = %d, idx = %d\n",
+				       	 __func__, map_info.qos_response_status,priv->is_rx_sw[i],
+					 map_info.qos_pipe_mapping.is_rx_tc_sw[i], i);
+			break;
+		}
+	}
+	for (i = 2; i < priv->plat->tx_queues_to_use; i++) {
+		/* A new TX TC might be added or deleted*/
+		if (map_info.qos_pipe_mapping.is_tx_tc_sw[i] != priv->is_tx_sw[i] &&
+		    map_info.qos_pipe_mapping.pipe_to_tc_mapping_tx[i])  {
+			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+			ioss_qos_dev_log(idev, "%s: Response TC change TX = %d\n", __func__, map_info.qos_response_status);
+			break;
+		}
+		if (qos_tables.tx_routing_info[i].mode_to_use != priv->plat->tx_queues_cfg->mode_to_use) {
+			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+			ioss_qos_dev_log(idev, "%s: Response TC TX ch mode change = %d\n", __func__, map_info.qos_response_status);
+			break;
+		} else {
+			if (qos_tables.tx_routing_info[i].acc_bw != priv->tx_ch_bw[i]) {
+				map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+				ioss_qos_dev_log(idev, "%s: Response TC TX ch BW change = %d\n", __func__, map_info.qos_response_status);
+			}
+		}
+	}
+	/* Now check if PCP table has changed (Should we stop queues before changing the pcp for queue)*/
+	for (i = 1; i < priv->plat->rx_qos_queues_to_use; i++) {
+		list_for_each_entry(temp_pcp_node, &qos_tables.pcp_route_table, node) {
+			ioss_qos_dev_log(idev, "%s: prio = %d, pcp = %d, queue = %d\n",
+				       	 __func__, temp_pcp_node->tc_prio, temp_pcp_node->pcp, temp_pcp_node->queue);
+			if (temp_pcp_node->queue == i)
+				qos_tables.queue_to_pcp_map[i] |= temp_pcp_node->pcp;
+		}
+		ioss_qos_dev_log(idev, "%s: queue_pcp_map[%d] = %d\n", __func__, i, qos_tables.queue_to_pcp_map[i]);
+	}
+	for (i = 1; i < priv->plat->rx_qos_queues_to_use; i++) {
+		if (qos_tables.queue_to_pcp_map[i] != priv->queue_pcp_map[i]) {
+			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+			ioss_qos_dev_log(idev, "%s: Response pcp map change = %d\n", __func__, map_info.qos_response_status);
+			break;
+		}
+	}
+
+	/* Check if dma filter table changed */
+	/* IF filter table changed find the filters to be applied and deleted/modified */
+	if (filter != PCP) {
+		ioss_qos_dev_log(idev, "%s: Printing new dma_filter_table\n", __func__);
+		list_for_each_entry(temp_filter_node, &qos_tables.dma_filter_table, node) {
+			switch (priv->unique_filter_new) {
+			case VLAN_ID:
+				ioss_qos_dev_log(idev, "%s: %d: %d - %d\n", __func__, i, temp_filter_node->vlan_id, temp_filter_node->dma_ch);
+				break;
+			case SRC_IP:
+				if (!temp_filter_node->ip_src.ipv6_src) {
+					ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i, temp_filter_node->ip_src.ipv4_src_addr,
+							 temp_filter_node->ip_src.src_mask_length, temp_filter_node->dma_ch);
+				}
+				break;
+			case DEST_IP:
+				if (!temp_filter_node->ip_dest.ipv6_dst) {
+					ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i, temp_filter_node->ip_dest.ipv4_dst_addr,
+							 temp_filter_node->ip_dest.dst_mask_length, temp_filter_node->dma_ch);
+				}
+				break;
+			case SRC_PORT:
+				ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i, temp_filter_node->src_port.port_num,
+					temp_filter_node->src_port.proto, temp_filter_node->dma_ch);
+				break;
+			case DEST_PORT:
+				ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i, temp_filter_node->dst_port.port_num,
+						 temp_filter_node->dst_port.proto, temp_filter_node->dma_ch);
+				break;
+			default:
+				break;
+			}
+		}
+		/* Add filters to be installed */
+		/* Check if new unique filter is different */
+		ioss_qos_dev_log(idev,"%s: New filter = %d, Old filter = %d \n", priv->unique_filter_new, priv->unique_filter_old);
+		if (priv->unique_filter_new != priv->unique_filter_old)  {
+			/* Delete existing HW filter table as complete filter table changed */
+			memset(&priv->app_filters, 0, 32*sizeof(struct dma_flt));
+			/* Assign new filter table to new flt_to_app as both will be same */
+			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+			ioss_qos_dev_log(idev, "%s: Response filter change = %d\n", __func__, map_info.qos_response_status);
+		} else {
+			/* Search for filters in existing table and add the filters whichever are required */
+			/* Check DMA CH as well */
+			list_for_each_entry(temp_filter_node, &qos_tables.dma_filter_table, node) {
+				for (i = 0; i < 32; i++) {
+					if (priv->app_filters[i].action == IDX_UNUSED && i != 31)
+						continue;
+					switch (priv->unique_filter_new) {
+					case VLAN_ID:
+						if (temp_filter_node->vlan_id == priv->app_filters[i].vlan_id &&
+						    temp_filter_node->dma_ch==  priv->app_filters[i].dma_ch) {
+							ioss_qos_dev_log(idev, "%s: filter is already applied and at index = %d", __func__, i);
+							flt_appd = true;
+						} else {
+							/* The new filter is not present, add it to the flt_app list*/
+							if (i == 31) {
+								filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+								filter_node->vlan_id = temp_filter_node->vlan_id;
+							}
+						}
+						break;
+					case SRC_IP:
+						if (temp_filter_node->ip_src.ipv6_src) {
+							for (j = 0; j < 16; j++) {
+								if (priv->app_filters[i].ip_src.ipv6_src_addr[j] == temp_filter_node->ip_src.ipv6_src_addr[j])
+									k++;
+							}
+							if (k == 16 && priv->app_filters[i].dma_ch == temp_filter_node->dma_ch) {
+								ioss_qos_dev_log(idev, "%s: filter already applied at index = %d\n", __func__, i);
+								k = 0;
+								flt_appd = true;
+							} else {
+								if(i == 31) {
+									filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+									for (j = 0; j < 16; j++)
+										filter_node->ip_src.ipv6_src_addr[j] = temp_filter_node->ip_src.ipv6_src_addr[j];
+
+									filter_node->ip_src.src_mask_length = temp_filter_node->ip_src.src_mask_length;
+									filter_node->ip_src.ipv6_src = true;
+
+								}
+							}
+	
+						} else {
+							if (temp_filter_node->ip_src.ipv4_src_addr == priv->app_filters[i].ip_src.ipv4_src_addr &&
+							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
+								ioss_qos_dev_log(idev, "%s: filter is already applied at index = %d\n", __func__, i);
+								flt_appd = true;
+							} else {
+								if (i == 31) {
+									filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+									filter_node->ip_src.ipv4_src_addr = temp_filter_node->ip_src.ipv4_src_addr;
+									filter_node->ip_src.src_mask_length = temp_filter_node->ip_src.src_mask_length;
+									filter_node->ip_src.ipv6_src = false;
+								}
+							}
+						}
+						break;
+					case DEST_IP:
+						if (temp_filter_node->ip_dest.ipv6_dst) {
+							for (j = 0; j < 16; j++) {
+								if (priv->app_filters[i].ip_dest.ipv6_dst_addr[j] == temp_filter_node->ip_dest.ipv6_dst_addr[j])
+									k++;
+							}
+							if (k == 16 && priv->app_filters[i].dma_ch == temp_filter_node->dma_ch) {
+								ioss_qos_dev_log(idev, "%s: filter is already applied at index = %d\n", __func__, i);
+								k = 0;
+								flt_appd = true;
+							} else {
+								if (i == 31) {
+									filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+									for (j = 0; j < 16; j++)
+										filter_node->ip_dest.ipv6_dst_addr[j] = temp_filter_node->ip_dest.ipv6_dst_addr[j];
+
+									filter_node->ip_dest.dst_mask_length = temp_filter_node->ip_dest.dst_mask_length;
+									filter_node->ip_dest.ipv6_dst = true;
+
+								}
+							}
+	
+						} else {
+							if (temp_filter_node->ip_dest.ipv4_dst_addr == priv->app_filters[i].ip_dest.ipv4_dst_addr &&
+							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
+								ioss_qos_dev_log(idev, "%s: filter is already applied at index = %d\n", __func__, i);
+								flt_appd = true;
+							} else {
+								if (i == 31) {
+									filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+									filter_node->ip_dest.ipv4_dst_addr = temp_filter_node->ip_dest.ipv4_dst_addr;
+									filter_node->ip_dest.dst_mask_length = temp_filter_node->ip_dest.dst_mask_length;
+									filter_node->ip_dest.ipv6_dst = false;
+								}
+							}
+						}
+						break;
+					case SRC_PORT:
+						if (temp_filter_node->src_port.proto == priv->app_filters[i].src_port.proto &&
+							temp_filter_node->src_port.port_num == priv->app_filters[i].src_port.port_num &&
+							temp_filter_node->dma_ch==  priv->app_filters[i].dma_ch) {
+							ioss_qos_dev_log(idev, "%s: filter is already applied at index = %d\n", __func__, i);
+							flt_appd = true;
+						} else {
+							/* The new filter is not present, add it to the flt_app list*/
+							if(i == 31) {
+								filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+								filter_node->src_port.port_num = temp_filter_node->src_port.port_num;
+								filter_node->src_port.proto = temp_filter_node->src_port.proto;
+							}
+						}
+						break;
+					case DEST_PORT:
+						if (temp_filter_node->dst_port.proto == priv->app_filters[i].dst_port.proto &&
+							temp_filter_node->dst_port.port_num == priv->app_filters[i].dst_port.port_num &&
+							temp_filter_node->dma_ch==  priv->app_filters[i].dma_ch) {
+							ioss_qos_dev_log(idev, "%s: filter is already applied at index = %d\n", __func__, i);
+							flt_appd = true;
+						} else {
+							/* The new filter is not present, add it to the flt_app list*/
+							if(i == 31) {
+								filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+								filter_node->dst_port.port_num = temp_filter_node->dst_port.port_num;
+								filter_node->dst_port.proto = temp_filter_node->dst_port.proto;
+								pr_info("add port %d to filter table\n", filter_node->dst_port.port_num);
+							}
+						}
+						break;
+					default:
+						break;
+					}
+					if (flt_appd) {
+						flt_appd = false;
+						break;
+					}
+				}
+				if (i == 32) {
+					filter_node->dma_ch = temp_filter_node->dma_ch;
+					filter_node->tc_prio = temp_filter_node->tc_prio;
+					list_add_tail(&filter_node->node, &qos_tables.flt_to_app);
+					map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+				}
+			} 
+		}
+		/* Add filters to be deleted */
+		/* Set action flag to IDX_CLEAR to delete them later */
+		if (priv->unique_filter_new != priv->unique_filter_old) {
+			/*If unique filter changed, need to delete all filters*/
+			for (i = 0; i < 32; i++) {
+				if (priv->app_filters[i].action == IDX_USED)
+					priv->app_filters[i].action = IDX_CLEAR;
+			}
+			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+			ioss_qos_dev_log(idev, "%s: Response filter change = %d\n", __func__, map_info.qos_response_status);
+		} else {
+			for (i = 0; i < 32; i++) {
+				if (priv->app_filters[i].action == IDX_UNUSED)
+					continue;
+				list_for_each_entry(temp_filter_node, &qos_tables.dma_filter_table, node) {
+					switch (priv->unique_filter_new) {
+					case VLAN_ID:
+						if (temp_filter_node->vlan_id == priv->app_filters[i].vlan_id &&
+							temp_filter_node->dma_ch ==  priv->app_filters[i].dma_ch) {
+							flt_appd = true;
+						} else {
+							/* The applied filter is not needed, clear it*/
+							if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
+								priv->app_filters[i].action = IDX_CLEAR;
+						}
+						break;
+					case SRC_IP:
+						if(temp_filter_node->ip_src.ipv6_src) {
+							for (j = 0; j < 16; j++) {
+								if (priv->app_filters[i].ip_src.ipv6_src_addr[j] == temp_filter_node->ip_src.ipv6_src_addr[j])
+									k++;
+							}
+							if (k == 16 && priv->app_filters[i].dma_ch == temp_filter_node->dma_ch) {
+								k = 0;
+								flt_appd = true;
+							} else {
+								/* The applied filter is not needed, clear it*/
+								if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
+									priv->app_filters[i].action = IDX_CLEAR;
+							}
+	
+						} else {
+							if (temp_filter_node->ip_src.ipv4_src_addr == priv->app_filters[i].ip_src.ipv4_src_addr &&
+							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
+								flt_appd = true;
+							} else {
+								/* The applied filter is not needed, clear it*/
+								if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
+									priv->app_filters[i].action = IDX_CLEAR;
+							}
+						}
+						break;
+					case DEST_IP:
+						if (temp_filter_node->ip_dest.ipv6_dst) {
+							for (j = 0; j < 16; j++) {
+								if (priv->app_filters[i].ip_dest.ipv6_dst_addr[j] == temp_filter_node->ip_dest.ipv6_dst_addr[j])
+									k++;
+							}
+							if (k == 16 && priv->app_filters[i].dma_ch == temp_filter_node->dma_ch) {
+								k = 0;
+								flt_appd = true;
+							} else {
+								/* The applied filter is not needed, clear it*/
+								if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
+									priv->app_filters[i].action = IDX_CLEAR;
+							}
+	
+						} else {
+							if (temp_filter_node->ip_dest.ipv4_dst_addr == priv->app_filters[i].ip_dest.ipv4_dst_addr &&
+							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
+								break;
+							} else {
+								/* The applied filter is not needed, clear it*/
+								if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
+									priv->app_filters[i].action = IDX_CLEAR;
+							}
+						}
+						break;
+					case SRC_PORT:
+						if (temp_filter_node->src_port.proto == priv->app_filters[i].src_port.proto &&
+						    temp_filter_node->src_port.port_num == priv->app_filters[i].src_port.port_num &&
+						    temp_filter_node->dma_ch==  priv->app_filters[i].dma_ch) {
+							flt_appd = true;
+						} else {
+							/* The applied filter is not needed, clear it*/
+							if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
+								priv->app_filters[i].action = IDX_CLEAR;
+						}
+						break;
+					case DEST_PORT:
+						if (temp_filter_node->dst_port.proto == priv->app_filters[i].dst_port.proto &&
+						    temp_filter_node->dst_port.port_num == priv->app_filters[i].dst_port.port_num &&
+						    temp_filter_node->dma_ch==  priv->app_filters[i].dma_ch) {
+							flt_appd = true;
+						} else {
+							/* The applied filter is not needed, clear it*/
+							if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
+								priv->app_filters[i].action = IDX_CLEAR;
+						}
+						break;
+					default:
+						break;
+					}
+					if (flt_appd) {
+						flt_appd = false;
+						break;
+					}
+				}
+			}
+		}
+		/*debug code to print hw filters*/
+		ioss_qos_dev_log(idev, "%s: Printing existing HW filter\n", __func__);
+		for (i = 0; i < 32; i++) {
+			if (priv->app_filters[i].action == IDX_UNUSED)
+				continue;
+			switch (priv->unique_filter_old) {
+			case VLAN_ID:
+				ioss_qos_dev_log(idev, "%s: %d: %d - %d\n", __func__, i,
+						 priv->app_filters[i].vlan_id, priv->app_filters[i].dma_ch);
+				break;
+			case SRC_IP:
+				if (!priv->app_filters[i].ip_src.ipv6_src) {
+					ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i,
+							 priv->app_filters[i].ip_src.ipv4_src_addr,
+							 priv->app_filters[i].ip_src.src_mask_length, priv->app_filters[i].dma_ch);
+				}
+				break;
+			case DEST_IP:
+				if (!priv->app_filters[i].ip_dest.ipv6_dst) {
+					ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i,
+							 priv->app_filters[i].ip_dest.ipv4_dst_addr,
+							 priv->app_filters[i].ip_dest.dst_mask_length, priv->app_filters[i].dma_ch);
+				}
+				break;
+			case SRC_PORT:
+				ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i, priv->app_filters[i].src_port.port_num,
+						 priv->app_filters[i].src_port.proto, priv->app_filters[i].dma_ch);
+				break;
+			case DEST_PORT:
+				ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i, priv->app_filters[i].dst_port.port_num,
+						 priv->app_filters[i].dst_port.proto, priv->app_filters[i].dma_ch);
+				break;
+			default:
+				break;
+			}
+		}
+
+		ioss_qos_dev_log(idev, "%s: Printing new filters to be installed\n", __func__);
+		list_for_each_entry(temp_filter_node, &qos_tables.flt_to_app, node) {
+			switch (priv->unique_filter_new) {
+			case VLAN_ID:
+				ioss_qos_dev_log(idev, "%s: %d: %d - %d\n", __func__, i, temp_filter_node->vlan_id, temp_filter_node->dma_ch);
+				break;
+			case SRC_IP:
+				if (!temp_filter_node->ip_src.ipv6_src) {
+					ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i,
+							 temp_filter_node->ip_src.ipv4_src_addr,
+							 temp_filter_node->ip_src.src_mask_length, temp_filter_node->dma_ch);
+				}
+				break;
+			case DEST_IP:
+				if (!temp_filter_node->ip_dest.ipv6_dst) {
+					ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i,
+							 temp_filter_node->ip_dest.ipv4_dst_addr,
+							 temp_filter_node->ip_dest.dst_mask_length, temp_filter_node->dma_ch);
+				}
+				break;
+			case SRC_PORT:
+				ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i, temp_filter_node->src_port.port_num,
+						 temp_filter_node->src_port.proto, temp_filter_node->dma_ch);
+				break;
+			case DEST_PORT:
+				ioss_qos_dev_log(idev, "%s: %d: %d/%d - %d\n", __func__, i, temp_filter_node->dst_port.port_num,
+						 temp_filter_node->dst_port.proto, temp_filter_node->dma_ch);
+				break;
+			default:
+				break;
+			}
+		}
+	}
+
+	ioss_qos_dev_log(idev, "%s: Response = %d\n", __func__, map_info.qos_response_status);
 	return map_info;
-err_inval_filter:
 	/* check for any other memory leaks*/
 err_inval_speed:
 err_inval_interface:
@@ -1315,59 +1895,97 @@ static int stmmac_request_qos(struct ioss_device *idev)
 {
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	int i = 0;
+	bool is_sw = true;
 
-	if(priv->plat->rx_qos_queues_to_use > 3)  {
-		/*use this flag temporarily to avoid DMA reset*/
-		priv->plat->mac_suspended = true;
-		stmmac_reconfigure_dma_resources(ndev, queue_cnt, &qos_tables);
+	if (priv->plat->rx_qos_queues_to_use >= 3)  {
+		/* Check if we need to configure a SW channel to HW */
+		for (i = 1; i < priv->plat->rx_qos_queues_to_use; i++) {
+			ioss_qos_dev_log(idev, "%s: ch_info_cur = %d, ch_info_new = %d\n",
+				       	 __func__, priv->is_rx_sw[i], qos_tables.rx_channel_info[i]);
+			if (!qos_tables.rx_channel_info[i])
+				continue;
+			is_sw = qos_tables.rx_channel_info[i] == IOSS_QOS_SW_PATH ? 1: 0;
+			if (is_sw != priv->is_rx_sw[i]) {
+				/* configure rx channel as HW */
+				if (!is_sw) {
+					config_rx_queue_path(ndev, i, true);
+					ioss_qos_dev_log(idev, "%s: Config channel %d as HW\n", __func__, i);
+				} else {
+					config_rx_queue_path(ndev, i, false);
+					ioss_qos_dev_log(idev, "%s: Config channel %d as SW\n", __func__, i);
+				}
+				priv->is_rx_sw[i] = is_sw;
+			}
+		}
+		/* Check if we need to configure a SW channel to HW */
+		for (i = 2; i < priv->plat->tx_qos_queues_to_use; i++) {
+			if (!qos_tables.tx_channel_info[i])
+				continue;
+			is_sw = qos_tables.tx_channel_info[i] == IOSS_QOS_SW_PATH ? 1: 0;
+			if (is_sw != priv->is_tx_sw[i]) {
+				/* configure tx channel as HW */
+				if (!is_sw)
+					config_tx_queue_path(ndev, i, true);
+				else
+					config_tx_queue_path(ndev, i, false);
+				priv->is_tx_sw[i] = is_sw;
+			}
+			if (qos_tables.tx_routing_info[i].mode_to_use != priv->plat->tx_queues_cfg[i].mode_to_use) {
+				/*Change mode to use for TX queues*/
+				priv->plat->tx_queues_cfg[i].mode_to_use = qos_tables.tx_routing_info[i].mode_to_use;
+				stmmac_configure_tx_queue(priv);
+			}
+		}
 	}
+
 	return 0;
 }
 
 static int stmmac_enable_qos(struct ioss_device *idev)
 {
-	int i=0;
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	struct dma_filter_table *dma_filter_node;
 
-	int ret = 0;
-
-	if (priv->plat->rx_qos_queues_to_use > 3) {
-		priv->plat->qos_enabled = true;
+	if (priv->plat->rx_qos_queues_to_use >= 3) {
+		priv->plat->qos_active = true;
 		stmmac_enable_qos_queue_cfg(priv, &qos_tables);
-		if(priv->unique_filter != PCP) {
+		if (priv->unique_filter_new != PCP) {
 			stmmac_enable_qos_filtering(ndev, &qos_tables);
 		}
 		/*cbs routing*/
 		stmmac_config_qos_cbs(priv, &qos_tables);
 		qos_tables.filter_cnt = 0;
 	}
+	/* Cleanup the used tables */
+	if (priv->unique_filter_new != PCP) {
+		delete_filter_table(&qos_tables.dma_filter_table);
+		delete_filter_table(&qos_tables.flt_to_app);
+	}
+	delete_route_table(&qos_tables.pcp_route_table);
+
 	return 0;
 }
 
 static int stmmac_clear_qos(struct ioss_device *idev)
 {
-	int i=0, ret=0;
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	struct dma_filter_table *dma_filter_node;
 
-	if (priv->plat->qos_enabled)
-		priv->plat->qos_enabled = false;
+	if (priv->plat->qos_active)
+		priv->plat->qos_active = false;
 	else
 		return 0;
 
 	/*Go to previous pcp routing*/
-	if(priv->plat->rx_qos_queues_to_use > 3) {
+	if (priv->plat->rx_qos_queues_to_use > 3) {
 		stmmac_restore_qos_queue_cfg(priv, &qos_tables);
-		if(priv->unique_filter != PCP) {
+		if (priv->unique_filter_new != PCP) {
 			stmmac_remove_qos_filtering(ndev, &qos_tables);
 		}
-		stmmac_restore_dma_config(ndev, priv->plat->rx_queues_to_use - 1, &qos_tables);
+		stmmac_restore_dma_config(ndev, &qos_tables);
 		memset(&qos_tables, 0, sizeof(struct qos_struct));
 	}
-
 	return 0;
 }
 
