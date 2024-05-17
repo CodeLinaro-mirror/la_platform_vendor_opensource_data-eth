@@ -108,18 +108,15 @@ struct qos_routing_tx {
 };
 #define to_qos_routing_tx(ptr) list_entry(ptr, struct qos_routing_tx, node)
 
-/*
-* TC Map: for each channel maintain a bitmask, this will be passed to IPA
-*/
-struct qos_pipe_mapping {
-    u32 pipe_to_tc_mapping_rx[5];
-    bool is_rx_tc_sw[5];
-    u32 pipe_to_tc_mapping_tx[5];
-    bool is_tx_tc_sw[5];
+enum ioss_qos_response {
+    QOS_COMMIT_SUCCESS = 0,
+    QOS_COMMIT_FAIL = 1,
+    QOS_COMMIT_EMPTY = 2
 };
 
 struct response {
     int err;
+    enum ioss_qos_response qos_response_status;
     u8 num_tx_pipes;
     u8 num_rx_pipes;
     struct qos_pipe_mapping qos_pipe_mapping;

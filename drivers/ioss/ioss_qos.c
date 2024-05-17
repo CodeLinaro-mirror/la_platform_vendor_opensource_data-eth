@@ -903,16 +903,24 @@ static ssize_t store_commit(struct device *dev,
 			idev->clear_qos_hw = false;
 			idev->qos_enabled = false;
 			disable_qos_ipa_channels(idev);
+			memset(&idev->curr_qos_config, 0, sizeof(idev->curr_qos_config));
 			ioss_dev_log(NULL, "[ioss qos] : qos disabled\n");
 
 			return size;
 		}
 		else {
-			ioss_dev_err(NULL, "[ioss qos] : commit fail : trying to perform empty commit\n");
+			ioss_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
 			return -EINVAL;
 		}
 	}
 
+  	if (!idev->qos_enabled) {
+		/* Non BE Pipes are SW by default */
+		for (i = 1; i < ARRAY_SIZE(idev->curr_qos_config.is_rx_tc_sw); i++)
+			idev->curr_qos_config.is_rx_tc_sw[i] = 1;
+		for (i = 1; i < ARRAY_SIZE(idev->curr_qos_config.is_tx_tc_sw); i++)
+			idev->curr_qos_config.is_tx_tc_sw[i] = 1;
+	}
 	// Get IPA Config
 	iface->ipa_config = NULL;
 
@@ -951,16 +959,19 @@ static ssize_t store_commit(struct device *dev,
 
 	// idev ops
 	pr_debug("[ioss qos] : calling glue prepare qos function\n");
-	if (idrv->qos_ops->clear_qos) {
-		ret = idrv->qos_ops->clear_qos(idev);
-		ioss_dev_log(NULL, "[ioss qos] clear_qos returned %d\n", ret);
-	}
-
-	pr_debug("[ioss qos] : calling glue prepare qos function\n");
 	if (idrv->qos_ops->prepare_qos) {
 		res = idrv->qos_ops->prepare_qos(idev, &ioss_qos_table.qos_rx_pending_table, &ioss_qos_table.qos_tx_pending_table);
 		ioss_dev_log(NULL, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
-					res.err, res.num_tx_pipes, res.num_rx_pipes);
+					res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
+	}
+
+	if (res.qos_response_status == QOS_COMMIT_FAIL) {
+		ioss_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
+		return -EINVAL;
+	}
+	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
+		ioss_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
+		return -EINVAL;
 	}
 
 	ret = enable_qos_ipa_channels(idev, res);
@@ -988,6 +999,16 @@ static ssize_t store_commit(struct device *dev,
 	copy_tx_table(&ioss_qos_table.qos_tx_pending_table, &ioss_qos_table.qos_tx_committed_table);
 
 	idev->qos_enabled = true;
+
+	for (i = 0; i < ARRAY_SIZE(idev->curr_qos_config.is_rx_tc_sw); i++) {
+		idev->curr_qos_config.is_rx_tc_sw[i] = res.qos_pipe_mapping.is_rx_tc_sw[i];
+		idev->curr_qos_config.pipe_to_tc_mapping_rx[i] = res.qos_pipe_mapping.pipe_to_tc_mapping_rx[i];
+	}
+
+	for (i = 0; i < ARRAY_SIZE(idev->curr_qos_config.is_tx_tc_sw); i++) {
+		idev->curr_qos_config.is_tx_tc_sw[i] = res.qos_pipe_mapping.is_tx_tc_sw[i];
+		idev->curr_qos_config.pipe_to_tc_mapping_tx[i] = res.qos_pipe_mapping.pipe_to_tc_mapping_tx[i];
+	}
 	ioss_dev_log(NULL, "[ioss qos] : set idev->qos_enabled to true\n");
 
 	return size;
@@ -1640,8 +1661,8 @@ static int ioss_parse_qos_channel(struct ioss_device *idev,
 
 	list_add_tail(&ch->node, &iface->channels);
 
-	ioss_dev_log(NULL, "Alloc new channel with direction = %d bitmask = %x id=%d",
-				ch->direction, ch->tc_mapping, ch->id);
+	ioss_dev_log(NULL, "Alloc new channel with direction = %d bitmask = %x ch_num=%d",
+				ch->direction, ch->tc_mapping, ch->channel_num);
 
 	return 0;
 
@@ -1658,16 +1679,14 @@ int ioss_alloc_qos_ch(struct ioss_device *idev, struct response resp)
 	int i;
 	struct ioss_interface *iface = &idev->interface;
 	struct device_node *np = dev_of_node(idev->dev.parent);
-
-	struct device_node *n = of_parse_phandle(np,
-					"qcom,ioss_qos_channels", 1);
+	struct device_node *n = of_parse_phandle(np, "qcom,ioss_qos_channels", 1);
 
 	/* Clean previously allocated channels */
 	delete_qos_channels(iface);
 
 	/* Allocate QOS channels */
 	for (i = resp.num_tx_pipes - 1; i >= 0; i--) {
-		ioss_dev_log(NULL, "[ioss] tx, bmap=%X, id=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i], i);
+		ioss_dev_log(NULL, "[ioss] tx, bmap=%X, ch_num=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i], i);
 		if (resp.qos_pipe_mapping.is_tx_tc_sw[i] || resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i] == 0)
 			continue;
 		if (ioss_parse_qos_channel(idev, n, resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i], i)) {
@@ -1680,7 +1699,7 @@ int ioss_alloc_qos_ch(struct ioss_device *idev, struct response resp)
 
 	/* Allocate QOS channels */
 	for (i = resp.num_rx_pipes - 1; i >= 0; i--) {
-		ioss_dev_log(NULL, "[ioss qos] rx, bmap=%X, id=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i], i);
+		ioss_dev_log(NULL, "[ioss qos] rx, bmap=%X, ch_num=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i], i);
 		if (resp.qos_pipe_mapping.is_rx_tc_sw[i] || resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i] == 0)
 			continue;
 		if (ioss_parse_qos_channel(idev, n, resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i], i)) {
@@ -1695,28 +1714,66 @@ err:
 	return -EINVAL;
 }
 
+static bool ioss_ipa_reconnect_required(struct ioss_device *idev, struct response *resp)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(resp->qos_pipe_mapping.is_rx_tc_sw); i++) {
+		ioss_dev_log(idev, "ch_rx = %d, is_sw = %d -> %d, bmap = %u -> %u \n",
+			i, idev->curr_qos_config.is_rx_tc_sw[i], resp->qos_pipe_mapping.is_rx_tc_sw[i],
+			idev->curr_qos_config.pipe_to_tc_mapping_rx[i], resp->qos_pipe_mapping.pipe_to_tc_mapping_rx[i]);
+		if (resp->qos_pipe_mapping.is_rx_tc_sw[i])
+			continue;
+		if (resp->qos_pipe_mapping.pipe_to_tc_mapping_rx[i] != idev->curr_qos_config.pipe_to_tc_mapping_rx[i])
+			return true;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(resp->qos_pipe_mapping.is_tx_tc_sw); i++) {
+		ioss_dev_log(idev, "ch_tx = %d, is_sw = %d -> %d, bmap = %u -> %u \n",
+			i, idev->curr_qos_config.is_tx_tc_sw[i], resp->qos_pipe_mapping.is_tx_tc_sw[i],
+			idev->curr_qos_config.pipe_to_tc_mapping_tx[i], resp->qos_pipe_mapping.pipe_to_tc_mapping_tx[i]);
+
+		/* Special Case: HW channel becomes a SW channel and vice-versa */
+		if (resp->qos_pipe_mapping.is_tx_tc_sw[i] != idev->curr_qos_config.is_tx_tc_sw[i])
+			return true;
+		if (resp->qos_pipe_mapping.is_tx_tc_sw[i])
+			continue;
+		if (resp->qos_pipe_mapping.pipe_to_tc_mapping_tx[i] != idev->curr_qos_config.pipe_to_tc_mapping_tx[i])
+			return true;
+	}
+
+	return false;
+}
+
 int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 {
 	int ret = 0;
 	struct ioss_driver *idrv = NULL;
 	struct ioss_interface *iface = &idev->interface;
+	bool do_ipa_reconnect = ioss_ipa_reconnect_required(idev, &resp);
 
-	idev->dev.offline = 1;
+	if (!iface)
+		return -EINVAL;
 
-	ioss_iface_queue_refresh(iface, true);
-
-	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+	if (do_ipa_reconnect) {
+		idev->dev.offline = 1;
+		ioss_iface_queue_refresh(iface, true);
+		ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+	}
 
 	idrv = to_ioss_driver(idev->dev.driver);
 	if (!idrv)
 		return -EINVAL;
 
 	ret = idrv->qos_ops->request_qos(idev);
-	ret = ioss_alloc_qos_ch(idev, resp);
 
-	idev->dev.offline = 0;
-	ioss_iface_queue_refresh(iface, true);
-	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+	if (do_ipa_reconnect) {
+		ret = ioss_alloc_qos_ch(idev, resp);
+
+		idev->dev.offline = 0;
+		ioss_iface_queue_refresh(iface, true);
+		ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+	}
 
 	ret = idrv->qos_ops->enable_qos(idev);
 
