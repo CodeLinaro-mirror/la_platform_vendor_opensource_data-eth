@@ -31,67 +31,59 @@
 #define MAC_ADDR_DCS 0x1
 static u8 mac_addr_default[6] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
 
-/* For Default case channel should be 0
- * else invalid
- */
-bool is_invalid_default_config(struct channel_info *channel)
+static bool is_valid_default_ch_config(struct channel_info *channel)
 {
-	if((channel->ezmesh_enabled == false && channel->tsn_enabled == false) && (channel->channel_num != IPA_MUL_CHANNEL_BE0))
+	if (!channel->ezmesh_enabled && !channel->tsn_enabled
+		&& channel->channel_num == DEFAULT_CHANNEL_RX_TX)
 		return true;
 
 	return false;
 }
 
-/* For Ezmesh case, channel should be either 0 or 3.
- * else invalid
- */
-bool is_invalid_easymesh_config(struct channel_info *channel)
+static bool is_valid_easymesh_ch_config(struct channel_info *channel)
 {
+	if (!channel->ezmesh_enabled)
+		return false;
 
-	if (((channel->ezmesh_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_BE)) &&
-		(channel->channel_num != IPA_MUL_CHANNEL_BE3))
-			return true;
+	if (channel->traffic_type_info == IOSS_TRAFFIC_BE
+		&& channel->channel_num == EASYMESH_CHANNEL_RX_TX_BE)
+		return true;
 
-	if (((channel->ezmesh_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_BE_TAGGED)) &&
-		(channel->channel_num != IPA_MUL_CHANNEL_BE0))
-			return true;
+	if (channel->traffic_type_info == IOSS_TRAFFIC_BE_TAGGED
+		&& channel->channel_num == EASYMESH_CHANNEL_RX_TX_BE_TAGGED)
+		return true;
 
 	return false;
 }
 
-/* For tsn case, channel should be either 0 or 3.
- * else invalid
- */
-bool is_invalid_tsn_config(struct channel_info *channel)
+static bool is_valid_tsn_ch_config(struct channel_info *channel)
 {
-	if (((channel->tsn_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_LL)) &&
-		(channel->channel_num != IPA_MUL_CHANNEL_BE3) && (channel-> direction == CH_DIR_TX))
+	if (!channel->tsn_enabled)
+		return false;
+
+	if (channel->traffic_type_info == IOSS_TRAFFIC_BE) {
+		if (channel->direction == CH_DIR_RX && channel->channel_num == TSN_CHANNEL_RX_DEFAULT)
 			return true;
-
-	if (((channel->tsn_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_BE)) &&
-		(channel->channel_num != IPA_MUL_CHANNEL_BE0))
+		if (channel->direction == CH_DIR_TX && channel->channel_num == TSN_CHANNEL_TX_DEFAULT)
 			return true;
-
-	return false;
-}
-
-/* For Default case channel should be 0
- * For Ezmesh case, channel should be either 0 or 3.
- * else invalid
- */
-bool is_invalid_config(struct channel_info *channel)
-{
-	bool invalid = false;
-	if ((channel->direction == CH_DIR_TX) || (channel->direction == CH_DIR_RX))
-	{
-		if (is_invalid_easymesh_config(channel) ||
-			is_invalid_default_config(channel) ||
-			is_invalid_tsn_config(channel))
-		{
-			invalid = true;
-		}
 	}
-	return invalid;
+
+	if (channel->traffic_type_info == IOSS_TRAFFIC_LL) {
+		if (channel->direction == CH_DIR_TX && channel->channel_num == TSN_CHANNEL_TX_LL)
+			return true;
+	}
+
+	return false;
+}
+
+/*
+* Check if the channel config is valid, depending on the enabled feature
+*/
+static bool valid_ch_config(struct channel_info *channel)
+{
+	return (is_valid_default_ch_config(channel)
+			|| is_valid_easymesh_ch_config(channel)
+			|| is_valid_tsn_ch_config(channel));
 }
 
 /* Local SMC buffer is valid only for HW where IO macro space is moved to TZ.
@@ -609,16 +601,19 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 	if (!strcmp(channel_input->ipa_config_info, "tsn"))
 		channel->tsn_enabled = true;
 
-	if ((channel->ezmesh_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_BE))
+	if ((channel->ezmesh_enabled) && (channel->traffic_type_info == IOSS_TRAFFIC_BE))
 	{
-		channel->channel_num = IPA_MUL_CHANNEL_BE3;
-		queue_num = IPA_MUL_QUEUE_BE3;
-	} else if ((channel->tsn_enabled == true) && (channel->traffic_type_info == IOSS_TRAFFIC_LL) && (channel->direction == CH_DIR_TX)) {
-		channel->channel_num = IPA_MUL_CHANNEL_BE3;
-		queue_num = IPA_MUL_QUEUE_BE3;
-	} else {
-		channel->channel_num = IPA_MUL_CHANNEL_BE0;
-		queue_num = IPA_MUL_QUEUE_BE0;
+		channel->channel_num = EASYMESH_CHANNEL_RX_TX_BE;
+		queue_num = EASYMESH_QUEUE_RX_TX_BE;
+	}
+	else if ((channel->tsn_enabled) && (channel->traffic_type_info == IOSS_TRAFFIC_LL)
+			&& (channel->direction == CH_DIR_TX)) {
+		channel->channel_num = TSN_CHANNEL_TX_LL;
+		queue_num = TSN_QUEUE_TX_LL;
+	}
+	else {
+		channel->channel_num = DEFAULT_CHANNEL_RX_TX;
+		queue_num = DEFAULT_QUEUE_RX_TX;
 	}
 	channel->buff_pool_addr.buff_pool_va_addrs_base = kcalloc(channel_input->desc_cnt,
 								  sizeof(void *),
@@ -690,7 +685,7 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 
 		stmmac_map_mtl_to_dma(priv, priv->hw, queue_num, channel->channel_num);
 
-		if ((queue_num == IPA_MUL_QUEUE_BE3) && (channel->ezmesh_enabled))
+		if ((channel->ezmesh_enabled) && (queue_num == EASYMESH_QUEUE_RX_TX_BE))
 		{
 			priv->plat->rx_queues_cfg[queue_num].pkt_route = PACKET_UPQ;
 			stmmac_rx_queue_routing(priv, priv->hw, priv->plat->rx_queues_cfg[queue_num].pkt_route, queue_num);
@@ -771,10 +766,10 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 		return -EINVAL;
 	}
 
-	if (is_invalid_config(channel)){
-		ioss_log_msg(NULL,
-			   "%s: INFO: IPA channel not released in ioss\n", __func__);
-			return -EPERM;
+	if (!valid_ch_config(channel)){
+		netdev_err(priv->dev,
+			   "%s: ERROR: Invalid channel config\n", __func__);
+			return -EINVAL;
 	}
 
 	priv = netdev_priv(ndev);
@@ -959,7 +954,7 @@ int request_event(struct net_device *ndev, struct channel_info *channel, dma_add
 
 	channel->dma_map_dbaddr = addr;
 
-	if (is_invalid_config(channel)){
+	if (!valid_ch_config(channel)){
 
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel\n", __func__);
@@ -1012,7 +1007,7 @@ int release_event(struct net_device *ndev, struct channel_info *channel)
 		return -EINVAL;
 	}
 
-	if (is_invalid_config(channel)){
+	if (!valid_ch_config(channel)){
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel\n", __func__);
 			return -EPERM;
@@ -1068,7 +1063,7 @@ int enable_event(struct net_device *ndev, struct channel_info *channel)
 		return -EINVAL;
 	}
 
-	if (is_invalid_config(channel)){
+	if (!valid_ch_config(channel)){
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel\n", __func__);
 			return -EPERM;
@@ -1167,7 +1162,7 @@ int disable_event(struct net_device *ndev, struct channel_info *channel)
 		return -EINVAL;
 	}
 
-	if (is_invalid_config(channel)){
+	if (!valid_ch_config(channel)){
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel\n", __func__);
 			return -EPERM;
@@ -1189,7 +1184,7 @@ int disable_event(struct net_device *ndev, struct channel_info *channel)
 		rgmii_updatel(ethqos, reg, 0, EMAC0_EMAC_INTERRUPT_ENABLE);
 #endif
 	} else if (channel->direction == CH_DIR_RX) {
-		if (channel->ezmesh_enabled == true)
+		if (channel->ezmesh_enabled)
 		{
 			reg |= (EMAC0_IPA_RX_INTR_EN | EMAC0_IPA_RX3_INTR_EN);
 		}
@@ -1253,8 +1248,8 @@ int set_event_mod(struct net_device *ndev, struct channel_info *channel, unsigne
 		return -EINVAL;
 	}
 
-	if ((channel->direction == CH_DIR_TX) || 
-		(is_invalid_config(channel))){
+	if ((channel->direction == CH_DIR_TX) ||
+		(!valid_ch_config(channel))){
 
 		netdev_err(priv->dev,
 				"%s: ERROR: Invalid channel\n", __func__);
@@ -1434,7 +1429,7 @@ int start_channel(struct net_device *ndev, struct channel_info *channel)
 		return -EINVAL;
 	}
 
-	if (is_invalid_config(channel))
+	if (!valid_ch_config(channel))
 	{
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel\n", __func__);
@@ -1502,7 +1497,7 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 		return -EINVAL;
 	}
 
-	if (is_invalid_config(channel)){
+	if (!valid_ch_config(channel)){
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel\n", __func__);
 			return -EPERM;
