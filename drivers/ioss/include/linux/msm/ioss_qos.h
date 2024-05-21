@@ -12,6 +12,56 @@
 
 #include "ioss.h"
 
+/**
+ *   API
+ * Version    Changes
+ * ---------------------------------------------------------------------------
+ *   1      - Initial version
+ *   2      - Optimize IPA connects and improve logging
+ */
+
+#define IOSS_QOS_API_VER 2
+#define IOSS_QOS_SUBSYS "eth_qos"
+
+#define __ioss_qos_log_msg(ipcbuf, fmt, args...) \
+	do { \
+		void *__buf = (ipcbuf); \
+		if (__buf) \
+			ipc_log_string(__buf, " %s:%d " fmt "\n", \
+					__func__, __LINE__, ## args); \
+	} while (0)
+
+#define ioss_qos_log_err(dev, fmt, args...) \
+	do { \
+		void *ioss_qos_get_ipclog_buf(void); \
+		dev_err(dev, IOSS_QOS_SUBSYS ":ERR:" fmt "\n", ##args); \
+		__ioss_qos_log_msg(ioss_qos_get_ipclog_buf(), \
+					"ERR:" fmt, ## args); \
+	} while (0)
+
+#define ioss_qos_log_msg(dev, fmt, args...) \
+	do { \
+		void *ioss_qos_get_ipclog_buf(void); \
+		dev_dbg(dev, IOSS_QOS_SUBSYS fmt, ##args); \
+		__ioss_qos_log_msg(ioss_qos_get_ipclog_buf(), fmt, ## args); \
+	} while (0)
+
+
+#define ioss_qos_dev_err(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_qos_log_err(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
+
+#define ioss_qos_dev_log(idev, fmt, args...) \
+	do { \
+		struct ioss_device *__idev = (idev); \
+		struct device *dev = __idev ? &__idev->dev : NULL; \
+		ioss_qos_log_msg(dev, "(%s) " fmt, ioss_dev_name(idev), ## args); \
+	} while (0)
+
 struct IOSS_QOS_TABLE {
     struct list_head qos_rx_pending_table;
     struct list_head qos_rx_committed_table;

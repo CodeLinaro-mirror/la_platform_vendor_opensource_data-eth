@@ -49,13 +49,12 @@ static int extract_ip_mask(char *src, struct qos_filters *addr)
 	char *token;
 
 	while ( (token = strsep(&src, "/")) ) {
-		pr_debug("%s : %s : %s\n", __func__, src, token);
 		if (i > 1)
 			return -1;
 		if (i == 0) {
 			ret = inet_pton_with_scope(&init_net, AF_UNSPEC, token, NULL, &(addr->address));
 			if (ret) {
-				ioss_dev_err(NULL, "[ioss qos] Invalid IP address entered\n");
+				ioss_qos_dev_err(NULL, "[ioss qos] Invalid IP address entered\n");
 				return -EINVAL;
 			}
 		}
@@ -65,11 +64,10 @@ static int extract_ip_mask(char *src, struct qos_filters *addr)
 		}
 		i++;
 	}
-	pr_debug("%s: extracted address\n", __func__);
 
 	if (addr->address.ss_family == AF_INET) {
 		if (addr->mask_length > 32) {
-			ioss_dev_err(NULL, "[ioss qos] : Mask must be <= 32 for IPv4 address\n");
+			ioss_qos_dev_err(NULL, "[ioss qos] : Mask must be <= 32 for IPv4 address\n");
 			return -EINVAL;
 		}
 		else if (addr->mask_length == 0) {
@@ -78,7 +76,7 @@ static int extract_ip_mask(char *src, struct qos_filters *addr)
 	}
 	else if (addr->address.ss_family == AF_INET6) {
 		if (addr->mask_length > 128) {
-			ioss_dev_err(NULL, "[ioss qos] : Mask must be <= 128 for IPv6 address\n");
+			ioss_qos_dev_err(NULL, "[ioss qos] : Mask must be <= 128 for IPv6 address\n");
 			return -EINVAL;
 		}
 		else if (addr->mask_length == 0) {
@@ -86,7 +84,7 @@ static int extract_ip_mask(char *src, struct qos_filters *addr)
 		}
 	}
 	else {
-		ioss_dev_err(NULL, "[ioss qos] : Neither IPv4 or IPv6 address\n");
+		ioss_qos_dev_err(NULL, "[ioss qos] : Neither IPv4 or IPv6 address\n");
 		return -EINVAL;
 	}
 
@@ -103,7 +101,6 @@ static int extract_proto_port(char *src, struct qos_filters *addr)
 	*/
 	src[strlen(src) - 1] = '\0';
 	while ( (token = strsep(&src, "/")) ) {
-		pr_debug("%s : %s : %s\n", __func__, src, token);
 		if (isalpha(token[0])) {
 			addr->proto = kstrdup(token, GFP_KERNEL);
 		}
@@ -127,7 +124,6 @@ static int extract_qos_filters(char *src, struct qos_filters *addr)
 	* into <IP>/<Mask>  and  <Protocol>/<Port>]
 	*/
 	while ( (token = strsep(&src, "[")) ) {
-		pr_debug("%s : %s : %s\n", __func__, src, token);
 		if (0 == strlen(token)) // Fix for invalid ip
 			continue;
 		if (token[strlen(token) - 1] == ']') {
@@ -204,52 +200,39 @@ static void copy_rx_node(struct qos_routing_rx *src, struct qos_routing_rx *dest
 	size_t i = 0;
 	size_t j = 0;
 
-	pr_debug("[ioss qos] %s : copying prio = %u\n", __func__, src->tc_prio);
-
 	dest->tc_prio = src->tc_prio;
 	dest->committed = src->committed;
 	dest->action = src->action;
-	pr_debug("[ioss qos] %s : copied tc_prio, committed, action\n", __func__);
 
 	dest->pcp.len = src->pcp.len;
 	dest->pcp.arr = kzalloc(sizeof(u8) * dest->pcp.len, GFP_KERNEL);
 	for (i = 0; i < src->pcp.len; i++)
 		dest->pcp.arr[i] = src->pcp.arr[i];
-	pr_debug("[ioss qos] %s : copied pcp\n", __func__);
 
 	dest->vlan_ids.len = src->vlan_ids.len;
 	dest->vlan_ids.arr = kzalloc(sizeof(u16) * dest->vlan_ids.len, GFP_KERNEL);
 	for (i = 0; i < src->vlan_ids.len; i++)
 		dest->vlan_ids.arr[i] = src->vlan_ids.arr[i];
-	pr_debug("[ioss qos] %s : copied vlan\n", __func__);
 
 	dest->src.len = src->src.len;
 	dest->src.arr = kzalloc(sizeof(struct qos_filters) * dest->src.len, GFP_KERNEL);
 	for (i = 0; i < src->src.len; i++) {
-		pr_debug("[ioss qos] %s : memcopying src %lu\n", __func__, i);
 		memcpy(&dest->src.arr[i].address, &src->src.arr[i].address, sizeof(dest->src.arr[i].address));
-		pr_debug("[ioss qos] %s : copying address %lu\n", __func__, i);
 		dest->src.arr[i].mask_length = src->src.arr[i].mask_length;
-		pr_debug("[ioss qos] %s : copying src mask %lu\n", __func__, i);
 		dest->src.arr[i].port_num = src->src.arr[i].port_num;
-		pr_debug("[ioss qos] %s : copying src port_num %lu\n", __func__, i);
 		if (src->src.arr[i].proto != NULL)
 			dest->src.arr[i].proto = kstrdup(src->src.arr[i].proto, GFP_KERNEL);
-		pr_debug("[ioss qos] %s : copying src proto %lu\n", __func__, i);
 	}
-	pr_debug("[ioss qos] %s : copied src\n", __func__);
 
 	dest->dst.len = src->dst.len;
 	dest->dst.arr = kzalloc(sizeof(struct qos_filters) * dest->dst.len, GFP_KERNEL);
 	for (i = 0; i < src->dst.len; i++) {
-		pr_debug("[ioss qos] %s : memcopying dst %lu\n", __func__, i);
 		memcpy(&dest->dst.arr[i].address, &src->dst.arr[i].address, sizeof(dest->dst.arr[i].address));
 		dest->dst.arr[i].mask_length = src->dst.arr[i].mask_length;
 		dest->dst.arr[i].port_num = src->dst.arr[i].port_num;
 		if (src->dst.arr[i].proto != NULL)
 			dest->dst.arr[i].proto = kstrdup(src->dst.arr[i].proto, GFP_KERNEL);
 	}
-	pr_debug("[ioss qos] %s : copied dst\n", __func__);
 
 	dest->smac.len = src->smac.len;
 	dest->smac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * dest->smac.len, GFP_KERNEL);
@@ -257,7 +240,6 @@ static void copy_rx_node(struct qos_routing_rx *src, struct qos_routing_rx *dest
 		for (j = 0; j < ETH_ALEN; j++)
 			dest->smac.arr[i][j] = src->smac.arr[i][j];
 	}
-	pr_debug("[ioss qos] %s : copied smac\n", __func__);
 
 	dest->dmac.len = src->dmac.len;
 	dest->dmac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * dest->dmac.len, GFP_KERNEL);
@@ -265,7 +247,6 @@ static void copy_rx_node(struct qos_routing_rx *src, struct qos_routing_rx *dest
 		for (j = 0; j < ETH_ALEN; j++)
 			dest->dmac.arr[i][j] = src->dmac.arr[i][j];
 	}
-	pr_debug("[ioss qos] %s : copied dmac\n", __func__);
 }
 
 static void copy_rx_table(struct list_head *src, struct list_head *dest)
@@ -460,7 +441,7 @@ static ssize_t store_add_tc(struct device *dev,
 				goto add_err;
 			// Check if mandatory action param is provided
 			if (ioss_qos_new_nodes.rx_node->action == NOT_DEFINED) {
-				ioss_dev_err(NULL, "[ioss qos] action is a mandatory parameter\n");
+				ioss_qos_dev_err(NULL, "[ioss qos] action is a mandatory parameter\n");
 				goto add_err;
 			}
 			add_rx_tc_by_priority(ioss_qos_new_nodes.rx_node);
@@ -469,7 +450,7 @@ static ssize_t store_add_tc(struct device *dev,
 		else {
 			// Check if same prio already exists
 			if (rx_tc_already_exists(prio)) {
-				ioss_dev_err(NULL, "[ioss qos] : rx tc prio already exists");
+				ioss_qos_dev_err(NULL, "[ioss qos] : rx tc prio already exists");
 				goto add_err;
 			}
 			ioss_qos_new_nodes.rx_node = kzalloc(sizeof(struct qos_routing_rx), GFP_KERNEL);
@@ -482,7 +463,7 @@ static ssize_t store_add_tc(struct device *dev,
 				goto add_err;
 			// Check if mandatory action param is provided
 			if (ioss_qos_new_nodes.tx_node->action == NOT_DEFINED) {
-				ioss_dev_err(NULL, "[ioss qos] action is mandatory parameter\n");
+				ioss_qos_dev_err(NULL, "[ioss qos] action is mandatory parameter\n");
 				goto add_err;
 			}
 			add_tx_tc_by_priority(ioss_qos_new_nodes.tx_node);
@@ -491,7 +472,7 @@ static ssize_t store_add_tc(struct device *dev,
 		else {
 			// Check if same prio already exists
 			if (tx_tc_already_exists(prio)) {
-				ioss_dev_err(NULL, "[ioss qos] : tx tc prio already exists");
+				ioss_qos_dev_err(NULL, "[ioss qos] : tx tc prio already exists");
 				goto add_err;
 			}
 			ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
@@ -504,17 +485,17 @@ static ssize_t store_add_tc(struct device *dev,
 	return size;
 
 add_err:
-	ioss_dev_err(NULL, "[qos ioss] add tc failed\n");
+	ioss_qos_dev_err(NULL, "[qos ioss] add tc failed\n");
 	kfree(tmp);
 	if (ioss_qos_new_nodes.rx_node) {
 		clean_rx_node(ioss_qos_new_nodes.rx_node);
 		ioss_qos_new_nodes.rx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add_tc failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add_tc failure\n");
 	}
 	else if (ioss_qos_new_nodes.tx_node) {
 		kfree(ioss_qos_new_nodes.tx_node);
 		ioss_qos_new_nodes.tx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned tx node due to add_tc failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned tx node due to add_tc failure\n");
 	}
 	return -EINVAL;
 }
@@ -560,24 +541,19 @@ static ssize_t store_qos_table(struct device *dev,
 	struct ioss_interface *iface = NULL;
 	struct ioss_device *idev = NULL;
 
-	pr_debug("[ioss qos] : converting to parent device\n");
 	parent = kobj_to_dev(dev->kobj.parent);
 
-	pr_debug("[ioss qos] : checking if parent is not NULL\n");
 	if (!parent)
 		return -EINVAL;
 
-	pr_debug("[ioss qos] : extracting parent netdev\n");
 	net_dev = to_net_dev(parent);
 	if (!net_dev)
 		return -EINVAL;
 
-	pr_debug("[ioss qos] : extracting iface\n");
 	iface = ioss_netdev_to_iface(net_dev);
 	if (!iface)
 		return -EINVAL;
 
-	pr_debug("[ioss qos] : extracting idev\n");
 	idev = ioss_iface_dev(iface);
 	if(!idev)
 		return -EINVAL;
@@ -591,7 +567,7 @@ static ssize_t store_qos_table(struct device *dev,
 		INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
 		copy_tx_table(&ioss_qos_table.qos_tx_committed_table, &ioss_qos_table.qos_tx_pending_table);
 
-		ioss_dev_log(NULL, "[ioss qos] : cleared pending nodes\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] : cleared pending nodes\n");
 
 		idev->clear_qos_hw = false;
 	}
@@ -604,12 +580,12 @@ static ssize_t store_qos_table(struct device *dev,
 		INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
 		copy_tx_table(&ioss_qos_table.qos_tx_committed_table, &ioss_qos_table.qos_tx_pending_table);
 
-		ioss_dev_log(NULL, "[ioss qos] : cleared pending nodes and set clear HW flag\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] : cleared pending nodes and set clear HW flag\n");
 
 		idev->clear_qos_hw = true;
 	}
 	else {
-		ioss_dev_err(NULL, "[ioss qos] : clear qos table : invalid argument\n");
+		ioss_qos_dev_err(NULL, "[ioss qos] : clear qos table : invalid argument\n");
 		return -EINVAL;
 	}
 
@@ -671,7 +647,7 @@ static ssize_t store_del_tc(struct device *dev,
 
 	if (is_dir_rx) {
 		if (!rx_tc_already_exists(prio)) {
-			ioss_dev_err(NULL, "[ioss qos] : entered tc priority not present in rx table\n");
+			ioss_qos_dev_err(NULL, "[ioss qos] : entered tc priority not present in rx table\n");
 			return -EINVAL;
 		}
 
@@ -686,7 +662,7 @@ static ssize_t store_del_tc(struct device *dev,
 	}
 	else {
 		if (!tx_tc_already_exists(prio)) {
-			ioss_dev_err(NULL, "[ioss qos] : entered tc priority not present in tx table\n");
+			ioss_qos_dev_err(NULL, "[ioss qos] : entered tc priority not present in tx table\n");
 			return -EINVAL;
 		}
 
@@ -703,7 +679,7 @@ static ssize_t store_del_tc(struct device *dev,
 
 	return size;
 del_err:
-	ioss_dev_err(NULL, "[qos ioss] del tc failed\n");
+	ioss_qos_dev_err(NULL, "[qos ioss] del tc failed\n");
 	kfree(tmp);
 	return -EINVAL;
 }
@@ -739,35 +715,27 @@ static ssize_t store_commit(struct device *dev,
 	u8 rx_qos_channels = 0;
 	u8 tx_qos_channels = 0;
 
-	pr_debug("[ioss qos] : inside store_commit\n");
 	if (kstrtou8(user_buf, 10, &option) < 0)
 		return -EINVAL;
 	if (option != 1)
 		return -EINVAL;
 
-	pr_debug("[ioss qos] : converting to parent device\n");
 	parent = kobj_to_dev(dev->kobj.parent);
-
-	pr_debug("[ioss qos] : checking if parent is not NULL\n");
 	if (!parent)
 		return -EINVAL;
 
-	pr_debug("[ioss qos] : extracting parent netdev\n");
 	net_dev = to_net_dev(parent);
 	if (!net_dev)
 		return -EINVAL;
 
-	pr_debug("[ioss qos] : extracting iface\n");
 	iface = ioss_netdev_to_iface(net_dev);
 	if (!iface)
 		return -EINVAL;
 
-	pr_debug("[ioss qos] : extracting idev\n");
 	idev = ioss_iface_dev(iface);
 	if(!idev)
 		return -EINVAL;
 
-	pr_debug("[ioss qos] : extracting ioss driver\n");
 	idrv = to_ioss_driver(idev->dev.driver);
 	if (!idrv)
 		return -EINVAL;
@@ -779,9 +747,9 @@ static ssize_t store_commit(struct device *dev,
 
 	if (has_qos_table_changed() == false) {
 		if (idev->clear_qos_hw == true) {
-			ioss_dev_log(NULL, "[ioss qos] : deleting qos tables and clearing qos filters from HW\n");
+			ioss_qos_dev_log(idev, "[ioss qos] : deleting qos tables and clearing qos filters from HW\n");
 			ret = idrv->qos_ops->clear_qos(idev);
-			ioss_dev_log(NULL, "[ioss qos] : clear_qos returned %d\n", ret);
+			ioss_qos_dev_log(idev, "[ioss qos] : clear_qos returned %d\n", ret);
 
 			delete_rx_table(&ioss_qos_table.qos_rx_pending_table);
 			INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
@@ -797,12 +765,12 @@ static ssize_t store_commit(struct device *dev,
 			idev->qos_enabled = false;
 			disable_qos_ipa_channels(idev);
 			memset(&idev->curr_qos_config, 0, sizeof(idev->curr_qos_config));
-			ioss_dev_log(NULL, "[ioss qos] : qos disabled\n");
+			ioss_qos_dev_log(idev, "[ioss qos] : qos disabled\n");
 
 			return size;
 		}
 		else {
-			ioss_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
+			ioss_qos_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
 			return -EINVAL;
 		}
 	}
@@ -821,18 +789,18 @@ static ssize_t store_commit(struct device *dev,
 #if IPA_ETH_API_VER >= 4
 	ret = ipa_eth_get_config_type(ct, inst_id, ipa_config);
 	if (ret) {
-		ioss_dev_err(idev, "Failed to get IPA config for %u.%u", ct, inst_id);
+		ioss_qos_dev_err(idev, "Failed to get IPA config for %u.%u", ct, inst_id);
 		return ret;
 	}
 #endif
 	iface->ipa_config = ipa_config->config;
-	ioss_dev_log(idev, "[ioss qos] : IPA config = %s", iface->ipa_config);
+	ioss_qos_dev_log(idev, "[ioss qos] : IPA config = %s", iface->ipa_config);
 
 	if (strnstr(iface->ipa_config, "qos", IPA_ETH_CONFIG_LEN)) {
-		ioss_dev_log(idev, "[ioss qos] : Setting IOSS-IPA config to QOS");
+		ioss_qos_dev_log(idev, "[ioss qos] : Setting IOSS-IPA config to QOS");
 	}
 	else {
-		ioss_dev_err(idev, "[ioss qos] : Received default/invalid IPA config. EMAC QOS Failed, routing all traffic to BE");
+		ioss_qos_dev_err(idev, "[ioss qos] : Received default/invalid IPA config. EMAC QOS Failed, routing all traffic to BE");
 		return -EINVAL;
 	}
 
@@ -847,29 +815,27 @@ static ssize_t store_commit(struct device *dev,
 
 	idev->qos_rx_channels = rx_qos_channels;
 	idev->qos_tx_channels = tx_qos_channels;
-	ioss_dev_log(NULL, "[ioss qos] : set idev qos_rx_channels=%u and qos_tx_channels=%u",
+	ioss_qos_dev_log(idev, "[ioss qos] : set idev qos_rx_channels=%u and qos_tx_channels=%u",
 			 idev->qos_rx_channels, idev->qos_tx_channels);
 
 	// idev ops
-	pr_debug("[ioss qos] : calling glue prepare qos function\n");
 	if (idrv->qos_ops->prepare_qos) {
 		res = idrv->qos_ops->prepare_qos(idev, &ioss_qos_table.qos_rx_pending_table, &ioss_qos_table.qos_tx_pending_table);
-		ioss_dev_log(NULL, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
+		ioss_dev_log(idev, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
 					res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
 	}
 
 	if (res.qos_response_status == QOS_COMMIT_FAIL) {
-		ioss_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
+		ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
 		return -EINVAL;
 	}
 	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
-		ioss_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
+		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
 		return -EINVAL;
 	}
 
 	ret = enable_qos_ipa_channels(idev, res);
 
-	pr_debug("[ioss qos] : setting pending nodes to committed");
 	list_for_each(ptr, &ioss_qos_table.qos_rx_pending_table) {
 		rx_node = to_qos_routing_rx(ptr);
 		rx_node->committed = true;
@@ -879,7 +845,6 @@ static ssize_t store_commit(struct device *dev,
 		tx_node->committed = true;
 	}
 
-	pr_debug("[ioss qos] : copying pending to committed table");
 	if (!list_empty(&ioss_qos_table.qos_rx_committed_table)) {
 		delete_rx_table(&ioss_qos_table.qos_rx_committed_table);
 		INIT_LIST_HEAD(&ioss_qos_table.qos_rx_committed_table);
@@ -902,7 +867,7 @@ static ssize_t store_commit(struct device *dev,
 		idev->curr_qos_config.is_tx_tc_sw[i] = res.qos_pipe_mapping.is_tx_tc_sw[i];
 		idev->curr_qos_config.pipe_to_tc_mapping_tx[i] = res.qos_pipe_mapping.pipe_to_tc_mapping_tx[i];
 	}
-	ioss_dev_log(NULL, "[ioss qos] : set idev->qos_enabled to true\n");
+	ioss_qos_dev_log(idev, "[ioss qos] : set idev->qos_enabled to true\n");
 
 	return size;
 }
@@ -977,17 +942,17 @@ static ssize_t store_action(struct device *dev,
 	return size;
 
 action_err:
-	ioss_dev_err(NULL, "[ioss qos] : invalid direction/action pair entered\n");
+	ioss_qos_dev_err(NULL, "[ioss qos] : invalid direction/action pair entered\n");
 	kfree(tmp);
 	if (ioss_qos_new_nodes.rx_node) {
 		clean_rx_node(ioss_qos_new_nodes.rx_node);
 		ioss_qos_new_nodes.rx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add action failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add action failure\n");
 	}
 	else if (ioss_qos_new_nodes.tx_node) {
 		kfree(ioss_qos_new_nodes.tx_node);
 		ioss_qos_new_nodes.tx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned tx node due to add action failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned tx node due to add action failure\n");
 	}
 	return -EINVAL;
 }
@@ -1035,28 +1000,28 @@ static ssize_t store_bw(struct device *dev,
 	kfree(tmp);
 
 	if (!is_valid_bw(ioss_qos_new_nodes.tx_node->cbs_bw.low_bw)) {
-		ioss_dev_err(NULL, "[ioss qos] Low BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
+		ioss_qos_dev_err(NULL, "[ioss qos] Low BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
 		goto bw_err;
 	}
 
 	if (!is_valid_bw(ioss_qos_new_nodes.tx_node->cbs_bw.high_bw)) {
-		ioss_dev_err(NULL, "[ioss qos] High BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
+		ioss_qos_dev_err(NULL, "[ioss qos] High BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
 		goto bw_err;
 	}
 
 	if (ioss_qos_new_nodes.tx_node->cbs_bw.low_bw > ioss_qos_new_nodes.tx_node->cbs_bw.high_bw) {
-		ioss_dev_err(NULL, "[ioss qos] Low BW must be <= High BW\n");
+		ioss_qos_dev_err(NULL, "[ioss qos] Low BW must be <= High BW\n");
 		goto bw_err;
 	}
 
 	return size;
 
 bw_err:
-	ioss_dev_err(NULL, "[ioss qos] : invalid direction/action pair entered\n");
+	ioss_qos_dev_err(NULL, "[ioss qos] : invalid direction/action pair entered\n");
 	if (ioss_qos_new_nodes.tx_node) {
 		kfree(ioss_qos_new_nodes.tx_node);
 		ioss_qos_new_nodes.tx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned tx node due to add bw failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned tx node due to add bw failure\n");
 	}
 	return -EINVAL;
 }
@@ -1106,11 +1071,11 @@ static ssize_t store_pcp(struct device *dev,
 	return size;
 
 pcp_err:
-	ioss_dev_err(NULL, "[qos ioss] : invalid pcp value entered\n");
+	ioss_qos_dev_err(NULL, "[qos ioss] : invalid pcp value entered\n");
 	if (ioss_qos_new_nodes.rx_node) {
 		clean_rx_node(ioss_qos_new_nodes.rx_node);
 		ioss_qos_new_nodes.rx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add pcp failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add pcp failure\n");
 	}
 	kfree(tmp);
 	return -EINVAL;
@@ -1161,11 +1126,11 @@ static ssize_t store_vlan_id(struct device *dev,
 	return size;
 
 vlan_err:
-	ioss_dev_err(NULL, "[qos ioss] : invalid vlan id entered \n");
+	ioss_qos_dev_err(NULL, "[qos ioss] : invalid vlan id entered \n");
 	if (ioss_qos_new_nodes.rx_node) {
 		clean_rx_node(ioss_qos_new_nodes.rx_node);
 		ioss_qos_new_nodes.rx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add vlan id failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add vlan id failure\n");
 	}
 	kfree(tmp);
 	return -EINVAL;
@@ -1206,7 +1171,6 @@ static ssize_t store_src(struct device *dev,
 	while ( (src = strsep(&buf, " ")) ) {
 		if (0 == strlen(src))
 			continue;
-		pr_debug("%s : %s", __func__, src);
 		if (extract_qos_filters(src, &(ioss_qos_new_nodes.rx_node->src.arr[i])))
 			goto src_err;
 		i++;
@@ -1219,7 +1183,7 @@ src_err:
 	if (ioss_qos_new_nodes.rx_node) {
 		clean_rx_node(ioss_qos_new_nodes.rx_node);
 		ioss_qos_new_nodes.rx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add src failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add src failure\n");
 	}
 	kfree(tmp);
 	return -EINVAL;
@@ -1259,7 +1223,6 @@ static ssize_t store_dst(struct device *dev,
 	while ( (src = strsep(&buf, " ")) ) {
 		if (0 == strlen(src))
 			continue;
-		pr_debug("%s : %s", __func__, src);
 		if (extract_qos_filters(src, &(ioss_qos_new_nodes.rx_node->dst.arr[i])))
 			goto dst_err;
 		i++;
@@ -1272,7 +1235,7 @@ dst_err:
 	if (ioss_qos_new_nodes.rx_node) {
 		clean_rx_node(ioss_qos_new_nodes.rx_node);
 		ioss_qos_new_nodes.rx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add dst failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add dst failure\n");
 	}
 	kfree(tmp);
 	return -EINVAL;
@@ -1312,7 +1275,7 @@ static ssize_t store_smac(struct device *dev,
 		if (0 == strlen(mac))
 			continue;
 		if (!mac_pton(mac, ioss_qos_new_nodes.rx_node->smac.arr[i])) {
-			ioss_dev_err(NULL, "[ioss qos] : invalid smac address entered\n");
+			ioss_qos_dev_err(NULL, "[ioss qos] : invalid smac address entered\n");
 			goto smac_err;
 		}
 		i++;
@@ -1326,7 +1289,7 @@ smac_err:
 	if (ioss_qos_new_nodes.rx_node) {
 		clean_rx_node(ioss_qos_new_nodes.rx_node);
 		ioss_qos_new_nodes.rx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add smac failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add smac failure\n");
 	}
 	return -EINVAL;
 }
@@ -1365,7 +1328,7 @@ static ssize_t store_dmac(struct device *dev,
 		if (0 == strlen(mac))
 			continue;
 		if (!mac_pton(mac, ioss_qos_new_nodes.rx_node->dmac.arr[i])) {
-			ioss_dev_err(NULL, "[ioss qos] : invalid dmac address entered\n");
+			ioss_qos_dev_err(NULL, "[ioss qos] : invalid dmac address entered\n");
 			goto dmac_err;
 		}
 		i++;
@@ -1379,7 +1342,7 @@ dmac_err:
 	if (ioss_qos_new_nodes.rx_node) {
 		clean_rx_node(ioss_qos_new_nodes.rx_node);
 		ioss_qos_new_nodes.rx_node = NULL;
-		ioss_dev_log(NULL, "[ioss qos] cleaned rx node due to add dmac failure\n");
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add dmac failure\n");
 	}
 	return -EINVAL;
 }
@@ -1425,7 +1388,7 @@ int create_qos_sysfs_nodes(struct device *dev)
 
 	qos_kobj = kobject_create_and_add("qos", &idev->net_dev->dev.kobj);
 	if (!qos_kobj) {
-		ioss_dev_err(idev, "Unable to create qos kobject");
+		ioss_qos_dev_err(idev, "Unable to create qos kobject");
 		goto err_qos_sysfs;
 	}
 
@@ -1436,7 +1399,7 @@ int create_qos_sysfs_nodes(struct device *dev)
 
 	qos_tc_params_kobj = kobject_create_and_add("add_tc_params", qos_kobj);
 	if (!qos_tc_params_kobj) {
-		ioss_dev_err(idev, "Unable to create qos-add_tc_params kobject");
+		ioss_qos_dev_err(idev, "Unable to create qos-add_tc_params kobject");
 		goto err_qos_sysfs;
 	}
 
@@ -1501,41 +1464,41 @@ static int ioss_parse_qos_channel(struct ioss_device *idev,
 
 	key = kstrdup("qcom,ring-size", GFP_KERNEL);
 	if (of_property_read_u32(np, key, &ch->default_config.ring_size)) {
-		ioss_dev_err(idev, "Failed to parse key %s", key);
+		ioss_qos_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 	kfree(key);
 
 	key = kstrdup("qcom,buff-size", GFP_KERNEL);
 	if (of_property_read_u32(np, key, &ch->default_config.buff_size)) {
-		ioss_dev_err(idev, "Failed to parse key %s", key);
+		ioss_qos_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 	kfree(key);
 
 	key = kstrdup("qcom,mod-count-min", GFP_KERNEL);
 	if (of_property_read_u32(np, key, &ch->event.mod_count_min)) {
-		ioss_dev_err(idev, "Failed to parse key %s", key);
+		ioss_qos_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 	kfree(key);
 
 	key = kstrdup("qcom,mod-count-max", GFP_KERNEL);
 	if (of_property_read_u32(np, key, &ch->event.mod_count_max)) {
-		ioss_dev_err(idev, "Failed to parse key %s", key);
+		ioss_qos_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 	kfree(key);
 
 	key = kstrdup("qcom,mod-usecs-min", GFP_KERNEL);
 	if (of_property_read_u32(np, key, &ch->event.mod_usecs_min)) {
-		ioss_dev_err(idev, "Failed to parse key %s", key);
+		ioss_qos_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 
 	key = kstrdup("qcom,mod-usecs-max", GFP_KERNEL);
 	if (of_property_read_u32(np, key, &ch->event.mod_usecs_max)) {
-		ioss_dev_err(idev, "Failed to parse key %s", key);
+		ioss_qos_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
 	kfree(key);
@@ -1554,7 +1517,7 @@ static int ioss_parse_qos_channel(struct ioss_device *idev,
 
 	list_add_tail(&ch->node, &iface->channels);
 
-	ioss_dev_log(NULL, "Alloc new channel with direction = %d bitmask = %x ch_num=%d",
+	ioss_qos_dev_log(NULL, "Alloc new channel with direction = %d bitmask = %x ch_num=%d",
 				ch->direction, ch->tc_mapping, ch->channel_num);
 
 	return 0;
@@ -1579,11 +1542,11 @@ int ioss_alloc_qos_ch(struct ioss_device *idev, struct response resp)
 
 	/* Allocate QOS channels */
 	for (i = resp.num_tx_pipes - 1; i >= 0; i--) {
-		ioss_dev_log(NULL, "[ioss] tx, bmap=%X, ch_num=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i], i);
+		ioss_qos_dev_log(NULL, "[ioss] tx, bmap=%X, ch_num=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i], i);
 		if (resp.qos_pipe_mapping.is_tx_tc_sw[i] || resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i] == 0)
 			continue;
 		if (ioss_parse_qos_channel(idev, n, resp.qos_pipe_mapping.pipe_to_tc_mapping_tx[i], i)) {
-			ioss_dev_err(idev, "Failed to parse qos tx channel[%d]", i);
+			ioss_qos_dev_err(idev, "Failed to parse qos tx channel[%d]", i);
 			goto err;
 		}
 	}
@@ -1592,11 +1555,11 @@ int ioss_alloc_qos_ch(struct ioss_device *idev, struct response resp)
 
 	/* Allocate QOS channels */
 	for (i = resp.num_rx_pipes - 1; i >= 0; i--) {
-		ioss_dev_log(NULL, "[ioss qos] rx, bmap=%X, ch_num=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i], i);
+		ioss_qos_dev_log(NULL, "[ioss qos] rx, bmap=%X, ch_num=%d\n", resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i], i);
 		if (resp.qos_pipe_mapping.is_rx_tc_sw[i] || resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i] == 0)
 			continue;
 		if (ioss_parse_qos_channel(idev, n, resp.qos_pipe_mapping.pipe_to_tc_mapping_rx[i], i)) {
-			ioss_dev_err(idev, "Failed to parse qos rx channel[%d]", i);
+			ioss_qos_dev_err(idev, "Failed to parse qos rx channel[%d]", i);
 			goto err;
 		}
 	}
@@ -1612,7 +1575,7 @@ static bool ioss_ipa_reconnect_required(struct ioss_device *idev, struct respons
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(resp->qos_pipe_mapping.is_rx_tc_sw); i++) {
-		ioss_dev_log(idev, "ch_rx = %d, is_sw = %d -> %d, bmap = %u -> %u \n",
+		ioss_qos_dev_log(idev, "ch_rx = %d, is_sw = %d -> %d, bmap = %u -> %u \n",
 			i, idev->curr_qos_config.is_rx_tc_sw[i], resp->qos_pipe_mapping.is_rx_tc_sw[i],
 			idev->curr_qos_config.pipe_to_tc_mapping_rx[i], resp->qos_pipe_mapping.pipe_to_tc_mapping_rx[i]);
 		if (resp->qos_pipe_mapping.is_rx_tc_sw[i])
@@ -1622,7 +1585,7 @@ static bool ioss_ipa_reconnect_required(struct ioss_device *idev, struct respons
 	}
 
 	for (i = 0; i < ARRAY_SIZE(resp->qos_pipe_mapping.is_tx_tc_sw); i++) {
-		ioss_dev_log(idev, "ch_tx = %d, is_sw = %d -> %d, bmap = %u -> %u \n",
+		ioss_qos_dev_log(idev, "ch_tx = %d, is_sw = %d -> %d, bmap = %u -> %u \n",
 			i, idev->curr_qos_config.is_tx_tc_sw[i], resp->qos_pipe_mapping.is_tx_tc_sw[i],
 			idev->curr_qos_config.pipe_to_tc_mapping_tx[i], resp->qos_pipe_mapping.pipe_to_tc_mapping_tx[i]);
 
@@ -1651,7 +1614,7 @@ int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 	if (do_ipa_reconnect) {
 		idev->dev.offline = 1;
 		ioss_iface_queue_refresh(iface, true);
-		ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+		ioss_qos_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 	}
 
 	idrv = to_ioss_driver(idev->dev.driver);
@@ -1665,7 +1628,7 @@ int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 
 		idev->dev.offline = 0;
 		ioss_iface_queue_refresh(iface, true);
-		ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+		ioss_qos_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 	}
 
 	ret = idrv->qos_ops->enable_qos(idev);
@@ -1679,13 +1642,13 @@ void disable_qos_ipa_channels(struct ioss_device *idev)
 
 	idev->dev.offline = 1;
 	ioss_iface_queue_refresh(iface, true);
-	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+	ioss_qos_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
 	delete_qos_channels(iface);
 
 	idev->dev.offline = 0;
 	ioss_iface_queue_refresh(iface, true);
-	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
+	ioss_qos_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 }
 
 int ioss_request_qos(struct ioss_device *idev)
