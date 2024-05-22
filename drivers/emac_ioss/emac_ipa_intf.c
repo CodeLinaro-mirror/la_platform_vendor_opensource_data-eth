@@ -568,6 +568,15 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		return NULL;
 	}
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
+	/*
+	  To increase the power consumer count so that to avoid disabling
+	  the power before IPA channels gets disconnected.
+	 */
+	 if (priv->plat->enable_power_saving)
+		priv->plat->enable_power_saving(channel_input->ndev, false);
+#endif
+
 	channel->buf_size = channel_input->buf_size;
 	channel->client_ch_priv = channel_input->client_ch_priv;
 	channel->desc_cnt = channel_input->desc_cnt;
@@ -677,6 +686,12 @@ err_buff_pool_va_mem_alloc:
 	channel->desc_addr.desc_dma_addrs_base = 0;
 	kfree(channel);
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
+	//This will decrement the power consumer count.
+	if(priv->plat->enable_power_saving)
+		priv->plat->enable_power_saving(priv->dev, true);
+#endif
+
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(request_channel);
@@ -756,6 +771,12 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	kfree(channel->buff_pool_addr.buff_pool_dma_addrs_base);
 	channel->desc_addr.desc_dma_addrs_base = 0;
 	kfree(channel);
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
+	//This will decrement the power consumer count.
+	if(priv->plat->enable_power_saving)
+		priv->plat->enable_power_saving(priv->dev, true);
+#endif
 
 	return 0;
 }

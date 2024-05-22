@@ -50,8 +50,9 @@ static void ioss_ipa_notify_cb(void *priv,
 	struct ioss_channel *ch = priv;
 	struct sk_buff *skb = (struct sk_buff *)data;
 	struct ioss_interface *iface = ch->iface;
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
 	struct rtnl_link_stats64 netdev_stats;
-
+#endif
 	if (evt != IPA_RECEIVE)
 		return;
 
