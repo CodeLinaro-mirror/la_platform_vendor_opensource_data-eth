@@ -127,6 +127,7 @@ struct ioss_qos_ops {
 	int (*request_qos)(struct ioss_device *idev);
 	int (*enable_qos)(struct ioss_device *idev);
 	int (*clear_qos)(struct ioss_device *idev);
+    ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
 };
 
 #define create_qos_sysfs_node(idev, qos_kobj, qos_node, uid, gid, qos_sysfs_err) \

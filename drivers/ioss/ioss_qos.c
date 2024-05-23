@@ -522,141 +522,34 @@ add_err:
 static ssize_t show_qos_table(struct device *dev,
 		struct device_attribute *attr, char *user_buf)
 {
-	size_t i;
-	struct list_head *ptr = NULL;
-	char *table = NULL;
-	char *row = NULL;
-	const int ROW_BUFFER = 60;
-	const int TABLE_BUFFER = 4095;
-	struct qos_routing_rx *rx_node;
-	struct qos_routing_tx *tx_node;
-	struct sockaddr_storage *ss;
+	struct device *parent = NULL;
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_driver *idrv = NULL;
 
-	row = kzalloc(sizeof(char) * ROW_BUFFER, GFP_KERNEL);
-	table = kzalloc(sizeof(char) * TABLE_BUFFER, GFP_KERNEL);
+	parent = kobj_to_dev(dev->kobj.parent);
+	if (!parent)
+		return -EINVAL;
 
-	scnprintf(row, ROW_BUFFER, "\t\t\t\t# QOS Rx Committed Table #\n\n");
-	strlcat(table, row, TABLE_BUFFER);
-	list_for_each(ptr, &ioss_qos_table.qos_rx_committed_table) {
-		rx_node = to_qos_routing_rx(ptr);
-		scnprintf(row, ROW_BUFFER, "\n\t%3u:\n", rx_node->tc_prio);
-		strlcat(table, row, TABLE_BUFFER);
+	net_dev = to_net_dev(parent);
+	if (!net_dev)
+		return -EINVAL;
 
-		scnprintf(row, ROW_BUFFER, "\t\tAction: %s\n", (rx_node->action == IOSS_QOS_HW_PATH)? "HW" : "SW");
-		strlcat(table, row, TABLE_BUFFER);
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
 
-		scnprintf(row, ROW_BUFFER, "\t\tPCP:\n");
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->pcp.len; i++) {
-			scnprintf(row, ROW_BUFFER, "\t\t\t%3u\n", rx_node->pcp.arr[i]);
-			strlcat(table, row, TABLE_BUFFER);
-		}
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
 
-		scnprintf(row, ROW_BUFFER, "\t\tVLAN:\n");
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->vlan_ids.len; i++) {
-			scnprintf(row, ROW_BUFFER, "\t\t\t%3u\n", rx_node->vlan_ids.arr[i]);
-			strlcat(table, row, TABLE_BUFFER);
-		}
+	idrv = to_ioss_driver(idev->dev.driver);
+	if (!idrv)
+		return -EINVAL;
 
-		scnprintf(row, ROW_BUFFER, "\t\tSRC:\n");
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->src.len; i++) {
-			ss = &rx_node->src.arr[i].address;
-			if (ss->ss_family == AF_INET) {
-				scnprintf(row, ROW_BUFFER, "\t\t\t%pI4/%u[%s/%u]\n",
-					&(((struct sockaddr_in *)ss)->sin_addr),
-					rx_node->src.arr[i].mask_length,
-					rx_node->src.arr[i].proto,
-					rx_node->src.arr[i].port_num);
-			}
-			else if (ss->ss_family == AF_INET6) {
-				scnprintf(row, ROW_BUFFER, "\t\t\t%pI6/%u[%s/%u]\n",
-					&(((struct sockaddr_in6 *)ss)->sin6_addr),
-					rx_node->src.arr[i].mask_length,
-					rx_node->src.arr[i].proto,
-					rx_node->src.arr[i].port_num);
-			}
-			else {
-				scnprintf(row, ROW_BUFFER, "\t\t\t[%s/%u]\n",
-					rx_node->src.arr[i].proto,
-					rx_node->src.arr[i].port_num);
-			}
-
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
-		scnprintf(row, ROW_BUFFER, "\t\tDST:\n");
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->dst.len; i++) {
-			ss = &rx_node->dst.arr[i].address;
-			if (ss->ss_family == AF_INET) {
-				scnprintf(row, ROW_BUFFER, "\t\t\t%pI4/%u[%s/%u]\n",
-					&(((struct sockaddr_in *)ss)->sin_addr),
-					rx_node->dst.arr[i].mask_length,
-					rx_node->dst.arr[i].proto,
-					rx_node->dst.arr[i].port_num);
-			}
-			else if (ss->ss_family == AF_INET6) {
-				scnprintf(row, ROW_BUFFER, "\t\t\t%pI6/%u[%s/%u]\n",
-					&(((struct sockaddr_in6 *)ss)->sin6_addr),
-					rx_node->dst.arr[i].mask_length,
-					rx_node->dst.arr[i].proto,
-					rx_node->dst.arr[i].port_num);
-			}
-			else {
-				scnprintf(row, ROW_BUFFER, "\t\t\t[%s/%u]\n",
-					rx_node->dst.arr[i].proto,
-					rx_node->dst.arr[i].port_num);
-			}
-
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
-		scnprintf(row, ROW_BUFFER, "\t\tSMAC:\n");
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->smac.len; i++) {
-			scnprintf(row, ROW_BUFFER, "\t\t\t%02x:%02x:%02x:%02x:%02x:%02x\n",
-					rx_node->smac.arr[i][0],
-					rx_node->smac.arr[i][1],
-					rx_node->smac.arr[i][2],
-					rx_node->smac.arr[i][3],
-					rx_node->smac.arr[i][4],
-					rx_node->smac.arr[i][5]);
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
-		scnprintf(row, ROW_BUFFER, "\t\tDMAC:\n");
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->dmac.len; i++) {
-			scnprintf(row, ROW_BUFFER, "\t\t\t%02x:%02x:%02x:%02x:%02x:%02x\n",
-					rx_node->dmac.arr[i][0],
-					rx_node->dmac.arr[i][1],
-					rx_node->dmac.arr[i][2],
-					rx_node->dmac.arr[i][3],
-					rx_node->dmac.arr[i][4],
-					rx_node->dmac.arr[i][5]);
-			strlcat(table, row, TABLE_BUFFER);
-		}
-	}
-
-	scnprintf(row, ROW_BUFFER, "\n\n\t\t\t\t# QOS Tx Committed Table #\n\n");
-	strlcat(table, row, TABLE_BUFFER);
-	list_for_each(ptr, &ioss_qos_table.qos_tx_committed_table) {
-		tx_node = to_qos_routing_tx(ptr);
-		scnprintf(row, ROW_BUFFER, "\t%3u:\n", tx_node->tc_prio);
-		strlcat(table, row, TABLE_BUFFER);
-
-		scnprintf(row, ROW_BUFFER, "\t\tAction: %s\n", (tx_node->action == IOSS_QOS_HW_PATH)? "HW" : "SW");
-		strlcat(table, row, TABLE_BUFFER);
-
-		scnprintf(row, ROW_BUFFER, "\t\tCBS BW:\n");
-		strlcat(table, row, TABLE_BUFFER);
-		scnprintf(row, ROW_BUFFER, "\t\t\t%u:%u\n", tx_node->cbs_bw.low_bw, tx_node->cbs_bw.high_bw);
-		strlcat(table, row, TABLE_BUFFER);
-	}
-
-	return snprintf(user_buf, TABLE_BUFFER, "%s\n", table);
+	return idrv->qos_ops->show_qos(idev, user_buf, &ioss_qos_table.qos_rx_committed_table,
+									&ioss_qos_table.qos_tx_committed_table);
 }
 
 static ssize_t store_qos_table(struct device *dev,
