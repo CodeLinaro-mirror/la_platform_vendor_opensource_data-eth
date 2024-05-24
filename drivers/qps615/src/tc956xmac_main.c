@@ -14953,15 +14953,16 @@ static void parse_config_file(uint8_t port_id, uint8_t dev_id)
 	int ret, i;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-	ret = kernel_read_file_from_path("config.ini", 0, &data, INT_MAX, NULL, READING_POLICY);
+	ret = kernel_read_file_from_path("/var/persist/config.ini", 0, &data, INT_MAX, NULL, READING_POLICY);
 #else
 	loff_t size;
 
-	ret = kernel_read_file_from_path("config.ini", &data, &size, 1000, READING_POLICY);
+	ret = kernel_read_file_from_path("/var/persist/config.ini", &data, &size, 1000, READING_POLICY);
 #endif
 	if (ret < 0) {
 		KPRINT_ERR("Mac configuration file not found\n");
-		KPRINT_INFO("Using Default MAC Address\n");
+		eth_random_addr(&dev_addr[tc956xmac_pm_usage_counter][0]);
+		KPRINT_INFO("tc956xmac_pm_usage_counter=%d\n",tc956xmac_pm_usage_counter);
 		return;
 	} else {
 
