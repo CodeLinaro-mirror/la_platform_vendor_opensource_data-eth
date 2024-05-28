@@ -28,7 +28,8 @@
 struct stmmac_resources {
 	void __iomem *addr;
 	u8 mac[ETH_ALEN];
-	int irq[MAX_NUM_CH];
+	int rx_irq[MAX_NUM_CH];
+	int tx_irq[MAX_NUM_CH];
 	u32 ch;
 };
 
@@ -116,6 +117,10 @@ struct stmmac_priv {
 	int (*mac_addr)(struct net_device *ndev);
 	/* lock for priv data */
 	struct mutex lock;
+
+	/* RX Queue and TX Queue Interrupts*/
+	int rx_irq[MAX_NUM_CH];
+	int tx_irq[MAX_NUM_CH];
 
 	/* RX Queue */
 	struct stmmac_rx_queue rx_queue;
