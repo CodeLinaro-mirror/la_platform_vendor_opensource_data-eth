@@ -4421,6 +4421,13 @@ static int tc956xmac_phy_setup(struct tc956xmac_priv *priv)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 16, 0)
 	/* Set the platform/firmware specified interface mode */
 	__set_bit(mode, priv->phylink_config.supported_interfaces);
+
+	/*If SGMII interface, add 2500BASEX also in supported interface as in some PHY,
+	* 2500Base-X and SGMII are used interchangeably
+	*/
+	if (mode == PHY_INTERFACE_MODE_SGMII)
+		__set_bit(PHY_INTERFACE_MODE_2500BASEX,  priv->phylink_config.supported_interfaces);
+
 #endif
 
 	phylink = phylink_create(&priv->phylink_config, fwnode,
