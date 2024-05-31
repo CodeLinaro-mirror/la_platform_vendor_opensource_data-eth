@@ -1651,7 +1651,7 @@ void disable_qos_ipa_channels(struct ioss_device *idev)
 	ioss_qos_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 }
 
-int ioss_request_qos(struct ioss_device *idev)
+int ioss_reconfigure_qos(struct ioss_device *idev)
 {
 	int ret = 0;
 	struct ioss_driver *idrv = NULL;
@@ -1660,6 +1660,7 @@ int ioss_request_qos(struct ioss_device *idev)
 	if (!idrv)
 		return -EINVAL;
 
+	ret = idrv->qos_ops->clear_qos_cache(idev);
 	ret = idrv->qos_ops->request_qos(idev);
 
 	return ret;

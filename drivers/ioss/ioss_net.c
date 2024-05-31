@@ -182,7 +182,7 @@ static void ioss_net_event_up(struct ioss_interface *iface,
 	}
 
 	if (idev->qos_enabled)
-		ioss_request_qos(idev);
+		ioss_reconfigure_qos(idev);
 
 	ioss_iface_queue_refresh(iface, false);
 
