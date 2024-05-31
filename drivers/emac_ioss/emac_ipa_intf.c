@@ -1862,6 +1862,7 @@ void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_t
 			stmmac_config_rx_queue(ndev, i, false);
 		}
           	stmmac_map_mtl_to_dma(priv, priv->hw, i, i);
+		priv->is_rx_sw[i] = true;
 	}
 
 	for (i = 2; i < priv->plat->tx_queues_to_use; i++) {
@@ -1874,6 +1875,8 @@ void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_t
 		else
 			priv->plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_DCB;
 		stmmac_configure_tx_queue(priv);
+		priv->is_tx_sw[i] = true;
+		priv->tx_ch_bw[i] = 0;
 	}
 }
 EXPORT_SYMBOL_GPL(stmmac_restore_dma_config);

@@ -1392,7 +1392,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				qos_tables.tx_routing_info[i].mode_to_use = MTL_QUEUE_DCB;
 			}
 
-			ioss_qos_dev_err(idev, "%s: acc_bw for ch %d = %d\n", __func__, i, qos_tables.tx_routing_info[i].acc_bw);
+			ioss_qos_dev_log(idev, "%s: acc_bw for ch %d = %d\n", __func__, i, qos_tables.tx_routing_info[i].acc_bw);
 			if (qos_tables.tx_routing_info[i].mode_to_use == MTL_QUEUE_AVB) {
 				switch (priv->plat->interface) {
 					case PHY_INTERFACE_MODE_RGMII:
@@ -1909,8 +1909,10 @@ static int stmmac_request_qos(struct ioss_device *idev)
 			if (is_sw != priv->is_rx_sw[i]) {
 				/* configure rx channel as HW */
 				if (!is_sw) {
-					config_rx_queue_path(ndev, i, true);
-					ioss_qos_dev_log(idev, "%s: Config channel %d as HW\n", __func__, i);
+					if (!priv->plat->rx_queues_cfg[i].skip_sw) {
+						config_rx_queue_path(ndev, i, true);
+						ioss_qos_dev_log(idev, "%s: Config channel %d as HW\n", __func__, i);
+					}
 				} else {
 					config_rx_queue_path(ndev, i, false);
 					ioss_qos_dev_log(idev, "%s: Config channel %d as SW\n", __func__, i);
@@ -1925,10 +1927,13 @@ static int stmmac_request_qos(struct ioss_device *idev)
 			is_sw = qos_tables.tx_channel_info[i] == IOSS_QOS_SW_PATH ? 1: 0;
 			if (is_sw != priv->is_tx_sw[i]) {
 				/* configure tx channel as HW */
-				if (!is_sw)
-					config_tx_queue_path(ndev, i, true);
-				else
+				if (!is_sw) {
+					if (!priv->plat->tx_queues_cfg[i].skip_sw)
+						config_tx_queue_path(ndev, i, true);
+				}
+				else {
 					config_tx_queue_path(ndev, i, false);
+				}
 				priv->is_tx_sw[i] = is_sw;
 			}
 			if (qos_tables.tx_routing_info[i].mode_to_use != priv->plat->tx_queues_cfg[i].mode_to_use) {
@@ -1978,13 +1983,47 @@ static int stmmac_clear_qos(struct ioss_device *idev)
 		return 0;
 
 	/*Go to previous pcp routing*/
-	if (priv->plat->rx_qos_queues_to_use > 3) {
+	if (priv->plat->rx_qos_queues_to_use >= 3) {
 		stmmac_restore_qos_queue_cfg(priv, &qos_tables);
 		if (priv->unique_filter_new != PCP) {
 			stmmac_remove_qos_filtering(ndev, &qos_tables);
 		}
 		stmmac_restore_dma_config(ndev, &qos_tables);
 		memset(&qos_tables, 0, sizeof(struct qos_struct));
+	}
+	return 0;
+}
+
+static int stmmac_clear_qos_cache(struct ioss_device *idev)
+{
+	struct net_device *ndev = idev->net_dev;
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	int i = 0;
+
+	if (priv->plat->qos_active) {
+		for (i = 0; i < 32; i++) {
+			priv->app_filters[i].action = IDX_UNUSED;
+		}
+
+		bool is_tx_sw[MTL_MAX_TX_QUEUES];
+		u32 tx_ch_bw[MTL_MAX_TX_QUEUES];
+
+		for (i = 0; i < priv->plat->rx_qos_queues_to_use; i++) {
+			priv->queue_dis[i] = false;
+			priv->queue_pcp_map[i] = qos_tables.backup_pcp_map[i];
+			if (i == 0)
+				priv->is_rx_sw[i] = false;
+			else
+				priv->is_rx_sw[i] = true;
+		}
+
+		for (i = 0; i < priv->plat->tx_qos_queues_to_use; i++) {
+			priv->tx_ch_bw[i] = 0;
+			if (i == 0)
+				priv->is_tx_sw[i] = false;
+			else
+				priv->is_tx_sw[i] = true;
+		}
 	}
 	return 0;
 }
@@ -2358,6 +2397,7 @@ static struct ioss_qos_ops stmmac_qos_ops = {
 	.enable_qos = stmmac_enable_qos,
 	.clear_qos = stmmac_clear_qos,
 	.show_qos = stmmac_show_qos,
+	.clear_qos_cache = stmmac_clear_qos_cache,
 };
 
 
