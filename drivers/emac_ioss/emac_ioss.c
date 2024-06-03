@@ -1100,7 +1100,6 @@ filter_found:
 
 static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx)
 {
-	enum qos_filter_type filter = INVALID_FILTER;
 	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
 	struct filter_map_info *filter_info;
 	int i = 0, j = 0, k = 0;
@@ -1312,9 +1311,9 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		if (pcp_not_unique) {
 			priv->unique_filter_new = find_filter(qos_rx);
 		} else {
-			filter = PCP;
+			priv->unique_filter_new = PCP;
 		}
-		
+
 		/*start tx aggr*/
 		qos_tables.ipa_qos_tx_ch = idev->qos_tx_channels;
 		num_tx_tc = stmmac_get_tx_tc_count(qos_tx, SW_HW_PATH);
@@ -1520,7 +1519,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 
 	/* Check if dma filter table changed */
 	/* IF filter table changed find the filters to be applied and deleted/modified */
-	if (filter != PCP) {
+	if (priv->unique_filter_new != PCP) {
 		ioss_qos_dev_log(idev, "%s: Printing new dma_filter_table\n", __func__);
 		list_for_each_entry(temp_filter_node, &qos_tables.dma_filter_table, node) {
 			switch (priv->unique_filter_new) {
@@ -1964,10 +1963,13 @@ static int stmmac_enable_qos(struct ioss_device *idev)
 	}
 	/* Cleanup the used tables */
 	if (priv->unique_filter_new != PCP) {
-		delete_filter_table(&qos_tables.dma_filter_table);
-		delete_filter_table(&qos_tables.flt_to_app);
+		if (&qos_tables.dma_filter_table)
+			delete_filter_table(&qos_tables.dma_filter_table);
+		if (&qos_tables.flt_to_app)
+			delete_filter_table(&qos_tables.flt_to_app);
 	}
-	delete_route_table(&qos_tables.pcp_route_table);
+	if (&qos_tables.pcp_route_table)
+		delete_route_table(&qos_tables.pcp_route_table);
 
 	return 0;
 }
