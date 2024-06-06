@@ -170,7 +170,7 @@ static int stmmac_mtl_setup(struct platform_device *pdev,
  * set some private fields that will be used by the main at runtime.
  */
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch)
+stmmac_thin_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct plat_stmmacenet_data *plat;
@@ -246,14 +246,14 @@ error_hw_init:
 
 #else
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, const char **mac)
+stmmac_thin_probe_config_dt(struct platform_device *pdev, const char **mac)
 {
 	return ERR_PTR(-EINVAL);
 }
 #endif /* CONFIG_OF */
-EXPORT_SYMBOL_GPL(stmmac_probe_config_dt);
+EXPORT_SYMBOL_GPL(stmmac_thin_probe_config_dt);
 
-int stmmac_get_platform_resources(struct platform_device *pdev,
+int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 				  struct stmmac_resources *stmmac_res)
 {
 	struct resource *res;
@@ -264,19 +264,35 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	/* Get IRQ information early to have an ability to ask for deferred
 	 * probe if needed before we went too far with resource allocation.
 	 */
-	stmmac_res->irq[0] = platform_get_irq_byname(pdev, "tx_rx_ch0_intr");
-	stmmac_res->irq[1] = platform_get_irq_byname(pdev, "tx_rx_ch1_intr");
-	stmmac_res->irq[2] = platform_get_irq_byname(pdev, "tx_rx_ch2_intr");
-	stmmac_res->irq[3] = platform_get_irq_byname(pdev, "tx_rx_ch3_intr");
-	stmmac_res->irq[4] = platform_get_irq_byname(pdev, "tx_rx_ch4_intr");
-	stmmac_res->irq[5] = platform_get_irq_byname(pdev, "tx_rx_ch5_intr");
-	stmmac_res->irq[6] = platform_get_irq_byname(pdev, "tx_rx_ch6_intr");
-	stmmac_res->irq[7] = platform_get_irq_byname(pdev, "tx_rx_ch7_intr");
+	stmmac_res->tx_irq[0] = platform_get_irq_byname(pdev, "tx_ch0_intr");
+	stmmac_res->tx_irq[1] = platform_get_irq_byname(pdev, "tx_ch1_intr");
+	stmmac_res->tx_irq[2] = platform_get_irq_byname(pdev, "tx_ch2_intr");
+	stmmac_res->tx_irq[3] = platform_get_irq_byname(pdev, "tx_ch3_intr");
+	stmmac_res->tx_irq[4] = platform_get_irq_byname(pdev, "tx_ch4_intr");
+	stmmac_res->tx_irq[5] = platform_get_irq_byname(pdev, "tx_ch5_intr");
+	stmmac_res->tx_irq[6] = platform_get_irq_byname(pdev, "tx_ch6_intr");
+	stmmac_res->tx_irq[7] = platform_get_irq_byname(pdev, "tx_ch7_intr");
+	stmmac_res->rx_irq[0] = platform_get_irq_byname(pdev, "rx_ch0_intr");
+	stmmac_res->rx_irq[1] = platform_get_irq_byname(pdev, "rx_ch1_intr");
+	stmmac_res->rx_irq[2] = platform_get_irq_byname(pdev, "rx_ch2_intr");
+	stmmac_res->rx_irq[3] = platform_get_irq_byname(pdev, "rx_ch3_intr");
+	stmmac_res->rx_irq[4] = platform_get_irq_byname(pdev, "rx_ch4_intr");
+	stmmac_res->rx_irq[5] = platform_get_irq_byname(pdev, "rx_ch5_intr");
+	stmmac_res->rx_irq[6] = platform_get_irq_byname(pdev, "rx_ch6_intr");
+	stmmac_res->rx_irq[7] = platform_get_irq_byname(pdev, "rx_ch7_intr");
+
 	for (i = 0; i < MAX_NUM_CH; i++) {
-		if (stmmac_res->irq[i] < 0) {
+		if (stmmac_res->tx_irq[i] < 0) {
 			dev_warn(&pdev->dev,
-				 "ch irq [%d] not configured\n", i);
-			stmmac_res->irq[i] = 0;
+				 "tx ch irq [%d] not configured\n", i);
+			stmmac_res->tx_irq[i] = 0;
+		}
+	}
+	for (i = 0; i < MAX_NUM_CH; i++) {
+		if (stmmac_res->rx_irq[i] < 0) {
+			dev_warn(&pdev->dev,
+				 "rx ch irq [%d] not configured\n", i);
+			stmmac_res->rx_irq[i] = 0;
 		}
 	}
 
@@ -296,7 +312,7 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	}
 	return PTR_ERR_OR_ZERO(stmmac_res->addr);
 }
-EXPORT_SYMBOL_GPL(stmmac_get_platform_resources);
+EXPORT_SYMBOL_GPL(stmmac_thin_get_platform_resources);
 
 /**
  * stmmac_pltfr_remove
@@ -304,19 +320,19 @@ EXPORT_SYMBOL_GPL(stmmac_get_platform_resources);
  * Description: this function calls the main to free the net resources
  * and calls the platforms hook and release the resources (e.g. mem).
  */
-int stmmac_pltfr_remove(struct platform_device *pdev)
+int stmmac_thin_pltfr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	struct plat_stmmacenet_data *plat = priv->plat;
-	int ret = stmmac_dvr_remove(&pdev->dev);
+	int ret = stmmac_thin_dvr_remove(&pdev->dev);
 
 	if (plat->exit)
 		plat->exit(pdev, plat->bsp_priv);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_pltfr_remove);
+EXPORT_SYMBOL_GPL(stmmac_thin_pltfr_remove);
 
 MODULE_DESCRIPTION("STMMAC 10/100/1000 Ethernet platform support");
 MODULE_AUTHOR("Giuseppe Cavallaro <peppe.cavallaro@st.com>");

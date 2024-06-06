@@ -44,7 +44,7 @@ include $(DLKM_DIR)/Build_external_kernelmodule.mk
 # as well if corresponding flags are added in KBUILD_OPTIONS from upper
 # level Makefiles.
 
-ifeq ($(call is-board-platform-in-list, gen4), true)
+ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm)
 ########################## emac_ctrl_fe_virtio ############################
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
@@ -59,8 +59,8 @@ include $(DLKM_DIR)/Build_external_kernelmodule.mk
 ################################ emac_shim ################################
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
-LOCAL_MODULE              := stmmac.ko
-LOCAL_MODULE_KBUILD_NAME  := drivers/emac_shim/stmmac.ko
+LOCAL_MODULE              := emac_thin.ko
+LOCAL_MODULE_KBUILD_NAME  := drivers/emac_shim/emac_thin.ko
 LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)

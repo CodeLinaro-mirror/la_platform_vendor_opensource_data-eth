@@ -1305,6 +1305,7 @@ static int stmmac_open(struct net_device *dev)
 static int stmmac_release(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
+	u32 ch = priv->queue;
 
 	dev_info(priv->device, "%s Enter\n", __func__);
 	priv->dev_inited = false;
@@ -1318,7 +1319,8 @@ static int stmmac_release(struct net_device *dev)
 		del_timer_sync(&priv->tx_queue.txtimer);
 
 	/* Free the IRQ line */
-	free_irq(dev->irq, dev);
+	free_irq(priv->rx_irq[ch], dev);
+	free_irq(priv->tx_irq[ch], dev);
 
 	/* Stop TX/RX DMA and clear the descriptors */
 	stmmac_stop_dma(priv);
@@ -2257,7 +2259,7 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 		return IRQ_NONE;
 	}
 
-	if (irq != dev->irq)
+        if (irq != priv->tx_irq[priv->queue] && irq != priv->rx_irq[priv->queue])
 		return IRQ_HANDLED;
 
 	/* Check if adapter is up */
@@ -2412,7 +2414,7 @@ static int stmmac_hw_init(struct stmmac_priv *priv)
 	int ret;
 
 	/* Initialize HW Interface */
-	ret = stmmac_hwif_init(priv);
+	ret = stmmac_thin_hwif_init(priv);
 	if (ret)
 		return ret;
 
@@ -2535,14 +2537,26 @@ int stmmac_dvr_init(struct net_device *dev)
 	else
 		priv->rx_coal_frames = STMMAC_RX_FRAMES;
 
-	/* Request the IRQ lines */
-	if (dev->irq) {
-		ret = request_irq(dev->irq, stmmac_interrupt,
-				  IRQF_SHARED, dev->name, dev);
+	/* Request the Tx - IRQ lines */
+	if (priv->tx_irq[priv->queue]) {
+		ret = request_irq(priv->tx_irq[priv->queue], stmmac_interrupt,
+			  IRQF_TRIGGER_RISING, dev->name, dev);
 		if (unlikely(ret < 0)) {
 			netdev_err(priv->dev,
-				   "%s: allocating the IRQ %d (error: %d)\n",
-				   __func__, dev->irq, ret);
+					"%s: ERROR: allocating the Tx IRQ %d (error: %d)\n",
+					__func__, priv->tx_irq[priv->queue], ret);
+			goto irq_error;
+		}
+	}
+
+	/* Request the Rx - IRQ lines */
+	if (priv->rx_irq[priv->queue]) {
+		ret = request_irq(priv->rx_irq[priv->queue], stmmac_interrupt,
+			  IRQF_TRIGGER_RISING, dev->name, dev);
+		if (unlikely(ret < 0)) {
+			netdev_err(priv->dev,
+					"%s: ERROR: allocating the Rx IRQ %d (error: %d)\n",
+					__func__,priv->rx_irq[priv->queue], ret);
 			goto irq_error;
 		}
 	}
@@ -2772,7 +2786,7 @@ static void stmmac_exit_fs(struct net_device *dev)
 #endif /* CONFIG_DEBUG_FS */
 
 /**
- * stmmac_dvr_probe
+ * stmmac_thin_dvr_probe
  * @device: device pointer
  * @plat_dat: platform data pointer
  * @res: stmmac resource pointer
@@ -2781,7 +2795,7 @@ static void stmmac_exit_fs(struct net_device *dev)
  * Return:
  * returns 0 on success, otherwise errno.
  */
-int stmmac_dvr_probe(struct device *device,
+int stmmac_thin_dvr_probe(struct device *device,
 		     struct plat_stmmacenet_data *plat_dat,
 		     struct stmmac_resources *res)
 {
@@ -2802,14 +2816,17 @@ int stmmac_dvr_probe(struct device *device,
 	priv->device = device;
 	priv->dev = ndev;
 
-	stmmac_set_ethtool_ops(ndev);
+	stmmac_thin_set_ethtool_ops(ndev);
 	priv->plat = plat_dat;
 	priv->ioaddr = res->addr;
 	priv->dev->base_addr = (unsigned long)res->addr;
 	priv->queue = res->ch;
-	priv->dev->irq = res->irq[priv->queue];
-	dev_info(priv->device, "%s: ioaddr[0x%x] ch[%u] irq is [%d]\n",
-		 __func__, priv->ioaddr, res->ch, priv->dev->irq);
+        priv->dev->irq = res->rx_irq[priv->queue];
+
+	for (int i = 0; i < MAX_NUM_CH; i++)
+		priv->rx_irq[i] = res->rx_irq[i];
+	for (int i = 0; i < MAX_NUM_CH; i++)
+		priv->tx_irq[i] = res->tx_irq[i];
 
 	if (!IS_ERR_OR_NULL(res->mac))
 		memcpy((void*) priv->dev->dev_addr, (void*)res->mac, ETH_ALEN);
@@ -2929,7 +2946,7 @@ error_hw_init:
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_dvr_probe);
+EXPORT_SYMBOL_GPL(stmmac_thin_dvr_probe);
 
 /**
  * stmmac_dvr_remove
@@ -2937,7 +2954,7 @@ EXPORT_SYMBOL_GPL(stmmac_dvr_probe);
  * Description: this function resets the TX/RX processes, disables the MAC RX/TX
  * changes the link status, releases the DMA descriptor rings.
  */
-int stmmac_dvr_remove(struct device *dev)
+int stmmac_thin_dvr_remove(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
@@ -2962,7 +2979,7 @@ int stmmac_dvr_remove(struct device *dev)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_dvr_remove);
+EXPORT_SYMBOL_GPL(stmmac_thin_dvr_remove);
 
 /**
  * stmmac_suspend - suspend callback
@@ -2971,7 +2988,7 @@ EXPORT_SYMBOL_GPL(stmmac_dvr_remove);
  * by the platform driver to stop the network queue, release the resources,
  * program the PMT register (for WoL), clean and release driver resources.
  */
-int stmmac_suspend(struct device *dev)
+int stmmac_thin_suspend(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
@@ -2995,7 +3012,7 @@ int stmmac_suspend(struct device *dev)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_suspend);
+EXPORT_SYMBOL_GPL(stmmac_thin_suspend);
 
 /**
  * stmmac_reset_queues_param - reset queue parameters
@@ -3015,12 +3032,12 @@ static void stmmac_reset_queues_param(struct stmmac_priv *priv)
 }
 
 /**
- * stmmac_resume - resume callback
+ * stmmac_thin_resume - resume callback
  * @dev: device pointer
  * Description: when resume this function is invoked to setup the DMA and CORE
  * in a usable state.
  */
-int stmmac_resume(struct device *dev)
+int stmmac_thin_resume(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
@@ -3053,7 +3070,7 @@ int stmmac_resume(struct device *dev)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_resume);
+EXPORT_SYMBOL_GPL(stmmac_thin_resume);
 /*
 static int __init stmmac_init(void)
 {

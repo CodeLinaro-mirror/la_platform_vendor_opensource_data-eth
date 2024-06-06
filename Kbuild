@@ -1,4 +1,4 @@
-ifeq ($(CONFIG_ARCH_LEMANS), y)
+ifeq ($(CONFIG_QTI_QUIN_GVM), y)
 obj-m += drivers/emac_ctrl_fe/
 obj-m += drivers/emac_shim/
 endif

@@ -365,15 +365,10 @@ void emac_ctl_fe_process_rxbuf(
 	unsigned int len
 )
 {
-	enum emac_dma_drv_state_type   dma_drv_state = EMAC_CTRL_FE_DMA_DRV_DOWN;
 	EMAC_CTL_FE_INFO("Receive len =%u, cmd= %d, msgid =%d, msg len = %d ",
 		len, msg->cmd, msg->msgid, msg->len);
 
-	/*todo add lock for state read*/
-	mutex_lock(&pdev->emac_ctl_fe_lock);
-	dma_drv_state = pdev->emac_dma_drv_state;
-	mutex_unlock(&pdev->emac_ctl_fe_lock);
-	if (dma_drv_state == EMAC_CTRL_FE_DMA_DRV_REG) {
+	if (pdev->emac_dma_drv_state == EMAC_CTRL_FE_DMA_DRV_REG) {
 		switch (msg->cmd) {
 
 		case EMAC_HW_DOWN:
