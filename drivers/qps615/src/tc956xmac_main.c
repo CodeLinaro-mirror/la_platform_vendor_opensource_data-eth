@@ -215,6 +215,12 @@
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
 #define PPS_START_DELAY		100000000	/* 100 ms, in unit of ns */
 
+#include <linux/i2c.h>
+#define EEPROM_I2C_ADDRESS	0x50
+#define EEPROM_I2C_ADAPTER_ID	1
+#define EEPROM_READ_BYTE	300
+#define EEPROM_WRITE_OFFSET_BYTE	2
+
 #ifdef TC956X_DYNAMIC_LOAD_CBS
 int prev_speed;
 #endif
@@ -14946,6 +14952,62 @@ static bool lookfor_macid(char *file_buf, uint8_t port_id, uint8_t dev_id)
 }
 
 /*!
+ * \brief Parse the EEPROM for MAC address
+ *
+ * \param[in] None
+ *
+ * \return True on Success and False in failure
+ *
+ */
+static int qps615_eeprom_readmac(uint8_t port_id, uint8_t dev_id)
+{
+	struct i2c_adapter *adapter;
+	int ret, i;
+
+	adapter = i2c_get_adapter(EEPROM_I2C_ADAPTER_ID);
+	if (!adapter) {
+		/* error, no such I2C adaptor. */
+		KPRINT_ERR("Chip at i2c Invalid i2c adapter %d\n", EEPROM_I2C_ADAPTER_ID);
+		return -ENODEV;
+	}
+
+	u8 wr_data[EEPROM_WRITE_OFFSET_BYTE] = {0, 0};
+	u8 rd_data[EEPROM_READ_BYTE];
+	struct i2c_msg msg[2];
+
+	msg[0].addr = EEPROM_I2C_ADDRESS;
+	msg[0].len = EEPROM_WRITE_OFFSET_BYTE;
+	msg[0].flags = 0;
+	msg[0].buf = wr_data;
+
+	msg[1].addr = EEPROM_I2C_ADDRESS;
+	msg[1].len = EEPROM_READ_BYTE;
+	msg[1].flags = I2C_M_RD;
+	msg[1].buf = rd_data;
+
+	ret = i2c_transfer(adapter, msg, 2);
+	if (ret != 2){
+		KPRINT_ERR("EEPROM I2C wrong response\n");
+		return ret;
+	} else {
+		/* Parse the EEPROM result */
+		for (i = 0; i < CONFIG_PARAM_NUM; i++) {
+			if (strstr((const char *)rd_data, config_param_list[i].mdio_key)) {
+				KPRINT_ERR("EEPROM Pattern Match\n");
+				if (strncmp(config_param_list[i].mdio_key, "MDIOBUSID", 9) == 0) {
+					/* MAC ID Configuration */
+					KPRINT_ERR("MAC_ID EEPROM Configuration\n");
+					lookfor_macid(rd_data, port_id, dev_id);
+				}
+			} else {
+				KPRINT_ERR("Pattern NOT Match\n");
+			}
+		}
+	}
+	return 0;
+}
+
+/*!
  * \brief Parse the user configuration file for various config
  *
  * \param[in] None
@@ -15357,6 +15419,8 @@ int tc956xmac_vf_dvr_probe(struct device *device,
 	/* To be enabled for config.ini parsing */
 	parse_config_file(priv->port_num, 0);
 #endif
+	/* To be enabled for EEPROM MAC parsing */
+	qps615_eeprom_readmac(priv->port_num, 0);
 
 #endif /* EEPROM_MAC_ADDR */
 #ifndef TC956X_SRIOV_VF
