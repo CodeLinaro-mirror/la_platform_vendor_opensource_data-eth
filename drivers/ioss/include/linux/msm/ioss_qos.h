@@ -200,6 +200,27 @@ struct ioss_qos_ops {
 int create_qos_sysfs_nodes(struct device *dev);
 void remove_qos_sysfs_nodes(struct device *dev);
 
+static inline int getbitpos(int n)
+{
+    unsigned i = 1, pos = 1;
+
+    if (!n)
+        return 0;
+
+    if (n & (n - 1))
+        return -1;
+
+    while ( !(i & n) ) {
+        i = i << 1;
+        ++pos;
+    }
+
+    if (pos > 8)
+        return -1;
+
+    return pos;
+}
+
 /* Limits Start */
 #define PCP_LOWER_LIMIT 0
 #define PCP_UPPER_LIMIT 7
