@@ -65,7 +65,7 @@ static void free_ipa_tx_resources(struct net_device *ndev,
 	struct stmmac_tx_queue *tx_q = &priv->tx_queue[channel->channel_num];
 	u32 i;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (channel->ch_flags == STMMAC_CONTIG_BUFS) {
 		if (channel->mem_ops) {
@@ -366,7 +366,7 @@ static void stmmac_init_ipa_tx_ch(struct stmmac_priv *priv, struct channel_info 
 		}
 	}
 
-	ioss_log_msg(NULL, "%s : dma_tx_phy = 0x%p", __func__, tx_q->dma_tx_phy);
+	ioss_log_msg(NULL, "dma_tx_phy = 0x%p", tx_q->dma_tx_phy);
 
 	stmmac_init_chan(priv, priv->ioaddr, priv->plat->dma_cfg, chan);
 	stmmac_init_tx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
@@ -381,10 +381,7 @@ static void stmmac_init_ipa_tx_ch(struct stmmac_priv *priv, struct channel_info 
 	stmmac_set_mtl_tx_queue_weight(priv, priv->hw,
 				       priv->plat->tx_queues_cfg[chan].weight, chan);
 
-	ioss_log_msg(NULL, "%s : desc_cnt = %d $ buf_size = %d",
-			__func__,
-			channel->desc_cnt,
-			channel->buf_size);
+	ioss_log_msg(NULL, "desc_cnt = %d $ buf_size = %d", channel->desc_cnt, channel->buf_size);
 }
 
 static void stmmac_init_ipa_rx_ch(struct stmmac_priv *priv, struct channel_info *channel)
@@ -410,7 +407,7 @@ static void stmmac_init_ipa_rx_ch(struct stmmac_priv *priv, struct channel_info 
 					     channel->buff_pool_addr.buff_pool_dma_addrs_base[i]);
 		}
 	}
-	ioss_log_msg(NULL, "%s : dma_rx_phy = 0x%p", __func__, rx_q->dma_rx_phy);
+	ioss_log_msg(NULL, "dma_rx_phy = 0x%p", rx_q->dma_rx_phy);
 
 	stmmac_init_chan(priv, priv->ioaddr, priv->plat->dma_cfg, chan);
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
@@ -423,8 +420,7 @@ static void stmmac_init_ipa_rx_ch(struct stmmac_priv *priv, struct channel_info 
 	stmmac_set_rx_ring_len(priv, priv->ioaddr, (channel->desc_cnt - 1), chan);
 	stmmac_set_dma_bfsize(priv, priv->ioaddr, (channel->buf_size/8), chan);
 
-	ioss_log_msg(NULL, "%s : desc_cnt = %d $ buf_size = %d",
-				__func__,
+	ioss_log_msg(NULL, "desc_cnt = %d $ buf_size = %d",
 				channel->desc_cnt,
 				channel->buf_size);
 }
@@ -733,8 +729,7 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 		reg &= DMA_TX_INT_RESET_MASK;
 		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15) | ((0x1) << 7);
 
-		ioss_log_msg(NULL, "%s: ch = %d Interrupt Enabled = 0x%x",
-					__func__,
+		ioss_log_msg(NULL, "ch = %d Interrupt Enabled = 0x%x",
 					channel->channel_num,
 					reg);
 
@@ -744,8 +739,7 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 		reg &= DMA_TX_INT_RESET_MASK;
 		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15);
 
-		ioss_log_msg(NULL, "%s: ch = %d Interrupt Enabled = 0x%x",
-					__func__,
+		ioss_log_msg(NULL, "ch = %d Interrupt Enabled = 0x%x",
 					channel->channel_num,
 					reg);
 
@@ -775,8 +769,7 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 		reg &= (unsigned long)DMA_RX_INT_RESET_MASK;
 		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15) | ((0x1) << 7);
 
-		ioss_log_msg(NULL, "%s: ch = %d Interrupt Enabled = 0x%x",
-					__func__,
+		ioss_log_msg(NULL, "ch = %d Interrupt Enabled = 0x%x",
 					channel->channel_num,
 					reg);
 
@@ -786,8 +779,7 @@ static int enable_dma_interrupt_fields(struct net_device *ndev, struct channel_i
 		reg &= (unsigned long)DMA_RX_INT_RESET_MASK;
 		reg |= ((0x1) << 12) | ((0x1) << 14) | ((0x1) << 15);
 
-		ioss_log_msg(NULL, "%s: ch = %d Interrupt Enabled = 0x%x",
-					__func__,
+		ioss_log_msg(NULL, "ch = %d Interrupt Enabled = 0x%x",
 					channel->channel_num,
 					reg);
 
@@ -822,7 +814,7 @@ int request_event(struct net_device *ndev, struct channel_info *channel, dma_add
 {
 	struct stmmac_priv *priv;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -871,7 +863,7 @@ int release_event(struct net_device *ndev, struct channel_info *channel)
 {
 	struct stmmac_priv *priv;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -915,7 +907,7 @@ int enable_event(struct net_device *ndev, struct channel_info *channel)
 	int ret;
 	u32 reg = 0;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -994,7 +986,7 @@ int disable_event(struct net_device *ndev, struct channel_info *channel)
 	struct qcom_ethqos *ethqos;
 	u32 reg = 0;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -1066,7 +1058,7 @@ int set_event_mod(struct net_device *ndev, struct channel_info *channel, unsigne
 	struct stmmac_priv *priv;
 	u32 rx_cnt;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -1246,7 +1238,7 @@ int start_channel(struct net_device *ndev, struct channel_info *channel)
 	struct stmmac_priv *priv;
 	struct mac_addr_list mac_addr;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -1307,7 +1299,7 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 	struct stmmac_priv *priv;
 	u32 sw_chan = 0;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -1369,7 +1361,7 @@ int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 ind
 	struct stmmac_priv *priv;
 	u32 data;
 
-	ioss_log_msg(NULL, "%s: Start", __func__);
+	ioss_log_msg(NULL, "Start");
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -1423,7 +1415,7 @@ void stmmac_config_qos_cbs(struct stmmac_priv *priv, struct qos_struct *qos_tabl
 
 	for (i = 2; i < priv->plat->tx_queues_to_use; i++) {
 		/* Configure queues for CBS*/
-		ioss_qos_dev_log(NULL, "[ioss qos]: queue %d config = %d\n",
+		ioss_qos_dev_log(NULL, "[iemac qos]: queue %d config = %d\n",
 			         i, qos_table_info->tx_routing_info[i].mode_to_use);
 		if (qos_table_info->tx_routing_info[i].mode_to_use == MTL_QUEUE_AVB) {
 			stmmac_config_cbs(priv, priv->hw,
@@ -1437,6 +1429,13 @@ void stmmac_config_qos_cbs(struct stmmac_priv *priv, struct qos_struct *qos_tabl
 			priv->plat->tx_queues_cfg[i].high_credit = qos_table_info->tx_routing_info[i].hi_credit;
 			priv->plat->tx_queues_cfg[i].low_credit = qos_table_info->tx_routing_info[i].low_credit;
 			priv->tx_ch_bw[i] = qos_table_info->tx_routing_info[i].acc_bw;
+			ioss_qos_dev_log(NULL, "[iemac qos]: send_slope %d idle_slope = %d hi_credit = %d low_credit = %d\n",
+			         		 qos_table_info->tx_routing_info[i].send_slope,
+							 qos_table_info->tx_routing_info[i].idle_slope,
+							 qos_table_info->tx_routing_info[i].hi_credit,
+					  		 qos_table_info->tx_routing_info[i].low_credit);
+			ioss_qos_dev_log(NULL, "[iemac qos]: queue %d bw applied = %d\n",
+			         i, qos_table_info->tx_routing_info[i].acc_bw);
 		}
 	}
 }
@@ -1454,8 +1453,8 @@ void stmmac_restore_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *q
 		}
 		/* Restore the pcp queue routing */
 		priv->plat->rx_queues_cfg[queue].prio = qos_table_info->backup_pcp_map[queue];
-		ioss_qos_dev_log(NULL, "[ioss qos]: Restore pcp routing pcp = %d, queue = %d\n",
-			       	 qos_table_info->backup_pcp_map[queue], queue);
+		ioss_qos_dev_log(NULL, "[iemac qos]: Restore pcp routing pcp = %d, queue = %d\n",
+			       	 getbitpos(qos_table_info->backup_pcp_map[queue]), queue);
 		priv->queue_pcp_map[queue] = qos_table_info->backup_pcp_map[queue];
 		stmmac_rx_queue_prio(priv, priv->hw, qos_table_info->backup_pcp_map[queue], queue);
 		stmmac_map_mtl_to_dma(priv, priv->hw, queue, queue);
@@ -1470,6 +1469,8 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 	int rxfifosz = 0;
 	u32 read_value = 0;
 
+	ioss_qos_dev_log(NULL, "[iemac qos] : Enter");
+
 	if (priv->plat->enable_pfc && !priv->plat->qos_active)
 		stmmac_mac_config_pfc(priv);
 
@@ -1480,6 +1481,10 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 	}
 	/* divide fifo size equally  among remaining queues*/
 	rxfifosz = 12288/queue_cnt;
+
+	ioss_qos_dev_log(NULL, " [iemac qos] queue cnt = %d rxfifosz available = %d",
+					 queue_cnt, rxfifosz);
+
 	/*pcp routing*/
 	for (queue = 0; queue < 5; queue++) {
 		rxmode = priv->plat->rx_queues_cfg[queue].mode_to_use;
@@ -1494,6 +1499,7 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 		} else if (queue && qos_table_info->queue_to_pcp_map[queue]) {
 			/* Enable the queues which are needed */
 			if (priv->queue_dis[queue]) {
+				ioss_qos_dev_log(NULL, "[iemac qos]QOS queue enabled = %d", queue);
 				stmmac_rx_queue_enable(priv, priv->hw, rxmode, queue);
 				priv->queue_dis[queue] = false;
 			}
@@ -1503,9 +1509,9 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 			stmmac_rx_queue_prio(priv, priv->hw, qos_table_info->queue_to_pcp_map[queue], queue);
 			/* Copy new pcp_map to priv */
 			priv->queue_pcp_map[queue] = qos_table_info->queue_to_pcp_map[queue];
-			ioss_qos_dev_log(NULL, "[ioss qos]: Install pcp routing pcp = %d, queue = %d\n",
-				         qos_table_info->queue_to_pcp_map[queue], queue);
-			ioss_qos_dev_log(NULL, "[ioss qos]: rxmode = %d, rxfifosz = %d thresh_rx_mode = %d\n",
+			ioss_qos_dev_log(NULL, "[iemac qos]: Install pcp routing pcp = %d, queue = %d\n",
+							getbitpos(qos_table_info->queue_to_pcp_map[queue]), queue);
+			ioss_qos_dev_log(NULL, "[iemac qos]: rxmode = %d, rxfifosz = %d thresh_rx_mode = %d\n",
 					 rxmode, rxfifosz, thresh_rx_mode);
 		}
 
@@ -1535,6 +1541,7 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 	struct dma_filter_table *dma_filter_node;
 	struct list_head *filter_ptr;
 
+	ioss_qos_dev_log(NULL, "[iemac qos] : Enter");
 	/* Clear the filters which aren't needed */
 	for (i = 0; i < 32; i++) {
 		if (priv->app_filters[i].action != IDX_CLEAR)
@@ -1543,11 +1550,11 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 		case VLAN_ID:
 			ret = priv->hw->mac->del_hw_vlan_rx_fltr(ndev, priv->hw, 0, priv->app_filters[i].vlan_id);
 			if (ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting vlan %d filter failed\n",
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting vlan %d filter failed\n",
 					         priv->app_filters[i].vlan_id);
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: Vlan filter %d deleted, ch = %d\n",
+				ioss_qos_dev_log(NULL, "[iemac qos]: Vlan filter %d deleted, ch = %d\n",
 						 priv->app_filters[i].vlan_id, priv->app_filters[i].dma_ch);
 			}
 			break;
@@ -1560,10 +1567,10 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									priv->app_filters[i].ip_src.src_mask_length,
 									priv->app_filters[i].dma_ch);
 			if(ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting src ip filter failed\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting src ip filter failed\n");
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: src ip filter deleted\n");
+				ioss_qos_dev_log(NULL, "[iemac qos]: src ip filter deleted\n");
 			}
 			break;
 		case DEST_IP:
@@ -1575,10 +1582,10 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									priv->app_filters[i].ip_dest.dst_mask_length,
 									priv->app_filters[i].dma_ch);
 			if(ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting dest ip filter failed\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting dest ip filter failed\n");
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: dest ip filter deleted\n");
+				ioss_qos_dev_log(NULL, "[iemac qos]: dest ip filter deleted\n");
 			}
 			break;
 		case SRC_PORT:
@@ -1587,10 +1594,10 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									 true, false, priv->app_filters[i].src_port.port_num,
 									 priv->app_filters[i].dma_ch);
 			if(ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting src port filter failed\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting src port filter failed\n");
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: src port filter deleted = %d\n",
+				ioss_qos_dev_log(NULL, "[iemac qos]: src port filter deleted = %d\n",
 					         priv->app_filters[i].src_port.port_num);
 			}
 			break;
@@ -1600,10 +1607,10 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									 false, false, priv->app_filters[i].dst_port.port_num,
 									 priv->app_filters[i].dma_ch);
 			if(ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting dest port filter failed\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting dest port filter failed\n");
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: dest port filter deleted = %d\n",
+				ioss_qos_dev_log(NULL, "[iemac qos]: dest port filter deleted = %d\n",
 					         priv->app_filters[i].dst_port.port_num);
 			}
 			break;
@@ -1632,12 +1639,12 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 			ret = priv->hw->mac->add_hw_vlan_rx_fltr_with_route(ndev, priv->hw, dma_filter_node->vlan_id,
 									    dma_filter_node->dma_ch);
 			if (ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: couldn't apply vlan filter %d\n",
+				ioss_qos_dev_err(NULL, "[iemac qos]: couldn't apply vlan filter %d\n",
 					       	 dma_filter_node->vlan_id);
 				dma_filter_node->applied = false;
 			} else {
 				dma_filter_node->applied = true;
-				ioss_qos_dev_log(NULL, "[ioss qos]: vlan filter %d applied, ch = %d\n",
+				ioss_qos_dev_log(NULL, "[iemac qos]: vlan filter %d applied, ch = %d\n",
 					         dma_filter_node->vlan_id, dma_filter_node->dma_ch);
 				for (i = 0; i < 32; i++) {
 					if(priv->app_filters[i].action == IDX_UNUSED) {
@@ -1666,7 +1673,7 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 				}
 			}
 			if (i < 32) {
-				ioss_qos_dev_log(NULL, "[ioss qos]: filter num = %d, is_ipv6 = %d, mask_len = %d, dma_ch = %d, idx = %d\n",
+				ioss_qos_dev_log(NULL, "[iemac qos]: SRC_IP filter num = %d, is_ipv6 = %d, mask_len = %d, dma_ch = %d, idx = %d\n",
 							priv->qos_l3_l4_filter_end,
 						 dma_filter_node->ip_src.ipv6_src, dma_filter_node->ip_src.src_mask_length,
 						 dma_filter_node->dma_ch, i);
@@ -1676,10 +1683,10 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									  dma_filter_node->ip_src.src_mask_length, dma_filter_node->dma_ch);
 				priv->qos_l3_l4_filter_end++;
 				dma_filter_node->applied = true;
-				ioss_qos_dev_log(NULL, "[ioss qos]: src ip filter applied\n");
+				ioss_qos_dev_log(NULL, "[iemac qos]: src ip filter applied\n");
 			} else {
 				dma_filter_node->applied = false;
-				ioss_qos_dev_err(NULL, "[ioss qos]: src ip filters exhausted\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: src ip filters exhausted\n");
 			}
 			break;
 		case DEST_IP:
@@ -1699,16 +1706,20 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 				}
 			}
 			if (i < 32) {
+				ioss_qos_dev_log(NULL, "[iemac qos]: DEST_IP filter num = %d, is_ipv6 = %d, mask_len = %d, dma_ch = %d, idx = %d\n",
+							priv->qos_l3_l4_filter_end,
+						 dma_filter_node->ip_dest.ipv6_dst, dma_filter_node->ip_dest.dst_mask_length,
+						 dma_filter_node->dma_ch, i);
 				priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, true,
 									  dma_filter_node->ip_dest.ipv6_dst, false, false,
 									  dma_filter_node->ip_dest.ipv4_dst_addr, dma_filter_node->ip_dest.ipv6_dst_addr,
 									  dma_filter_node->ip_dest.dst_mask_length, dma_filter_node->dma_ch);
 				priv->qos_l3_l4_filter_end++;
 				dma_filter_node->applied = true;
-				ioss_qos_dev_log(NULL, "[ioss qos]: dest ip filter applied\n");
+				ioss_qos_dev_log(NULL, "[iemac qos]: dest ip filter applied\n");
 			} else {
 				dma_filter_node->applied = false;
-				ioss_qos_dev_err(NULL, "[ioss qos]: dest ip filters exhausted\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: dest ip filters exhausted\n");
 			}
 			break;
 		case SRC_PORT:
@@ -1727,12 +1738,12 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									   dma_filter_node->dma_ch);
 				priv->qos_l3_l4_filter_end++;
 				dma_filter_node->applied = true;
-				ioss_qos_dev_log(NULL, "[ioss qos]: applied src port %d filter, proto = %d, ch = %d, idx = %d\n",
+				ioss_qos_dev_log(NULL, "[iemac qos]: applied src port %d filter, proto = %d, ch = %d, idx = %d\n",
 						 dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto,
 						 dma_filter_node->dma_ch, i);
 			} else {
 				dma_filter_node->applied = false;
-				ioss_qos_dev_err(NULL, "[ioss qos]: filters exhausted, couldn't apply filter for src port = %d, proto = %d, ch = %d\n",
+				ioss_qos_dev_err(NULL, "[iemac qos]: filters exhausted, couldn't apply filter for src port = %d, proto = %d, ch = %d\n",
 						dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto, dma_filter_node->dma_ch);
 			}
 			break;
@@ -1752,11 +1763,11 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									   dma_filter_node->dma_ch);
 				priv->qos_l3_l4_filter_end++;
 				dma_filter_node->applied = true;
-				ioss_qos_dev_log(NULL, "[ioss qos]: applied dest port %d filter, proto = %d, ch = %d idx = %d\n",
+				ioss_qos_dev_log(NULL, "[iemac qos]: applied dest port %d filter, proto = %d, ch = %d idx = %d\n",
 						 dma_filter_node->dst_port.port_num, dma_filter_node->dst_port.proto,
 						 dma_filter_node->dma_ch, i);
 			} else {
-				ioss_qos_dev_err(NULL, "[ioss qos]: filters exhausted, couldn't apply filter for dest port %d\n",
+				ioss_qos_dev_err(NULL, "[iemac qos]: filters exhausted, couldn't apply filter for dest port %d\n",
 					       	 dma_filter_node->dst_port.port_num);
 			}
 			break;
@@ -1783,11 +1794,11 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 		case VLAN_ID:
 			ret = priv->hw->mac->del_hw_vlan_rx_fltr(ndev, priv->hw, 0, priv->app_filters[i].vlan_id);
 			if (ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting vlan %d filter failed\n",
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting vlan %d filter failed\n",
 					        	priv->app_filters[i].vlan_id);
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: vlan filter %d deleted, ch = %d\n",
+				ioss_qos_dev_log(NULL, "[iemac qos]: vlan filter %d deleted, ch = %d\n",
 					         priv->app_filters[i].vlan_id, priv->app_filters[i].dma_ch);
 			}
 			break;
@@ -1798,10 +1809,10 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									priv->app_filters[i].ip_src.ipv4_src_addr, priv->app_filters[i].ip_src.ipv6_src_addr,
 									priv->app_filters[i].ip_src.src_mask_length, priv->app_filters[i].dma_ch);
 			if(ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting src ip filter failed\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting src ip filter failed\n");
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: src ip filter deleted\n");
+				ioss_qos_dev_log(NULL, "[iemac qos]: src ip filter deleted\n");
 			}
 			break;
 		case DEST_IP:
@@ -1811,10 +1822,10 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									priv->app_filters[i].ip_dest.ipv4_dst_addr, priv->app_filters[i].ip_dest.ipv6_dst_addr,
 									priv->app_filters[i].ip_dest.dst_mask_length, priv->app_filters[i].dma_ch);
 			if(ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting dest ip filter failed\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting dest ip filter failed\n");
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: dest ip filter deleted\n");
+				ioss_qos_dev_log(NULL, "[iemac qos]: dest ip filter deleted\n");
 			}
 			break;
 		case SRC_PORT:
@@ -1824,10 +1835,10 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									 priv->app_filters[i].dma_ch);
 
 			if(ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting src port filter failed\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting src port filter failed\n");
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: src port filter deleted\n");
+				ioss_qos_dev_log(NULL, "[iemac qos]: src port filter deleted\n");
 			}
 			break;
 		case DEST_PORT:
@@ -1836,10 +1847,10 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 									 false, false, priv->app_filters[i].dst_port.port_num,
 									 priv->app_filters[i].dma_ch);
 			if(ret) {
-				ioss_qos_dev_err(NULL, "[ioss qos]: Deleting dest port filter failed\n");
+				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting dest port filter failed\n");
 			} else {
 				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[ioss qos]: dest port filter deleted\n");
+				ioss_qos_dev_log(NULL, "[iemac qos]: dest port filter deleted\n");
 			}
 			break;
 		case INVALID_FILTER:
@@ -1858,7 +1869,7 @@ void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_t
 
 	for (i = 1; i < priv->plat->rx_queues_to_use; i++) {
 		if (qos_table_info->rx_channel_info[i] == IOSS_QOS_HW_PATH) {
-			ioss_qos_dev_log(NULL, "[ioss qos]: Move CH %d to SW\n", i);
+			ioss_qos_dev_log(NULL, "[iemac qos]: Move CH %d to SW\n", i);
 			stmmac_config_rx_queue(ndev, i, false);
 		}
           	stmmac_map_mtl_to_dma(priv, priv->hw, i, i);
