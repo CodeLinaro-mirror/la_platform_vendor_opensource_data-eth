@@ -221,6 +221,11 @@
 #define EEPROM_READ_BYTE	300
 #define EEPROM_WRITE_OFFSET_BYTE	2
 
+typedef enum {
+	MAC_SRC_CONFIG_FILE = 0x0,
+	MAC_SRC_PLATFORM_EEPROM = 0x1,
+} MacSrcType_t;
+
 #ifdef TC956X_DYNAMIC_LOAD_CBS
 int prev_speed;
 #endif
@@ -14853,6 +14858,57 @@ static void extract_macid(char *string, uint8_t vf_id)
 }
 
 /*!
+ * \brief API to extract MAC ID from given string
+ *
+ * \param[in] char *string - pointer to MAC ID string
+ *
+ * \return None
+ */
+static void extract_macid_eeprom(char *string, uint8_t vf_id)
+{
+	char *token_m = NULL;
+	int j = 0;
+	int mac_id = 0;
+
+#ifdef TC956X_SRIOV_PF
+	static int addr_found_eeprom;
+
+	/* Extract MAC ID byte by byte */
+	token_m = strsep(&string, ":");
+
+	while (token_m != NULL) {
+		sscanf(token_m, "%x", &mac_id);
+		if (addr_found_eeprom < TC956X_MAC_ADDR_CNT) {
+			dev_addr[addr_found_eeprom][j++] = mac_id;
+			token_m = strsep(&string, ":");
+		} else
+			break;
+	}
+	KPRINT_DEBUG1("MAC Addr : %pM\n", &dev_addr[addr_found_eeprom][0]);
+#elif defined TC956X_SRIOV_VF
+	static int k;
+	int addr_found_eeprom = 0;
+
+	/* Extract MAC ID byte by byte */
+	token_m = strsep(&string, ":");
+
+	while (token_m != NULL) {
+		sscanf(token_m, "%x", &mac_id);
+
+		if (addr_found_eeprom < 2) {
+			dev_addr[k][addr_found_eeprom + vf_id][j++] = mac_id;
+			token_m = strsep(&string, ":");
+		} else
+			break;
+	}
+	KPRINT_INFO("MAC Addr : %pM\n", &dev_addr[k][addr_found_eeprom + vf_id][0]);
+
+	k++;
+#endif
+	addr_found_eeprom++;
+}
+
+/*!
  * \brief API to parse and extract the user configured MAC ID
  *
  * \param[in] file_buf - Pointer to file data buffer
@@ -14861,7 +14917,7 @@ static void extract_macid(char *string, uint8_t vf_id)
  *
  * \return - True on Success and False in failure
  */
-static bool lookfor_macid(char *file_buf, uint8_t port_id, uint8_t dev_id)
+static bool lookfor_macid(char *file_buf, uint8_t port_id, uint8_t dev_id, MacSrcType_t mac_src)
 {
 	char *string = NULL, *token_n = NULL, *token_s = NULL, *token_m = NULL;
 	char *dev_no = NULL, *port_no = NULL;
@@ -14930,7 +14986,11 @@ static bool lookfor_macid(char *file_buf, uint8_t port_id, uint8_t dev_id)
 							 * MAC ID is valid,
 							 * assign default MAC ID
 							 */
-							extract_macid(token_s, dev_id);
+							if (mac_src == MAC_SRC_CONFIG_FILE) {
+								extract_macid(token_s, dev_id);
+							} else {
+								extract_macid_eeprom(token_s, dev_id);
+							}
 							total_valid_addr++;
 
 							if (total_valid_addr > 1)
@@ -14997,7 +15057,7 @@ static int qps615_eeprom_readmac(uint8_t port_id, uint8_t dev_id)
 				if (strncmp(config_param_list[i].mdio_key, "MDIOBUSID", 9) == 0) {
 					/* MAC ID Configuration */
 					KPRINT_ERR("MAC_ID EEPROM Configuration\n");
-					lookfor_macid(rd_data, port_id, dev_id);
+					lookfor_macid(rd_data, port_id, dev_id, MAC_SRC_PLATFORM_EEPROM);
 				}
 			} else {
 				KPRINT_ERR("Pattern NOT Match\n");
@@ -15043,7 +15103,7 @@ static void parse_config_file(uint8_t port_id, uint8_t dev_id)
 				if (strncmp(config_param_list[i].mdio_key, "MDIOBUSID", 9) == 0) {
 					/* MAC ID Configuration */
 					KPRINT_DEBUG1("MAC_ID Configuration\n");
-					lookfor_macid(data, port_id, dev_id);
+					lookfor_macid(data, port_id, dev_id, MAC_SRC_CONFIG_FILE);
 				}
 			}
 		}
@@ -15418,9 +15478,9 @@ int tc956xmac_vf_dvr_probe(struct device *device,
 #else
 	/* To be enabled for config.ini parsing */
 	parse_config_file(priv->port_num, 0);
-#endif
 	/* To be enabled for EEPROM MAC parsing */
 	qps615_eeprom_readmac(priv->port_num, 0);
+#endif
 
 #endif /* EEPROM_MAC_ADDR */
 #ifndef TC956X_SRIOV_VF
