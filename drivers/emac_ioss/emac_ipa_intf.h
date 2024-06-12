@@ -496,8 +496,10 @@ void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_in
 
 /* Configure tx queue
  * param[in] priv : stmmac priv data structure
+ * param[in] queue number
+ * param[in] txmode is DCB/AVB
  */
-void stmmac_configure_tx_queue(struct stmmac_priv *priv);
+void stmmac_configure_tx_queue(struct stmmac_priv *priv, u8 queue, u8 txmode);
 
 /* Configure RX queue path in SW/HW
  * param[in] ndev : stmmac netdev data structure

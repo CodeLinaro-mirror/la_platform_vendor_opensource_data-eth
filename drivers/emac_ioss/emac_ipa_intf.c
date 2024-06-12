@@ -377,9 +377,10 @@ static void stmmac_init_ipa_tx_ch(struct stmmac_priv *priv, struct channel_info 
 			       tx_q->tx_tail_addr, chan);
 
 	stmmac_set_tx_ring_len(priv, priv->ioaddr, channel->desc_cnt - 1, chan);
-
-	stmmac_set_mtl_tx_queue_weight(priv, priv->hw,
-				       priv->plat->tx_queues_cfg[chan].weight, chan);
+	
+	if (priv->plat->tx_queues_cfg[chan].mode_to_use != MTL_QUEUE_AVB)
+		stmmac_set_mtl_tx_queue_weight(priv, priv->hw,
+					       priv->plat->tx_queues_cfg[chan].weight, chan);
 
 	ioss_log_msg(NULL, "desc_cnt = %d $ buf_size = %d", channel->desc_cnt, channel->buf_size);
 }
@@ -1879,11 +1880,9 @@ void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_t
 			stmmac_config_tx_queue(ndev, i, false);
 
 		/*Change mode to use for TX queues*/
-		if (i != 5)
-			priv->plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_AVB;
-		else
-			priv->plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_DCB;
-		stmmac_configure_tx_queue(priv);
+		priv->plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_AVB;
+
+		stmmac_configure_tx_queue(priv, i, priv->plat->tx_queues_cfg[i].mode_to_use);
 		priv->is_tx_sw[i] = true;
 		priv->tx_ch_bw[i] = 0;
 	}
@@ -1904,16 +1903,11 @@ void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_in
 }
 EXPORT_SYMBOL_GPL(stmmac_backup_pcp);
 
-void stmmac_configure_tx_queue(struct stmmac_priv *priv)
+void stmmac_configure_tx_queue(struct stmmac_priv *priv, u8 queue, u8 txmode)
 {
-	u8 txmode = 0;
-	int queue = 0;
 	int txfifosz = priv->plat->tx_fifo_size/priv->plat->tx_queues_to_use;
-	for (queue = 2; queue < priv->plat->tx_queues_to_use; queue++)  {
-		txmode = priv->plat->tx_queues_cfg[queue].mode_to_use;
-		/* define macro for 64(threshold mode) */
-		stmmac_dma_tx_mode(priv, priv->ioaddr, 64, queue, txfifosz, txmode);
-	}
+
+	stmmac_dma_tx_mode(priv, priv->ioaddr, SF_DMA_MODE, queue, txfifosz, txmode);
 }
 EXPORT_SYMBOL_GPL(stmmac_configure_tx_queue);
 

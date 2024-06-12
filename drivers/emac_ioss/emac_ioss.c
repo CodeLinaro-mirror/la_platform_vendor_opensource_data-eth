@@ -1514,9 +1514,9 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		if (qos_tables.tx_routing_info[i].mode_to_use != priv->plat->tx_queues_cfg->mode_to_use) {
 			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
 			ioss_qos_dev_log(idev, "Response TC TX ch mode change for queue = %d\n", i);
-            ioss_qos_dev_log(idev, "queue = %d cur mode to use = %d, old mode to use = %d,",i,
-                             qos_tables.tx_routing_info[i].mode_to_use,
-						     priv->plat->tx_queues_cfg->mode_to_use);
+            		ioss_qos_dev_log(idev, "queue = %d cur mode to use = %d, old mode to use = %d,",i,
+					 qos_tables.tx_routing_info[i].mode_to_use,
+					 priv->plat->tx_queues_cfg->mode_to_use);
 			break;
 		} else {
 			if (qos_tables.tx_routing_info[i].acc_bw != priv->tx_ch_bw[i]) {
@@ -1965,7 +1965,7 @@ static int stmmac_request_qos(struct ioss_device *idev)
 			if (qos_tables.tx_routing_info[i].mode_to_use != priv->plat->tx_queues_cfg[i].mode_to_use) {
 				/*Change mode to use for TX queues*/
 				priv->plat->tx_queues_cfg[i].mode_to_use = qos_tables.tx_routing_info[i].mode_to_use;
-				stmmac_configure_tx_queue(priv);
+				stmmac_configure_tx_queue(priv, i, priv->plat->tx_queues_cfg[i].mode_to_use);
 			}
 		}
 	}
