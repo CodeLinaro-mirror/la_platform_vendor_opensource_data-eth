@@ -196,6 +196,13 @@ static int ioss_bus_probe(struct device *dev)
 		goto err_open;
 	}
 
+	rc = ioss_sysfs_init(idev);
+	if(rc)
+	{
+		ioss_dev_err(NULL, "Failed to create the sysfs directory");
+		goto err_sysfs;
+	}
+
 	rc = ioss_net_watch_device(idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to watch net device");
@@ -284,6 +291,8 @@ static void ioss_bus_remove(struct device *dev)
 	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "De-initializing device");
+
+	ioss_sysfs_exit(idev);
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);

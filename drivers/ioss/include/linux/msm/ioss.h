@@ -299,7 +299,7 @@ struct ioss_channel {
 	struct ioss_channel_config config;
 	enum ioss_channel_dir direction;
 	enum ioss_filter_types filter_types;
-
+	struct kobject *kobj;
 	struct dentry *debugfs;
 
 	struct ioss_channel_event event;
@@ -337,6 +337,9 @@ struct ioss_device {
 	struct ethtool_drvinfo drv_info;
 
 	struct dentry *debugfs;
+	struct kobject *kobj;
+	struct kobject *root_kobj;
+	struct kobject *dev_kobj;
 	struct ioss_interface interface;
 
 	struct notifier_block panic_nb;
