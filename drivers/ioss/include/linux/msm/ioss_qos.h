@@ -67,11 +67,13 @@ struct IOSS_QOS_TABLE {
     struct list_head qos_rx_committed_table;
     struct list_head qos_tx_pending_table;
     struct list_head qos_tx_committed_table;
+    struct list_head qos_rx_tc_table;
 };
 
 struct IOSS_QOS_NEW_NODES {
-    struct qos_routing_rx *rx_node;
+    struct qos_rx_tc *rx_node;
     struct qos_routing_tx *tx_node;
+    struct qos_routing_rx_hdl *rx_hdl_node;
 };
 
 enum protocol {
@@ -124,11 +126,33 @@ enum action {
     IOSS_QOS_HW_PATH = 2
 };
 
+struct qos_routing_rx_hdl {
+	u8 tc_prio;
+	u32 hdl;
+	bool hdl_committed;
+	struct pcp_array pcp;
+	struct vlan_id_array vlan_ids;
+	struct qos_filters_array src;
+	struct qos_filters_array dst;
+	struct mac_array smac;
+	struct mac_array dmac;
+	struct list_head node;
+};
+
+struct qos_rx_tc {
+	u8 tc_prio;
+	bool committed;
+	enum action action;
+
+	struct list_head node;
+	struct list_head hdl_node;
+};
+
+
 struct qos_routing_rx {
     u8 tc_prio;
 
     bool committed;
-    bool skipped;
     enum action action;
 
     struct pcp_array pcp;
@@ -144,13 +168,15 @@ struct qos_routing_rx {
 
     struct list_head node;
 };
+
 #define to_qos_routing_rx(ptr) list_entry(ptr, struct qos_routing_rx, node)
+#define to_qos_rx_tc(ptr) list_entry(ptr, struct qos_rx_tc, node)
+#define to_qos_routing_rx_hdl(ptr) list_entry(ptr, struct qos_routing_rx_hdl, node)
 
 struct qos_routing_tx {
     u8 tc_prio;
 
     bool committed;
-    bool skipped;
     enum action action;
 
     struct tx_cbs_bw cbs_bw;
@@ -165,7 +191,8 @@ struct qos_routing_tx {
 enum ioss_qos_response {
     QOS_COMMIT_SUCCESS = 0,
     QOS_COMMIT_FAIL = 1,
-    QOS_COMMIT_EMPTY = 2
+    QOS_COMMIT_EMPTY = 2,
+    QOS_COMMIT_LINK_DOWN = 3
 };
 
 struct response {
@@ -181,7 +208,7 @@ struct ioss_qos_ops {
 	int (*request_qos)(struct ioss_device *idev);
 	int (*enable_qos)(struct ioss_device *idev);
 	int (*clear_qos)(struct ioss_device *idev);
-    ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
+	ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
 	int (*clear_qos_cache)(struct ioss_device *idev);
 	ssize_t (*show_qos_info)(struct ioss_device *idev, char *buf);
 };
