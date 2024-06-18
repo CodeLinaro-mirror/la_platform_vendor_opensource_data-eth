@@ -1,4 +1,4 @@
-/* Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+/* Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Copyright (c) 2021 The Linux Foundation. All rights reserved.
  *
@@ -464,6 +464,16 @@ static int stmmac_ioss_channel_status(struct ioss_channel *ch, struct ioss_chann
 	return 0;
 }
 
+static int stmmac_ioss_update_skb(struct ioss_channel *ch, struct sk_buff *skb)
+{
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
+
+	if (priv->hw->rx_csum)
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
+
+	return 0;
+}
 
 static struct ioss_driver_ops stmmac_ioss_ops = {
 	.open_device = stmmac_ioss_open_device,
@@ -484,6 +494,7 @@ static struct ioss_driver_ops stmmac_ioss_ops = {
 	.get_device_statistics = stmmac_ioss_device_statistics,
 	.get_channel_statistics = stmmac_ioss_channel_statistics,
 	.get_channel_status = stmmac_ioss_channel_status,
+	.update_skb = stmmac_ioss_update_skb,
 };
 
 bool stmmac_driver_match(struct device *dev)
