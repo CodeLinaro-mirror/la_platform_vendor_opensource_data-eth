@@ -1325,6 +1325,10 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		} else {
 			priv->unique_filter_new = PCP;
 		}
+		if (priv->unique_filter_new == INVALID_FILTER) {
+			map_info.qos_response_status = QOS_COMMIT_FAIL;
+			return map_info;
+		}
 
 		/*start tx aggr*/
 		qos_tables.ipa_qos_tx_ch = idev->qos_tx_channels;
