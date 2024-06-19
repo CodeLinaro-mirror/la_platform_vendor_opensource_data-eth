@@ -1129,11 +1129,22 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		return map_info;
 	}
 
+	/* Cleanup the used tables */
+	if (priv->plat->qos_active) {
+		priv->unique_filter_old = priv->unique_filter_new;
+		if (priv->unique_filter_old != PCP) {
+			if (&qos_tables.dma_filter_table)
+				delete_filter_table(&qos_tables.dma_filter_table);
+			if (&qos_tables.flt_to_app)
+				delete_filter_table(&qos_tables.flt_to_app);
+		}
+		if (&qos_tables.pcp_route_table)
+			delete_route_table(&qos_tables.pcp_route_table);
+	}
 	memset(&qos_tables, 0, sizeof(struct qos_struct));
 	INIT_LIST_HEAD(&qos_tables.pcp_route_table);
 	INIT_LIST_HEAD(&qos_tables.flt_to_app);
 	map_info.qos_response_status = QOS_COMMIT_EMPTY;
-
 	/* First time initialization before enabling qos (after clear qos) */
 	if (!priv->plat->qos_active) {
 		for (i = 0; i < priv->plat->rx_qos_queues_to_use; i++) {
@@ -1979,15 +1990,6 @@ static int stmmac_enable_qos(struct ioss_device *idev)
 		stmmac_config_qos_cbs(priv, &qos_tables);
 		qos_tables.filter_cnt = 0;
 	}
-	/* Cleanup the used tables */
-	if (priv->unique_filter_new != PCP) {
-		if (&qos_tables.dma_filter_table)
-			delete_filter_table(&qos_tables.dma_filter_table);
-		if (&qos_tables.flt_to_app)
-			delete_filter_table(&qos_tables.flt_to_app);
-	}
-	if (&qos_tables.pcp_route_table)
-		delete_route_table(&qos_tables.pcp_route_table);
 
 	return 0;
 }
@@ -2011,6 +2013,17 @@ static int stmmac_clear_qos(struct ioss_device *idev)
 			stmmac_remove_qos_filtering(ndev, &qos_tables);
 		}
 		stmmac_restore_dma_config(ndev, &qos_tables);
+		/* Cleanup the used tables */
+		priv->unique_filter_old = priv->unique_filter_new;
+		if (priv->unique_filter_old != PCP) {
+			if (&qos_tables.dma_filter_table)
+				delete_filter_table(&qos_tables.dma_filter_table);
+			if (&qos_tables.flt_to_app)
+				delete_filter_table(&qos_tables.flt_to_app);
+		}
+		if (&qos_tables.pcp_route_table)
+			delete_route_table(&qos_tables.pcp_route_table);
+
 		memset(&qos_tables, 0, sizeof(struct qos_struct));
 	}
 	return 0;

@@ -1621,13 +1621,11 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 	}
 
 	/* Apply the new filters to be installed */
-
 	if (priv->unique_filter_new != priv->unique_filter_old)
 		filter_ptr = &qos_table_info->dma_filter_table;
 	else
 		filter_ptr = &qos_table_info->flt_to_app;
 
-	priv->unique_filter_old = priv->unique_filter_new;
 	/*config to receive unmatched packets too*/
 	read_value = (u32)readl(priv->ioaddr + XGMAC_PACKET_FILTER);
 	read_value |= XGMAC_FILTER_RA;
