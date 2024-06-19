@@ -341,6 +341,25 @@ static void clean_rx_node(struct qos_rx_tc *node)
 
 }
 
+static void clean_rx_tc_node(struct qos_routing_rx *ptr)
+{
+	int i = 0;
+
+	kfree(ptr->pcp.arr);
+	kfree(ptr->vlan_ids.arr);
+
+	for (i = 0; i < ptr->src.len; i++)
+		kfree(ptr->src.arr[i].proto);
+	kfree(ptr->src.arr);
+
+	for (i = 0; i < ptr->dst.len; i++)
+		kfree(ptr->dst.arr[i].proto);
+	kfree(ptr->dst.arr);
+
+	kfree(ptr->smac.arr);
+	kfree(ptr->dmac.arr);
+}
+
 static void delete_rx_table(struct list_head *table)
 {
 	struct list_head *ptr;
@@ -351,6 +370,20 @@ static void delete_rx_table(struct list_head *table)
 		list_del(ptr);
 		del_node = to_qos_rx_tc(ptr);
 		clean_rx_node(del_node);
+		kfree(del_node);
+	}
+}
+
+static void delete_rx_tc_table(struct list_head *table)
+{
+	struct list_head *ptr;
+	struct list_head *temp;
+	struct qos_routing_rx *del_node;
+
+	list_for_each_safe(ptr, temp, table) {
+		list_del(ptr);
+		del_node = to_qos_routing_rx(ptr);
+		clean_rx_tc_node(del_node);
 		kfree(del_node);
 	}
 }
@@ -418,6 +451,89 @@ void delete_qos_channels(struct ioss_interface *iface)
 	}
 }
 
+static void convert_flows_to_tc(struct list_head *qos_rx)
+{
+	struct qos_routing_rx *qos_rx_tc_tbl;
+	struct qos_rx_tc *temp_rx;
+	struct qos_routing_rx_hdl *temp_rx_hdl, *temp_rx_hdl2;
+	struct list_head *qos_rx_hdl;
+	int i = 0, j = 0;
+	int dmac_clen = 0, smac_clen = 0, pcp_clen = 0, vlan_clen = 0, src_clen = 0, dst_clen = 0;
+
+	/* Iterate over each flow nodes to find the size required for TC table */
+	list_for_each_entry(temp_rx, qos_rx, node) {
+		qos_rx_tc_tbl = kzalloc(sizeof(struct qos_routing_rx), GFP_KERNEL);
+		qos_rx_tc_tbl->tc_prio = temp_rx->tc_prio;
+		qos_rx_tc_tbl->action = temp_rx->action;
+		qos_rx_tc_tbl->committed = temp_rx->committed;
+
+		qos_rx_hdl = &temp_rx->hdl_node;
+		list_for_each_entry(temp_rx_hdl2, qos_rx_hdl, node) {
+			qos_rx_tc_tbl->dmac.len += temp_rx_hdl2->dmac.len;
+			qos_rx_tc_tbl->smac.len += temp_rx_hdl2->smac.len;
+			qos_rx_tc_tbl->pcp.len += temp_rx_hdl2->pcp.len;
+			qos_rx_tc_tbl->vlan_ids.len += temp_rx_hdl2->vlan_ids.len;
+			qos_rx_tc_tbl->src.len += temp_rx_hdl2->src.len;
+			qos_rx_tc_tbl->dst.len += temp_rx_hdl2->dst.len;
+		}
+		qos_rx_tc_tbl->dmac.arr = kzalloc(sizeof(char)*qos_rx_tc_tbl->dmac.len*ETH_ALEN, GFP_KERNEL);
+		qos_rx_tc_tbl->smac.arr = kzalloc(sizeof(char)*qos_rx_tc_tbl->smac.len*ETH_ALEN, GFP_KERNEL);
+		qos_rx_tc_tbl->pcp.arr = kzalloc(sizeof(char)*qos_rx_tc_tbl->pcp.len, GFP_KERNEL);
+		qos_rx_tc_tbl->vlan_ids.arr = kzalloc(sizeof(char)*qos_rx_tc_tbl->vlan_ids.len, GFP_KERNEL);
+		qos_rx_tc_tbl->src.arr = kzalloc(sizeof(struct qos_filters)*qos_rx_tc_tbl->src.len, GFP_KERNEL);
+		qos_rx_tc_tbl->dst.arr = kzalloc(sizeof(struct qos_filters)*qos_rx_tc_tbl->dst.len, GFP_KERNEL);
+		dmac_clen = 0;
+		smac_clen = 0;
+		pcp_clen = 0;
+		vlan_clen = 0;
+		src_clen = 0;
+		dst_clen = 0;
+		list_for_each_entry(temp_rx_hdl, qos_rx_hdl, node) {
+			for (i = 0; i < temp_rx_hdl->dmac.len; i++) {
+				for (j = 0; j < ETH_ALEN; j++)
+					qos_rx_tc_tbl->dmac.arr[dmac_clen][j] = temp_rx_hdl->dmac.arr[i][j];
+				dmac_clen++;
+			}
+			for (i = 0; i < temp_rx_hdl->smac.len; i++) {
+				for (j = 0; j < ETH_ALEN; j++)
+					qos_rx_tc_tbl->smac.arr[smac_clen][j] = temp_rx_hdl->smac.arr[i][j];
+				smac_clen++;
+			}
+
+			for (i = 0; i < temp_rx_hdl->pcp.len; i++) {
+				qos_rx_tc_tbl->pcp.arr[pcp_clen] = temp_rx_hdl->pcp.arr[i];
+				pcp_clen++;
+			}
+			for (i = 0; i < temp_rx_hdl->vlan_ids.len; i++) {
+				qos_rx_tc_tbl->vlan_ids.arr[vlan_clen] = temp_rx_hdl->vlan_ids.arr[i];
+				vlan_clen++;
+			}
+			for (i = 0; i < temp_rx_hdl->src.len; i++) {
+				memcpy(&qos_rx_tc_tbl->src.arr[src_clen].address, &temp_rx_hdl->src.arr[i].address, sizeof(temp_rx_hdl->src.arr[i].address));
+				qos_rx_tc_tbl->src.arr[src_clen].mask_length = temp_rx_hdl->src.arr[i].mask_length;
+				if (temp_rx_hdl->src.arr[i].port_num) {
+					qos_rx_tc_tbl->src.arr[src_clen].port_num = temp_rx_hdl->src.arr[i].port_num;
+					if (temp_rx_hdl->src.arr[i].proto != NULL)
+						qos_rx_tc_tbl->src.arr[src_clen].proto = kstrdup(temp_rx_hdl->src.arr[i].proto, GFP_KERNEL);
+				}
+				src_clen++;
+			}
+			for (i = 0; i < temp_rx_hdl->dst.len; i++) {
+				memcpy(&qos_rx_tc_tbl->dst.arr[dst_clen].address, &temp_rx_hdl->dst.arr[i].address, sizeof(temp_rx_hdl->dst.arr[i].address));
+				qos_rx_tc_tbl->dst.arr[dst_clen].mask_length = temp_rx_hdl->dst.arr[i].mask_length;
+				if (temp_rx_hdl->dst.arr[i].port_num) {
+					qos_rx_tc_tbl->dst.arr[dst_clen].port_num = temp_rx_hdl->dst.arr[i].port_num;
+					if (temp_rx_hdl->dst.arr[i].proto != NULL)
+						qos_rx_tc_tbl->dst.arr[dst_clen].proto = kstrdup(temp_rx_hdl->dst.arr[i].proto, GFP_KERNEL);
+				}
+				dst_clen++;
+			}
+		}
+
+		INIT_LIST_HEAD(&qos_rx_tc_tbl->node);
+		list_add_tail(&qos_rx_tc_tbl->node, &ioss_qos_table.qos_rx_tc_table);
+	}
+}
 /* Utils End */
 
 static ssize_t show_add_tc(struct device *dev,
@@ -770,6 +886,8 @@ static ssize_t store_del_tc(struct device *dev,
 				kfree(rx_node);
 			}
 		}
+		delete_rx_tc_table(&ioss_qos_table.qos_rx_tc_table);
+		INIT_LIST_HEAD(&ioss_qos_table.qos_rx_tc_table);
 	}
 	else {
 		if (!tx_tc_already_exists(prio)) {
@@ -866,6 +984,7 @@ static ssize_t store_commit(struct device *dev,
 			INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
 			delete_rx_table(&ioss_qos_table.qos_rx_committed_table);
 			INIT_LIST_HEAD(&ioss_qos_table.qos_rx_committed_table);
+			delete_rx_tc_table(&ioss_qos_table.qos_rx_tc_table);
 
 			delete_tx_table(&ioss_qos_table.qos_tx_pending_table);
 			INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
@@ -930,8 +1049,9 @@ static ssize_t store_commit(struct device *dev,
 			 idev->qos_rx_channels, idev->qos_tx_channels);
 
 	// idev ops
+	convert_flows_to_tc(&ioss_qos_table.qos_rx_pending_table);
 	if (idrv->qos_ops->prepare_qos) {
-		res = idrv->qos_ops->prepare_qos(idev, &ioss_qos_table.qos_rx_pending_table, &ioss_qos_table.qos_tx_pending_table);
+		res = idrv->qos_ops->prepare_qos(idev, &ioss_qos_table.qos_rx_tc_table, &ioss_qos_table.qos_tx_pending_table);
 		ioss_dev_log(idev, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
 					res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
 	}
@@ -1499,6 +1619,7 @@ int create_qos_sysfs_nodes(struct device *dev)
 	INIT_LIST_HEAD(&ioss_qos_table.qos_rx_committed_table);
 	INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
 	INIT_LIST_HEAD(&ioss_qos_table.qos_tx_committed_table);
+	INIT_LIST_HEAD(&ioss_qos_table.qos_rx_tc_table);
 
 	qos_kobj = kobject_create_and_add("qos", &idev->net_dev->dev.kobj);
 	if (!qos_kobj) {
@@ -1517,7 +1638,6 @@ int create_qos_sysfs_nodes(struct device *dev)
 		ioss_qos_dev_err(idev, "Unable to create qos-add_tc_params kobject");
 		goto err_qos_sysfs;
 	}
-
 
 	create_qos_sysfs_node(idev, qos_tc_params_kobj, vlan_id, 0, qos_id, err_qos_sysfs);
 	create_qos_sysfs_node(idev, qos_tc_params_kobj, pcp, 0, qos_id, err_qos_sysfs);

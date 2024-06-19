@@ -67,6 +67,7 @@ struct IOSS_QOS_TABLE {
     struct list_head qos_rx_committed_table;
     struct list_head qos_tx_pending_table;
     struct list_head qos_tx_committed_table;
+    struct list_head qos_rx_tc_table;
 };
 
 struct IOSS_QOS_NEW_NODES {
