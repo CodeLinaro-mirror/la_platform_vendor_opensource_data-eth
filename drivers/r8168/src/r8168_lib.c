@@ -396,6 +396,11 @@ int rtl8168_enable_ring(struct rtl8168_ring *ring)
         tp = ring->private;
         dev = tp->dev;
 
+        if (!netif_running(dev)) {
+                netif_warn(tp, drv, dev, "closed not enable ring. \n");
+                goto out_unlock;
+        }
+
         /* Start the ring if needed */
         netif_tx_disable(dev);
         _rtl8168_wait_for_quiescence(dev);
@@ -415,6 +420,7 @@ int rtl8168_enable_ring(struct rtl8168_ring *ring)
 
         netif_tx_start_all_queues(dev);
 
+out_unlock:
         rtnl_unlock();
 
         return 0;
@@ -612,9 +618,21 @@ out:
 
 int rtl8168_enable_event(struct rtl8168_ring *ring)
 {
+        struct rtl8168_private *tp;
+        struct net_device *dev;
+
+        if (!ring)
+                return -EINVAL;
+
         rtnl_lock();
 
-        _rtl8168_enable_event(ring);
+        tp = ring->private;
+        dev = tp->dev;
+
+        if (!netif_running(dev))
+                netif_warn(tp, drv, dev, "closed not enable event. \n");
+        else
+                _rtl8168_enable_event(ring);
 
         rtnl_unlock();
 
