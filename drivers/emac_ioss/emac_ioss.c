@@ -1989,6 +1989,8 @@ static int stmmac_enable_qos(struct ioss_device *idev)
 		stmmac_enable_qos_queue_cfg(priv, &qos_tables);
 		if (priv->unique_filter_new != PCP) {
 			stmmac_enable_qos_filtering(ndev, &qos_tables);
+		} else if (priv->unique_filter_old != PCP) {
+			stmmac_remove_qos_filtering(ndev, priv->unique_filter_old, IDX_USED);
 		}
 		/*cbs routing*/
 		stmmac_config_qos_cbs(priv, &qos_tables);
@@ -2014,7 +2016,7 @@ static int stmmac_clear_qos(struct ioss_device *idev)
 	if (priv->plat->rx_qos_queues_to_use >= 3) {
 		stmmac_restore_qos_queue_cfg(priv, &qos_tables);
 		if (priv->unique_filter_new != PCP) {
-			stmmac_remove_qos_filtering(ndev, &qos_tables);
+			stmmac_remove_qos_filtering(ndev, priv->unique_filter_new, IDX_USED);
 		}
 		stmmac_restore_dma_config(ndev, &qos_tables);
 		/* Cleanup the used tables */

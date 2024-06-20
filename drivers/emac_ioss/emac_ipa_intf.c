@@ -1544,82 +1544,7 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 
 	ioss_qos_dev_log(NULL, "[iemac qos] : Enter");
 	/* Clear the filters which aren't needed */
-	for (i = 0; i < 32; i++) {
-		if (priv->app_filters[i].action != IDX_CLEAR)
-			continue;
-		switch (priv->unique_filter_old) {
-		case VLAN_ID:
-			ret = priv->hw->mac->del_hw_vlan_rx_fltr(ndev, priv->hw, 0, priv->app_filters[i].vlan_id);
-			if (ret) {
-				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting vlan %d filter failed\n",
-					         priv->app_filters[i].vlan_id);
-			} else {
-				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[iemac qos]: Vlan filter %d deleted, ch = %d\n",
-						 priv->app_filters[i].vlan_id, priv->app_filters[i].dma_ch);
-			}
-			break;
-		case SRC_IP:
-			priv->qos_l3_l4_filter_end--;
-			ret = priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, false,
-									priv->app_filters[i].ip_src.ipv6_src, true, false,
-									priv->app_filters[i].ip_src.ipv4_src_addr,
-									priv->app_filters[i].ip_src.ipv6_src_addr,
-									priv->app_filters[i].ip_src.src_mask_length,
-									priv->app_filters[i].dma_ch);
-			if(ret) {
-				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting src ip filter failed\n");
-			} else {
-				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[iemac qos]: src ip filter deleted\n");
-			}
-			break;
-		case DEST_IP:
-			priv->qos_l3_l4_filter_end--;
-			ret = priv->hw->mac->config_l3_filter_with_mask(priv->hw, i, false,
-									priv->app_filters[i].ip_dest.ipv6_dst, false, false,
-									priv->app_filters[i].ip_dest.ipv4_dst_addr,
-									priv->app_filters[i].ip_dest.ipv6_dst_addr,
-									priv->app_filters[i].ip_dest.dst_mask_length,
-									priv->app_filters[i].dma_ch);
-			if(ret) {
-				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting dest ip filter failed\n");
-			} else {
-				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[iemac qos]: dest ip filter deleted\n");
-			}
-			break;
-		case SRC_PORT:
-			priv->qos_l3_l4_filter_end--;
-			ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, i, false, priv->app_filters[i].src_port.proto,
-									 true, false, priv->app_filters[i].src_port.port_num,
-									 priv->app_filters[i].dma_ch);
-			if(ret) {
-				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting src port filter failed\n");
-			} else {
-				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[iemac qos]: src port filter deleted = %d\n",
-					         priv->app_filters[i].src_port.port_num);
-			}
-			break;
-		case DEST_PORT:
-			priv->qos_l3_l4_filter_end--;
-			ret = priv->hw->mac->config_l4_filter_with_route(priv->hw, i, false, priv->app_filters[i].dst_port.proto,
-									 false, false, priv->app_filters[i].dst_port.port_num,
-									 priv->app_filters[i].dma_ch);
-			if(ret) {
-				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting dest port filter failed\n");
-			} else {
-				priv->app_filters[i].action = IDX_UNUSED;
-				ioss_qos_dev_log(NULL, "[iemac qos]: dest port filter deleted = %d\n",
-					         priv->app_filters[i].dst_port.port_num);
-			}
-			break;
-		case INVALID_FILTER:
-		default:
-			break;
-		}
-	}
+	stmmac_remove_qos_filtering(ndev, priv->unique_filter_old, IDX_CLEAR);
 
 	/* Apply the new filters to be installed */
 	if (priv->unique_filter_new != priv->unique_filter_old)
@@ -1779,7 +1704,7 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 }
 EXPORT_SYMBOL_GPL(stmmac_enable_qos_filtering);
 
-void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos_table_info)
+void stmmac_remove_qos_filtering(struct net_device *ndev, int filter_type, enum idx_action action)
 {
 	int i = 0;
 	int ret = 0;
@@ -1787,9 +1712,9 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 
 	/* Clear the filters which aren't needed */
 	for (i = 0; i < 32; i++) {
-		if (priv->app_filters[i].action == IDX_UNUSED)
+		if (priv->app_filters[i].action != action)
 			continue;
-		switch (priv->unique_filter_new) {
+		switch (filter_type) {
 		case VLAN_ID:
 			ret = priv->hw->mac->del_hw_vlan_rx_fltr(ndev, priv->hw, 0, priv->app_filters[i].vlan_id);
 			if (ret) {

@@ -476,10 +476,11 @@ void stmmac_restore_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *q
 
 /* Remove filters to route QOS traffic
  * param[in] priv : stmmac priv data structure
- * param[in] qos_table_info : qos_struct which contains required qos_info post
+ * param[in] filter_type : filter to be cleared
+ * param[in] action : filter action
  * qos_table processing
  */
-void stmmac_remove_qos_filtering(struct net_device *ndev, struct qos_struct *qos_table_info);
+void stmmac_remove_qos_filtering(struct net_device *ndev, int filter_type, enum idx_action action);
 
 /* Restore DMA configuration after disabling QOS
  * param[in] ndev : stmmac netdev data structure
