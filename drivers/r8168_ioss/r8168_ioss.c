@@ -121,7 +121,11 @@ static int r8168_ioss_request_channel(struct ioss_channel *ch)
 		}
 	}
 
-	ch->id = ring->queue_num;
+	if (ch->direction == IOSS_CH_DIR_RX)
+		ch->id = 0;
+	else
+		ch->id = ring->queue_num;
+
 	ch->private = ring;
 
 	return 0;
