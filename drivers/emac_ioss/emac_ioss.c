@@ -2221,9 +2221,14 @@ static bool is_src_port_filter_applied(struct stmmac_priv *priv, void *filter_va
 	}
 
 	for (i = 0; i < ARRAY_SIZE(priv->app_filters); i++) {
-		if (priv->app_filters[i].src_port.port_num == filter_node.port_num
-			&& priv->app_filters[i].src_port.proto == filter_node.proto)
-			return true;
+		if (filter_node.proto == IOSS_IPPROTO_TCP_UDP) {
+			if (priv->app_filters[i].src_port.port_num == filter_node.port_num)
+				return true;
+		} else {
+			if (priv->app_filters[i].src_port.port_num == filter_node.port_num
+			    && priv->app_filters[i].src_port.proto == filter_node.proto)
+				return true;
+		}
 	}
 
 	return false;
@@ -2246,9 +2251,14 @@ static bool is_dst_port_filter_applied(struct stmmac_priv *priv, void *filter_va
 	}
 
 	for (i = 0; i < ARRAY_SIZE(priv->app_filters); i++) {
-		if (priv->app_filters[i].dst_port.port_num == filter_node.port_num
-			&& priv->app_filters[i].dst_port.proto == filter_node.proto)
-			return true;
+		if (filter_node.proto == IOSS_IPPROTO_TCP_UDP) {
+			if (priv->app_filters[i].dst_port.port_num == filter_node.port_num)
+				return true;
+		} else {
+			if (priv->app_filters[i].dst_port.port_num == filter_node.port_num
+			    && priv->app_filters[i].dst_port.proto == filter_node.proto)
+				return true;
+		}
 	}
 
 	return false;
