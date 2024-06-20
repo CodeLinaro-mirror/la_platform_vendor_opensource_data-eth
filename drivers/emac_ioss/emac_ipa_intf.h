@@ -446,6 +446,11 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel);
  */
 int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 index);
 
+/* Enable dynamic channel selection
+ *  *param[in] priv : stmmac priv data structure
+ */
+void stmmac_enable_dynamic_ch_slection(struct stmmac_priv *priv);
+
 /* Enable PFC and queue routing for QOS
  *param[in] priv : stmmac priv data structure
  * \param[in] qos_table_info : qos_struct which contains required qos_info post

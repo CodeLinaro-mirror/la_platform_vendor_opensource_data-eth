@@ -1330,6 +1330,8 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 			   channel->channel_num);
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		stmmac_map_mtl_to_dma(priv, priv->hw, channel->channel_num, sw_chan);
+		if(channel->channel_num == 0)
+			stmmac_enable_dynamic_ch_slection(priv);
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel\n", __func__);
@@ -1532,6 +1534,18 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 	}
 }
 EXPORT_SYMBOL_GPL(stmmac_enable_qos_queue_cfg);
+
+void stmmac_enable_dynamic_ch_slection(struct stmmac_priv *priv)
+{
+	u32 read_value = 0;
+
+	if (priv->plat->qos_active && priv->unique_filter_new != PCP) {
+		read_value = (u32)readl_relaxed(priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
+		read_value |= XGMAC_QDDMACH;
+		writel(read_value, priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
+	}
+}
+EXPORT_SYMBOL_GPL(stmmac_enable_dynamic_ch_slection);
 
 void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos_table_info)
 {
