@@ -1364,7 +1364,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			}
 
 			qos_tables.pipe_map.pipe_to_tc_mapping_tx[channel] |= (1 << temp_tx->tc_prio);
-			qos_tables.tx_routing_info[channel].acc_bw += temp_tx->cbs_bw.high_bw;
+			qos_tables.tx_routing_info[channel].acc_bw += temp_tx->cbs_bw.low_bw;
 			/* As qos_tables is global and we are memsetting to 0 after clear, default mode to use should be MTL_QUEUE_AVB*/
 			if (qos_tables.tx_routing_info[channel].acc_bw &&
 			    (qos_tables.tx_routing_info[channel].mode_to_use != MTL_QUEUE_DCB))
