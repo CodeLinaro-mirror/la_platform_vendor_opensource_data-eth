@@ -152,6 +152,8 @@ struct qos_routing_tx {
     enum action action;
 
     struct tx_cbs_bw cbs_bw;
+    u16 bw_allocated;
+
     void *tx_param_info;
 
     struct list_head node;

@@ -14,6 +14,7 @@
 
 #include <linux/module.h>
 #include <linux/debugfs.h>
+#include <linux/minmax.h>
 #include "stmmac.h"
 #include "ioss/include/linux/msm/ioss.h"
 #include "ioss/include/linux/msm/ioss_qos.h"
@@ -28,6 +29,33 @@ struct stmmac_ioss_device {
 	struct ioss_device *idev;
 	struct stmmac_priv *_priv;
 };
+
+static void qos_adjust_txq_cbs_bw(struct list_head *qos_tx, u16 available_bw)
+{
+	struct qos_routing_tx *temp_tx;
+	int total_min_bw = 0, total_allocated_bw = 0, remaining_bw = 0;
+	u16 min_bw, max_bw;
+
+	list_for_each_entry(temp_tx, qos_tx, node) {
+        total_min_bw += temp_tx->cbs_bw.low_bw;
+    }
+
+    ioss_qos_dev_log(NULL, "[ioss qos] aggr min bw = %d",total_min_bw);
+    list_for_each_entry(temp_tx, qos_tx, node) {
+		min_bw = temp_tx->cbs_bw.low_bw;
+		max_bw = temp_tx->cbs_bw.high_bw;
+		total_min_bw -= temp_tx->cbs_bw.low_bw;
+		ioss_qos_dev_log(NULL, "[ioss qos] aggr min bw = %d",total_min_bw);
+		ioss_qos_dev_log(NULL, "[ioss qos] TC%d ==> MinBW = %d MaxBW = %d TotalCapacity = %d total_allocated_bw = %d",
+				 temp_tx->tc_prio, min_bw,max_bw, (available_bw - total_allocated_bw), total_allocated_bw);
+
+		remaining_bw = min(max_bw, (available_bw - total_min_bw - total_allocated_bw));
+		temp_tx->bw_allocated = max(min_bw, remaining_bw);
+		total_allocated_bw += temp_tx->bw_allocated;
+		qos_tables.bw_allocated[temp_tx->tc_prio] = temp_tx->bw_allocated;
+		ioss_qos_dev_log(NULL, "[ioss qos] Alloted BW for TC%d = %d", temp_tx->tc_prio, temp_tx->bw_allocated);
+    }
+}
 
 static void *stmmac_ioss_dma_alloc(struct ioss_device *idev,
 				   size_t size, dma_addr_t *daddr, gfp_t gfp,
@@ -1338,6 +1366,33 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		sw_ch = 0;
 		hw_ch = 0;
 		tx_avail = qos_tx_queues - 1;
+		/*CBS claculation*/
+		switch (priv->speed) {
+			case SPEED_10000:
+				bw_avail = 10000;
+				break;
+			case SPEED_2500:
+				bw_avail = 2500;
+				break;
+			case SPEED_5000:
+				bw_avail = 5000;
+				break;
+			case SPEED_1000:
+				bw_avail = 1000;
+				break;
+			case SPEED_100:
+				bw_avail = 100;
+				break;
+			case SPEED_10:
+				bw_avail = 10;
+				break;
+			default:
+				map_info.qos_response_status = QOS_COMMIT_FAIL;
+				ioss_qos_dev_err(idev, "Invalid Speed\n");
+				goto err_inval_speed;
+		}
+
+		qos_adjust_txq_cbs_bw(qos_tx, bw_avail);
 		list_for_each_entry(temp_tx, qos_tx, node) {
 			if (tx_avail == 2) {
 				if (num_tx_sw_tc && sw_ch == 0 && temp_tx->action == IOSS_QOS_HW_PATH && 
@@ -1364,7 +1419,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			}
 
 			qos_tables.pipe_map.pipe_to_tc_mapping_tx[channel] |= (1 << temp_tx->tc_prio);
-			qos_tables.tx_routing_info[channel].acc_bw += temp_tx->cbs_bw.low_bw;
+			qos_tables.tx_routing_info[channel].acc_bw += temp_tx->bw_allocated;
 			/* As qos_tables is global and we are memsetting to 0 after clear, default mode to use should be MTL_QUEUE_AVB*/
 			if (qos_tables.tx_routing_info[channel].acc_bw &&
 			    (qos_tables.tx_routing_info[channel].mode_to_use != MTL_QUEUE_DCB))
@@ -1373,28 +1428,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				qos_tables.tx_routing_info[channel].mode_to_use = MTL_QUEUE_DCB;
 			temp_tx->tx_param_info = (void *)(channel);
 			qos_tables.tx_channel_info[channel] = temp_tx->action;
-		}
-		/*CBS claculation*/
-		switch (priv->speed) {
-			case SPEED_100000:
-				bw_avail = 10000;
-				break;
-			case SPEED_2500:
-				bw_avail = 2500;
-				break;
-			case SPEED_1000:
-				bw_avail = 1000;
-				break;
-			case SPEED_100:
-				bw_avail = 100;
-				break;
-			case SPEED_10:
-				bw_avail = 10;
-				break;
-			default:
-				map_info.qos_response_status = QOS_COMMIT_FAIL;
-			ioss_qos_dev_err(idev, "Invalid Speed\n");
-				goto err_inval_speed;
 		}
 
 		for (i = priv->plat->tx_queues_to_use - 1; i > 1; i--) {
@@ -2434,6 +2467,9 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 		strlcat(table, row, TABLE_BUFFER);
 
 		scnprintf(row, ROW_BUFFER, "    bw: %u:%u\n", tx_node->cbs_bw.low_bw, tx_node->cbs_bw.high_bw);
+		strlcat(table, row, TABLE_BUFFER);
+
+		scnprintf(row, ROW_BUFFER, "    bw allocated: %u\n", qos_tables.bw_allocated[tx_node->tc_prio]);
 		strlcat(table, row, TABLE_BUFFER);
 
 		find_tc_queue_channel(&qos_tables, tx_node->tc_prio, &tc_queue, &tc_channel, false);
