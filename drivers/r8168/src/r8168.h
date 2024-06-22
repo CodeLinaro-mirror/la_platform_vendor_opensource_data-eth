@@ -360,7 +360,7 @@ do { \
 #define RSS_SUFFIX ""
 #endif
 
-#define RTL8168_VERSION "8.051.02-b22_cdt_status" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
+#define RTL8168_VERSION "8.051.02-b22_q0" NAPI_SUFFIX FIBER_SUFFIX REALWOW_SUFFIX DASH_SUFFIX RSS_SUFFIX
 #define MODULENAME "r8168"
 #define PFX MODULENAME ": "
 
@@ -1091,10 +1091,10 @@ enum RTL8168_registers {
         CounterAddrLow      = 0x10,
         CounterAddrHigh     = 0x14,
         CustomLED       = 0x18,
-        TxDescStartAddrLow  = 0x20,
-        TxDescStartAddrHigh = 0x24,
-        TxHDescStartAddrLow = 0x28,
-        TxHDescStartAddrHigh    = 0x2c,
+        TxDescStartAddrLow  = 0x28,
+        TxDescStartAddrHigh = 0x2c,
+        TxHDescStartAddrLow = 0x20,
+        TxHDescStartAddrHigh    = 0x24,
         FLASH           = 0x30,
         ERSR            = 0x36,
         ChipCmd         = 0x37,
@@ -1164,8 +1164,8 @@ enum RTL8168_registers {
         RSS_KEY_8168    = 0x90,
         RSS_CTRL_8168   = 0xB8,
         Q_NUM_CTRL_8168 = 0xC0,
-	/* MAC OCP */
-	EEE_TXIDLE_TIMER_8168   = 0xe048,
+        /* MAC OCP */
+        EEE_TXIDLE_TIMER_8168   = 0xe048,
 };
 
 enum RTL8168_register_content {
@@ -1216,8 +1216,8 @@ enum RTL8168_register_content {
         AcceptAllPhys = 0x01,
 
         /* Transmit Priority Polling*/
-        HPQ = 0x80,
-        NPQ = 0x40,
+        HPQ = 0x40,
+        NPQ = 0x80,
         FSWInt = 0x01,
 
         /* RxConfigBits */
@@ -2085,7 +2085,7 @@ rtl8168_num_lib_rx_rings(struct rtl8168_private *tp)
 {
         int count, i;
 
-        for (count = 0, i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++)
+        for (count = 0, i = 1; i < tp->HwSuppNumRxQueues; i++)
                 if(tp->lib_rx_ring[i].enabled)
                         count++;
 
@@ -2116,7 +2116,7 @@ rtl8168_lib_rx_ring_released(struct rtl8168_private *tp)
         int i;
         bool released = 0;
 
-        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
+        for (i = 1; i < tp->HwSuppNumRxQueues; i++) {
                 struct rtl8168_ring *ring = &tp->lib_rx_ring[i];
                 if (ring->allocated)
                         goto exit;
