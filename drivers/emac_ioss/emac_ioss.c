@@ -1253,8 +1253,8 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 									    		 temp_rx->pcp.arr[i], temp_rx->tc_prio);
 							} else {
 								pcp_mask |= 1 << temp_rx->pcp.arr[i];
-								filter_node_pcp->pcp |= 1 << temp_rx->pcp.arr[i];
 							}
+							filter_node_pcp->pcp |= 1 << temp_rx->pcp.arr[i];
 						} else {
 							pcp_not_unique = true;
 							if (temp_rx->action == IOSS_QOS_SW_PATH)
@@ -1580,13 +1580,24 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			}
 		}
 	}
-	/* Now check if PCP table has changed (Should we stop queues before changing the pcp for queue)*/
-	for (i = 1; i < priv->plat->rx_qos_queues_to_use; i++) {
+	/* Prepare queue to pcp mapping and check if PCP table has changed*/
+	pcp_mask_old = 0;
+	pcp_mask = pcp_mask_old;
+	for (i = priv->plat->rx_qos_queues_to_use - 1; i > 0; i--) {
 		list_for_each_entry(temp_pcp_node, &qos_tables.pcp_route_table, node) {
-			ioss_qos_dev_log(idev, "prio = %d, pcp = %d, queue = %d\n",
-					 temp_pcp_node->tc_prio, getbitpos(temp_pcp_node->pcp), temp_pcp_node->queue);
-			if (temp_pcp_node->queue == i)
-				qos_tables.queue_to_pcp_map[i] |= temp_pcp_node->pcp;
+			if (temp_pcp_node->queue == i) {
+				pcp_mask |= temp_pcp_node->pcp;
+				if (pcp_mask != pcp_mask_old) {
+					/* TC having multiple PCP's but atleast one pcp is common*/
+					if (pcp_mask_old & temp_pcp_node->pcp) {
+						temp_pcp_node->pcp = pcp_mask - pcp_mask_old;
+					}
+					ioss_qos_dev_log(idev, "prio = %d, pcp = %d, queue = %d\n",
+							 temp_pcp_node->tc_prio, temp_pcp_node->pcp, temp_pcp_node->queue);
+					qos_tables.queue_to_pcp_map[i] |= temp_pcp_node->pcp;
+				}
+				pcp_mask_old = pcp_mask;
+			}
 		}
 		ioss_qos_dev_log(idev, "queue_pcp_map[%d] = %d\n", i, qos_tables.queue_to_pcp_map[i]);
 	}
