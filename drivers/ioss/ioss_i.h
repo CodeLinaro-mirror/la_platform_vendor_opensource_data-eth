@@ -124,41 +124,16 @@ const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
 
 void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush);
 
-#if IS_ENABLED(CONFIG_DEBUG_FS)
-int ioss_debugfs_init(void);
-void ioss_debugfs_exit(void);
-int ioss_debugfs_add_idev(struct ioss_device *idev);
-void ioss_debugfs_remove_idev(struct ioss_device *idev);
-int ioss_debugfs_add_channel(struct ioss_channel *ch);
-void ioss_debugfs_remove_channel(struct ioss_channel *ch);
-#else
-static inline int ioss_debugfs_init(void)
-{
-	return 0;
-}
-static inline void ioss_debugfs_exit(void)
-{
-}
-static inline int ioss_debugfs_add_idev(struct ioss_device *idev)
-{
-	return 0;
-}
-static inline void ioss_debugfs_remove_idev(struct ioss_device *idev)
-{
-}
-static inline int ioss_debugfs_add_channel(struct ioss_channel *ch)
-{
-	return 0;
-}
-static inline void ioss_debugfs_remove_channel(struct ioss_channel *ch)
-{
-}
-#endif
+int ioss_sysfs_init(struct ioss_device* idev);
+void ioss_sysfs_exit(struct ioss_device* idev);
+int ioss_sysfs_add_idev(struct ioss_device* idev);
+void ioss_sysfs_remove_idev(struct ioss_device* idev);
+int ioss_sysfs_add_channel(struct ioss_channel* ch);
+void ioss_sysfs_remove_channel(struct ioss_channel* ch);
 
 int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp);
 void disable_qos_ipa_channels(struct ioss_device *idev);
 int ioss_reconfigure_qos(struct ioss_device *idev);
 int ioss_enable_qos(struct ioss_device *idev);
-
 
 #endif /* _IOSS_I_H_ */
