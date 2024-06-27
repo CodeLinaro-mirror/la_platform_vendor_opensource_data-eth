@@ -1186,6 +1186,8 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		}
 		if (&qos_tables.pcp_route_table)
 			delete_route_table(&qos_tables.pcp_route_table);
+		for (i = 0; i < priv->plat->tx_queues_to_use; i++)
+			priv->tx_queue_pcp_map[i] = 0;
 	}
 	memset(&qos_tables, 0, sizeof(struct qos_struct));
 	INIT_LIST_HEAD(&qos_tables.pcp_route_table);
@@ -1450,6 +1452,13 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				qos_tables.tx_routing_info[channel].mode_to_use = MTL_QUEUE_DCB;
 			temp_tx->tx_param_info = (void *)(channel);
 			qos_tables.tx_channel_info[channel] = temp_tx->action;
+			if (temp_tx->action == IOSS_QOS_SW_PATH) {
+				for (i = 0; i < temp_tx->pcp.len; i++) {
+					priv->tx_queue_pcp_map[channel] |= 1 << temp_tx->pcp.arr[i];
+                                  	ioss_qos_dev_log(idev, "tx queue = %d, pcp = %d\n",
+                                                         channel, priv->tx_queue_pcp_map[channel]);
+				}
+			}
 		}
 
 		for (i = priv->plat->tx_queues_to_use - 1; i > 1; i--) {
@@ -2534,7 +2543,19 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 
 		scnprintf(row, ROW_BUFFER, "    bw allocated: %u\n", qos_tables.bw_allocated[tx_node->tc_prio]);
 		strlcat(table, row, TABLE_BUFFER);
+		if (tx_node->action == IOSS_QOS_SW_PATH) {
+			scnprintf(row, ROW_BUFFER, "    handle: %u\n", tx_node->handle);
+			strlcat(table, row, TABLE_BUFFER);
 
+			scnprintf(row, ROW_BUFFER, "    pcp: ");
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < tx_node->pcp.len; i++) {
+				scnprintf(row, ROW_BUFFER, "%u ", tx_node->pcp.arr[i]);
+				strlcat(table, row, TABLE_BUFFER);
+			}
+			scnprintf(row, ROW_BUFFER, "\n");
+			strlcat(table, row, TABLE_BUFFER);
+                }
 		find_tc_queue_channel(&qos_tables, tx_node->tc_prio, &tc_queue, &tc_channel, false);
 		scnprintf(row, ROW_BUFFER, "    queue: %u\n    channel: %u\n", tc_queue, tc_channel);
 		strlcat(table, row, TABLE_BUFFER);
@@ -2548,9 +2569,16 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 		list_for_each(hdl_ptr, rx_flow_hdl) {
 			rx_hdl = to_qos_routing_rx_hdl(hdl_ptr);
 			if (rx_hdl->hdl_committed) {
-				scnprintf(row, ROW_BUFFER, "%d ", rx_hdl->hdl);
+				scnprintf(row, ROW_BUFFER, "%u ", rx_hdl->hdl);
 				strlcat(table, row, TABLE_BUFFER);
 			}
+		}
+	}
+	list_for_each(ptr, qos_tx) {
+		tx_node = to_qos_routing_tx(ptr);
+		if (tx_node->committed && tx_node->action == IOSS_QOS_SW_PATH) {
+			scnprintf(row, ROW_BUFFER, "%u ", tx_node->handle);
+			strlcat(table, row, TABLE_BUFFER);
 		}
 	}
 	scnprintf(row, ROW_BUFFER, "\n");
