@@ -178,9 +178,11 @@ struct qos_routing_tx {
 
     bool committed;
     enum action action;
+    u32 handle;
 
     struct tx_cbs_bw cbs_bw;
     u16 bw_allocated;
+    struct pcp_array pcp;
 
     void *tx_param_info;
 

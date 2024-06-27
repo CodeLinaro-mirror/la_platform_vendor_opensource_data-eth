@@ -288,11 +288,20 @@ static void copy_rx_table(struct list_head *src, struct list_head *dest)
 
 static void copy_tx_node(struct qos_routing_tx *src, struct qos_routing_tx *dest)
 {
+	int i = 0;
+
 	dest->tc_prio = src->tc_prio;
 	dest->committed = src->committed;
 	dest->action = src->action;
 	dest->cbs_bw.low_bw = src->cbs_bw.low_bw;
 	dest->cbs_bw.high_bw = src->cbs_bw.high_bw;
+	dest->handle = src->handle;
+	dest->pcp.len = src->pcp.len;
+	if (src->pcp.len) {
+		dest->pcp.arr = kzalloc(sizeof(u8) * dest->pcp.len, GFP_KERNEL);
+		for (i = 0; i < src->pcp.len; i++)
+			dest->pcp.arr[i] = src->pcp.arr[i];
+	}
 }
 
 static void copy_tx_table(struct list_head *src, struct list_head *dest)
@@ -397,6 +406,7 @@ static void delete_tx_table(struct list_head *table)
 	list_for_each_safe(ptr, temp, table) {
 		list_del(ptr);
 		del_node = to_qos_routing_tx(ptr);
+		kfree(del_node->pcp.arr);
 		kfree(del_node);
 	}
 }
@@ -725,6 +735,26 @@ add_err:
 		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add_tc failure\n");
 	}
 	return -EINVAL;
+}
+
+static ssize_t show_tx_handle(struct device *dev,
+	struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_tx_handle(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	u32 input = 0;
+
+	if (kstrtou32(user_buf, 0, &input)) {
+		ioss_qos_dev_err(NULL, "Error in adding tx handle\n");
+		return -EINVAL;
+	}
+
+	ioss_qos_new_nodes.tx_node->handle = input;
+	return size;
 }
 
 static ssize_t show_qos_table(struct device *dev,
@@ -1267,6 +1297,62 @@ bw_err:
 	return -EINVAL;
 }
 
+static ssize_t show_tx_pcp(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	return 0;
+}
+
+static ssize_t store_tx_pcp(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	char *pcp;
+	int i = 0;
+	u16 len = 0;
+	char *tmp = NULL;
+	char *dup = kstrdup(user_buf, GFP_KERNEL);
+	char *buf = kstrdup(user_buf, GFP_KERNEL);
+
+	tmp = dup;
+	len = get_num_arguments(&dup, " ");
+	kfree(tmp);
+
+	if (!ioss_qos_new_nodes.tx_node)
+		return -EINVAL;
+
+	if (ioss_qos_new_nodes.tx_node->pcp.arr)
+		kfree(ioss_qos_new_nodes.tx_node->pcp.arr);
+
+	ioss_qos_new_nodes.tx_node->pcp.arr = kzalloc(sizeof(u8) * len, GFP_KERNEL);
+	ioss_qos_new_nodes.tx_node->pcp.len = len;
+
+	tmp = buf;
+	while ( (pcp = strsep(&buf, " ")) ) {
+		if (0 == strlen(pcp))
+			continue;
+		if (kstrtou8(pcp, 10, &ioss_qos_new_nodes.tx_node->pcp.arr[i]) < 0)
+			goto pcp_err;
+		if (!is_valid_pcp(ioss_qos_new_nodes.tx_node->pcp.arr[i]))
+			goto pcp_err;
+		i++;
+	}
+
+	kfree(tmp);
+
+	return size;
+
+pcp_err:
+	ioss_qos_dev_err(NULL, "[qos ioss] : invalid pcp value entered\n");
+	if (ioss_qos_new_nodes.tx_node) {
+		kfree(ioss_qos_new_nodes.tx_node->pcp.arr);
+		kfree(ioss_qos_new_nodes.tx_node);
+		ioss_qos_new_nodes.tx_node = NULL;
+		ioss_qos_dev_log(NULL, "[ioss qos] cleaned tx node due to add pcp failure\n");
+	}
+	kfree(tmp);
+	return -EINVAL;
+}
+
 static ssize_t show_pcp(struct device *dev,
 		struct device_attribute *attr, char *user_buf)
 {
@@ -1596,6 +1682,8 @@ static DEVICE_ATTR(add_tc, S_IRWXU | S_IRUGO | S_IRWXG,
 		show_add_tc, store_add_tc);
 static DEVICE_ATTR(add_handle, S_IRWXU | S_IRUGO | S_IRWXG,
 		show_add_handle, store_add_handle);
+static DEVICE_ATTR(tx_handle, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_tx_handle, store_tx_handle);
 
 static DEVICE_ATTR(qos_table, S_IRWXU | S_IRUGO | S_IRWXG,
 		show_qos_table, store_qos_table);
@@ -1620,6 +1708,9 @@ static DEVICE_ATTR(smac, S_IRWXU | S_IRUGO | S_IRWXG,
 		show_smac, store_smac);
 static DEVICE_ATTR(dmac, S_IRWXU | S_IRUGO | S_IRWXG,
 		show_dmac, store_dmac);
+static DEVICE_ATTR(tx_pcp, S_IRWXU | S_IRUGO | S_IRWXG,
+		show_tx_pcp, store_tx_pcp);
+
 
 int create_qos_sysfs_nodes(struct device *dev)
 {
@@ -1642,6 +1733,7 @@ int create_qos_sysfs_nodes(struct device *dev)
 	create_qos_sysfs_node(idev, qos_kobj, del_tc, 0, qos_id, err_qos_sysfs);
 	create_qos_sysfs_node(idev, qos_kobj, commit, 0, qos_id, err_qos_sysfs);
 	create_qos_sysfs_node(idev, qos_kobj, add_handle, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_kobj, tx_handle, 0, qos_id, err_qos_sysfs);
 
 	qos_tc_params_kobj = kobject_create_and_add("add_tc_params", qos_kobj);
 	if (!qos_tc_params_kobj) {
@@ -1657,6 +1749,7 @@ int create_qos_sysfs_nodes(struct device *dev)
 	create_qos_sysfs_node(idev, qos_tc_params_kobj, action, 0, qos_id, err_qos_sysfs);
 	create_qos_sysfs_node(idev, qos_tc_params_kobj, smac, 0, qos_id, err_qos_sysfs);
 	create_qos_sysfs_node(idev, qos_tc_params_kobj, dmac, 0, qos_id, err_qos_sysfs);
+	create_qos_sysfs_node(idev, qos_tc_params_kobj, tx_pcp, 0, qos_id, err_qos_sysfs);
 
 	return 0;
 
