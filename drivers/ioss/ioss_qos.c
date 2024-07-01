@@ -1223,6 +1223,8 @@ static ssize_t show_qos_info(struct device *dev,
 	struct ioss_interface *iface = NULL;
 	struct ioss_device *idev = NULL;
 	struct ioss_driver *idrv = NULL;
+	const ssize_t BUF_SIZE = PAGE_SIZE;
+	int bytes_written = 0;
 
 	parent = kobj_to_dev(dev->kobj.parent);
 	if (!parent)
@@ -1244,7 +1246,20 @@ static ssize_t show_qos_info(struct device *dev,
 	if (!idrv)
 		return -EINVAL;
 
-	return idrv->qos_ops->show_qos_info(idev, user_buf);
+	bytes_written += idrv->qos_ops->get_qos_info(idev, user_buf, BUF_SIZE);
+
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "ioss_ipa_config: %s\n", iface->ipa_config);
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "ioss_ipa_rx_pipes: %d\n", idev->qos_rx_channels + 1);
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "ioss_ipa_tx_pipes: %d\n", idev->qos_tx_channels + 1);
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "committed: %s\n", idev->qos_enabled ? "yes" :"no");
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "pending: %s\n", has_qos_table_changed(idev) ? "yes": "no");
+
+	return bytes_written;
 }
 
 static ssize_t store_info(struct device *dev,

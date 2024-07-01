@@ -217,7 +217,7 @@ struct ioss_qos_ops {
 	int (*clear_qos)(struct ioss_device *idev);
 	ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
 	int (*clear_qos_cache)(struct ioss_device *idev);
-	ssize_t (*show_qos_info)(struct ioss_device *idev, char *buf);
+	ssize_t (*get_qos_info)(struct ioss_device *idev, char *buf, ssize_t buf_size);
 };
 
 #define QOS_TABLE_ROW_BUFFER 16
