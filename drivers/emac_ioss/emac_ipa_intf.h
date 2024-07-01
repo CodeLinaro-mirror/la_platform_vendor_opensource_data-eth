@@ -181,6 +181,7 @@ struct qos_struct {
 	enum action tx_channel_info[5];
 	u8 backup_pcp_map[5];
 	u16 backup_rx_fifo_size[5];
+	u16 bw_allocated[8];
 	u8 queue_to_pcp_map[5];
 	u8 queue_to_ch_map[5];
 	u8 tc_to_queue_map[8];
