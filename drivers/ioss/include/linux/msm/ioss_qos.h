@@ -191,7 +191,8 @@ struct qos_routing_tx {
 enum ioss_qos_response {
     QOS_COMMIT_SUCCESS = 0,
     QOS_COMMIT_FAIL = 1,
-    QOS_COMMIT_EMPTY = 2
+    QOS_COMMIT_EMPTY = 2,
+    QOS_COMMIT_LINK_DOWN = 3
 };
 
 struct response {
