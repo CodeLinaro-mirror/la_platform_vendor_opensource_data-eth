@@ -1129,6 +1129,15 @@ filter_found:
 	return filter;
 }
 
+inline bool stmmac_is_phy_link_up(struct stmmac_priv *priv)
+{
+	if (priv->plat->mac2mac_en || priv->plat->fixed_phy_mode)
+		return priv->plat->mac2mac_link;
+	else
+		return (priv->dev->phydev &&
+			priv->dev->phydev->link);
+}
+
 static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx)
 {
 	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
@@ -1157,6 +1166,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	if (!priv->plat->qos_config) {
 		map_info.qos_response_status  = QOS_COMMIT_FAIL;
 		ioss_qos_dev_err(idev, "!!!EMAC QOS not enabled!!!");
+		return map_info;
+	}
+
+	if(!stmmac_is_phy_link_up(priv)) {
+		ioss_qos_dev_err(idev, "Link is down \n");
+		map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
 		return map_info;
 	}
 
