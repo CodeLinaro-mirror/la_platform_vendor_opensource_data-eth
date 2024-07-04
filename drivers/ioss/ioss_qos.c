@@ -476,10 +476,10 @@ static void convert_flows_to_tc(struct list_head *qos_rx)
 			qos_rx_tc_tbl->src.len += temp_rx_hdl2->src.len;
 			qos_rx_tc_tbl->dst.len += temp_rx_hdl2->dst.len;
 		}
-		qos_rx_tc_tbl->dmac.arr = kzalloc(sizeof(char)*qos_rx_tc_tbl->dmac.len*ETH_ALEN, GFP_KERNEL);
-		qos_rx_tc_tbl->smac.arr = kzalloc(sizeof(char)*qos_rx_tc_tbl->smac.len*ETH_ALEN, GFP_KERNEL);
+		qos_rx_tc_tbl->dmac.arr = kzalloc(sizeof(u8[ETH_ALEN])*qos_rx_tc_tbl->dmac.len, GFP_KERNEL);
+		qos_rx_tc_tbl->smac.arr = kzalloc(sizeof(u8[ETH_ALEN])*qos_rx_tc_tbl->smac.len, GFP_KERNEL);
 		qos_rx_tc_tbl->pcp.arr = kzalloc(sizeof(char)*qos_rx_tc_tbl->pcp.len, GFP_KERNEL);
-		qos_rx_tc_tbl->vlan_ids.arr = kzalloc(sizeof(char)*qos_rx_tc_tbl->vlan_ids.len, GFP_KERNEL);
+		qos_rx_tc_tbl->vlan_ids.arr = kzalloc(sizeof(u16)*qos_rx_tc_tbl->vlan_ids.len, GFP_KERNEL);
 		qos_rx_tc_tbl->src.arr = kzalloc(sizeof(struct qos_filters)*qos_rx_tc_tbl->src.len, GFP_KERNEL);
 		qos_rx_tc_tbl->dst.arr = kzalloc(sizeof(struct qos_filters)*qos_rx_tc_tbl->dst.len, GFP_KERNEL);
 		dmac_clen = 0;
@@ -985,6 +985,7 @@ static ssize_t store_commit(struct device *dev,
 			delete_rx_table(&ioss_qos_table.qos_rx_committed_table);
 			INIT_LIST_HEAD(&ioss_qos_table.qos_rx_committed_table);
 			delete_rx_tc_table(&ioss_qos_table.qos_rx_tc_table);
+			INIT_LIST_HEAD(&ioss_qos_table.qos_rx_tc_table);
 
 			delete_tx_table(&ioss_qos_table.qos_tx_pending_table);
 			INIT_LIST_HEAD(&ioss_qos_table.qos_tx_pending_table);
@@ -1072,6 +1073,9 @@ static ssize_t store_commit(struct device *dev,
 	idev->qos_cached = 0;
 
 	ret = enable_qos_ipa_channels(idev, res);
+
+	delete_rx_tc_table(&ioss_qos_table.qos_rx_tc_table);
+	INIT_LIST_HEAD(&ioss_qos_table.qos_rx_tc_table);
 
 	list_for_each(ptr, &ioss_qos_table.qos_rx_pending_table) {
 		rx_node = to_qos_rx_tc(ptr);
