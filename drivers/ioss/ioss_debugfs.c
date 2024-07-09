@@ -22,7 +22,7 @@ int ioss_sysfs_init(struct ioss_device *idev)
 	idev->root_kobj = kobject_create_and_add("ioss", &idev->net_dev->dev.kobj);
 	if (!idev->root_kobj) {
 		ioss_log_err(NULL, "Failed to create root  sysfs directory for IOSS");
-		goto fail;
+		return -EFAULT;
 	}
 
 	name = kobject_name(idev->root_kobj);
@@ -37,18 +37,26 @@ int ioss_sysfs_init(struct ioss_device *idev)
 	return 0;
 
 fail:
-	kobject_put(idev->dev_kobj);
-	kobject_put(idev->root_kobj);
+	if(idev->root_kobj){
+		kobject_del(idev->root_kobj);
+		kobject_put(idev->root_kobj);
+        }
+	idev->root_kobj = NULL;
 	return -EFAULT;
 }
 
 void ioss_sysfs_exit(struct ioss_device *idev)
 {
-	kobject_put(idev->dev_kobj);
-	kobject_put(idev->root_kobj);
+	if(idev->dev_kobj){
+		kobject_del(idev->dev_kobj);
+		kobject_put(idev->dev_kobj);
+        }
+	if(idev->root_kobj){
+		kobject_del(idev->root_kobj);
+		kobject_put(idev->root_kobj);
+        }
 
-	if(root_kobj)
-		kobject_put(root_kobj);
+	root_kobj = NULL;
 }
 
 static int get_idev_statistics(struct ioss_device *idev,
@@ -562,12 +570,12 @@ DEVICE_ATTR(ch_stat, CH_SYSFS_DEV_ATTR_PERMS, read_ch_stat,  NULL);
 int ioss_sysfs_add_idev(struct ioss_device *idev)
 {
 	int ret;
-  
+
 	//idev->kobj to access eth0 from ioss/devices for channel instead of net
 	idev->kobj = kobject_create_and_add(idev->net_dev->name, idev->dev_kobj);
 	if (!idev->kobj) {
 		ioss_dev_err(idev, "Failed to create %s sysfs directory", idev->net_dev->name);
-		goto err_sysfs;
+		return -EFAULT;
 	}
 
 	ret = sysfs_create_file(idev->kobj, &dev_attr_statistics.attr);
@@ -584,13 +592,21 @@ int ioss_sysfs_add_idev(struct ioss_device *idev)
 	return 0;
 
 err_sysfs:
-	kobject_put(idev->kobj);
+	if(idev->kobj){
+		kobject_del(idev->kobj);
+		kobject_put(idev->kobj);
+	}
+	idev->kobj = NULL;
 	return -EFAULT;
 }
 
 void ioss_sysfs_remove_idev(struct ioss_device *idev)
 {
-	kobject_put(idev->kobj);
+	if(idev->kobj){
+		kobject_del(idev->kobj);
+		kobject_put(idev->kobj);
+	}
+	idev->kobj = NULL;
 }
 
 int ioss_sysfs_add_channel(struct ioss_channel *ch)
@@ -605,7 +621,7 @@ int ioss_sysfs_add_channel(struct ioss_channel *ch)
 	ch->kobj = kobject_create_and_add(dir_name, idev->kobj);
 	if (!ch->kobj) {
 		ioss_dev_err(idev, "Failed to create %s sysfs directory", dir_name);
-		goto err_sysfs;
+		return -EFAULT;
 	}
 
 	ret = sysfs_create_file(ch->kobj, &dev_attr_ch_statistics.attr);
@@ -636,12 +652,20 @@ int ioss_sysfs_add_channel(struct ioss_channel *ch)
 	return 0;
 
 err_sysfs:
-	kobject_put(ch->kobj);
+	if(ch->kobj){
+		kobject_del(ch->kobj);
+		kobject_put(ch->kobj);
+	}
+	ch->kobj = NULL;
 	return -EFAULT;
 }
 
 void ioss_sysfs_remove_channel(struct ioss_channel *ch)
 {
-	kobject_put(ch->kobj);
+	if(ch->kobj){
+		kobject_del(ch->kobj);
+		kobject_put(ch->kobj);
+	}
+	ch->kobj = NULL;
 }
 

@@ -292,12 +292,12 @@ static void ioss_bus_remove(struct device *dev)
 
 	ioss_dev_log(idev, "De-initializing device");
 
-	ioss_sysfs_exit(idev);
+	remove_qos_sysfs_nodes(dev);
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
 
-	remove_qos_sysfs_nodes(dev);
+	ioss_sysfs_exit(idev);
 
 	if(emac_ipa_cdev && iface->auto_resume_disabled)
 	{
