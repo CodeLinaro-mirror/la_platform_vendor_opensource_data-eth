@@ -2186,6 +2186,7 @@ static int stmmac_clear_qos_cache(struct ioss_device *idev)
 			else
 				priv->is_tx_sw[i] = true;
 		}
+		priv->unique_filter_old = INVALID_FILTER;
 	}
 	return 0;
 }
