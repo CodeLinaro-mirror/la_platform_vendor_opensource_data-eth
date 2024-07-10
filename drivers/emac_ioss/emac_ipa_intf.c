@@ -1526,7 +1526,10 @@ EXPORT_SYMBOL_GPL(start_channel);
 int stop_channel(struct net_device *ndev, struct channel_info *channel)
 {
 	struct stmmac_priv *priv;
-	u32 sw_chan = 0;
+	u32 sw_chan = 1;
+	int i = 0;
+	u32 reg = 0, value = 0;
+	u32 ch_mask = 0;
 
 	ioss_log_msg(NULL, "Start");
 
@@ -1553,8 +1556,6 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 			return -EPERM;
 	}
 
-	sw_chan = priv->plat->rx_queues_cfg[channel->channel_num].chan;
-
 	if (channel->direction == CH_DIR_TX) {
 		netdev_dbg(priv->dev, "DMA Tx process stopped in channel = %d\n",
 			   channel->channel_num);
@@ -1563,9 +1564,23 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 		netdev_dbg(priv->dev, "DMA Rx process stopped in channel = %d\n",
 			   channel->channel_num);
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
-		stmmac_map_mtl_to_dma(priv, priv->hw, channel->channel_num, sw_chan);
 		if (channel->ezmesh_enabled)
 			disable_ezmesh_vlan_filtering(priv);
+		if (channel->channel_num == 0) {
+			stmmac_map_mtl_to_dma(priv, priv->hw, channel->channel_num, sw_chan);
+		} else {
+			for (i = 1; i < priv->plat->rx_queues_to_use; i++) {
+				reg = (i < 4) ? XGMAC_MTL_RXQ_DMA_MAP0 : XGMAC_MTL_RXQ_DMA_MAP1;
+				value = readl(priv->ioaddr + reg);
+				if (i < 4)
+					ch_mask = (channel->channel_num << XGMAC_QxMDMACH_SHIFT(i)) & (XGMAC_QxMDMACH(i));
+				else
+					ch_mask = channel->channel_num;
+
+				if (value & ch_mask == ch_mask)
+					stmmac_map_mtl_to_dma(priv, priv->hw, i, sw_chan);
+			}
+		}
 	} else {
 		netdev_err(priv->dev,
 			   "%s: ERROR: Invalid channel\n", __func__);
