@@ -1185,6 +1185,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	bool flt_appd = false;
 	u8 tx_hw_qos_ch_available = 0;
 
+        if (!priv->plat->qos_supported) {
+                map_info.qos_response_status  = QOS_COMMIT_FAIL;
+                ioss_qos_dev_err(idev, "EMAC QOS not enabled");
+                return map_info;
+        }
+
 	if(!stmmac_is_phy_link_up(priv)) {
 		ioss_qos_dev_err(idev, "Link is down \n");
 		map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
