@@ -1663,6 +1663,26 @@ static int proc_dump_tx_desc(struct seq_file *m, void *v)
 
         rtnl_lock();
 
+#ifdef ENABLE_LIB_SUPPORT
+        (void)i;
+        if (tp->tx_ring[0].TxDescArray) {
+                struct rtl8168_tx_ring *ring = &tp->tx_ring[0];
+
+                seq_printf(m, "\ndump rtk tx desc:%d\n", ring->num_tx_desc);
+                _proc_dump_tx_desc(m, ring->TxDescArray,
+                                   ring->TxDescAllocSize,
+                                   ring->num_tx_desc);
+        }
+
+        if (tp->lib_tx_ring[1].desc_addr) {
+                struct rtl8168_ring *ring = &tp->lib_tx_ring[1];
+
+                seq_printf(m, "\ndump lib tx desc:%d\n", ring->ring_size);
+                _proc_dump_tx_desc(m, ring->desc_addr,
+                                   ring->desc_size,
+                                   ring->ring_size);
+        }
+#else
         for (i=0; i<tp->HwSuppNumTxQueues; i++) {
                 struct rtl8168_tx_ring *ring = &tp->tx_ring[i];
                 if (!ring->TxDescArray)
@@ -1671,17 +1691,6 @@ static int proc_dump_tx_desc(struct seq_file *m, void *v)
                 _proc_dump_tx_desc(m, ring->TxDescArray,
                                    ring->TxDescAllocSize,
                                    ring->num_tx_desc);
-        }
-
-#ifdef ENABLE_LIB_SUPPORT
-        for (i=0; i<tp->HwSuppNumTxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_tx_ring[i];
-                if (!ring->desc_addr)
-                        continue;
-                seq_printf(m, "\ndump lib Q%d tx desc:%d\n", i, ring->ring_size);
-                _proc_dump_tx_desc(m, ring->desc_addr,
-                                   ring->desc_size,
-                                   ring->ring_size);
         }
 #endif //ENABLE_LIB_SUPPORT
 
@@ -30625,14 +30634,6 @@ rtl8168_wait_for_quiescence(struct net_device *dev)
 #endif //CONFIG_R8168_NAPI
 }
 
-static int rtl8168_rx_nostuck(struct rtl8168_private *tp)
-{
-        int i, ret = 1;
-        for (i = 0; i < tp->num_rx_rings && i < R8168_MAX_RX_QUEUES; i++)
-                ret &= (tp->rx_ring[i].dirty_rx == tp->rx_ring[i].cur_rx);
-        return ret;
-}
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
 static void rtl8168_reset_task(void *_data)
 {
@@ -30645,7 +30646,6 @@ static void rtl8168_reset_task(struct work_struct *work)
                 container_of(work, struct rtl8168_private, reset_task.work);
         struct net_device *dev = tp->dev;
 #endif
-        u32 budget = ~(u32)0;
         int i;
 
         rtnl_lock();
@@ -30655,37 +30655,26 @@ static void rtl8168_reset_task(struct work_struct *work)
             !test_and_clear_bit(R8168_FLAG_TASK_RESET_PENDING, tp->task_flags))
                 goto out_unlock;
 
-        rtl8168_wait_for_quiescence(dev);
-
-        for (i = 0; i < tp->num_rx_rings; i++) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-                rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[i], &budget);
-#else
-                rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[i], budget);
-#endif	//LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-        }
+        netdev_err(dev, "Device reseting!\n");
 
         netif_carrier_off(dev);
         netif_tx_disable(dev);
+        _rtl8168_wait_for_quiescence(dev);
         rtl8168_hw_reset(dev);
 
         rtl8168_tx_clear(tp);
 
-        if (rtl8168_rx_nostuck(tp)) {
-                rtl8168_rx_clear(tp);
-                rtl8168_init_ring(dev);
-                rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
-        } else {
-                if (unlikely(net_ratelimit())) {
-                        struct rtl8168_private *tp = netdev_priv(dev);
+        rtl8168_init_ring_indexes(tp);
 
-                        if (netif_msg_intr(tp)) {
-                                printk(PFX KERN_EMERG
-                                       "%s: Rx buffers shortage\n", dev->name);
-                        }
-                }
-                rtl8168_schedule_reset_work(tp);
-        }
+        rtl8168_tx_desc_init(tp);
+        for (i = 0; i < tp->num_rx_desc; i++)
+                rtl8168_mark_to_asic(tp->RxDescArray + i, tp->rx_buf_sz);
+
+#ifdef CONFIG_R8168_NAPI
+        rtl8168_enable_napi(tp);
+#endif //CONFIG_R8168_NAPI
+
+        rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
 
 out_unlock:
         rtnl_unlock();
@@ -30754,6 +30743,8 @@ rtl8168_tx_timeout(struct net_device *dev)
 #endif
 {
         struct rtl8168_private *tp = netdev_priv(dev);
+
+        netdev_err(dev, "Transmit timeout reset Device!\n");
 
         /* Let's wait a bit while any (async) irq lands on */
         rtl8168_schedule_reset_work(tp);
