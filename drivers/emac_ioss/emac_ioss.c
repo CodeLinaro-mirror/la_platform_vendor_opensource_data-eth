@@ -2075,6 +2075,7 @@ static int stmmac_clear_qos(struct ioss_device *idev)
 {
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	int i = 0;
 
 	ioss_qos_dev_log(idev, "Enter");
 
@@ -2103,6 +2104,10 @@ static int stmmac_clear_qos(struct ioss_device *idev)
 
 		memset(&qos_tables, 0, sizeof(struct qos_struct));
 	}
+
+	for (i = 0; i < priv->plat->tx_queues_to_use; i++)
+		priv->tx_queue_pcp_map[i] = 0;
+
 	return 0;
 }
 
