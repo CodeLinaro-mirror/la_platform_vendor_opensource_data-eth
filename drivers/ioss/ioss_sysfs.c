@@ -1,47 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
-#include <linux/debugfs.h>
+#include <linux/sysfs.h>
 
 #include "ioss_i.h"
 
-static struct dentry *root_dir;
-static struct dentry *devices_dir;
-
-int ioss_debugfs_init(void)
-{
-	if (root_dir)
-		return 0;
-
-	root_dir = debugfs_create_dir(IOSS_SUBSYS, 0);
-	if (IS_ERR_OR_NULL(root_dir)) {
-		ioss_log_err(NULL, "Failed to create root debugfs directory for IOSS");
-		goto fail;
-	}
-
-	devices_dir = debugfs_create_dir("devices", root_dir);
-	if (IS_ERR_OR_NULL(devices_dir)) {
-		ioss_log_err(NULL, "Failed to create devices debugfs directory for IOSS");
-		goto fail;
-	}
-
-	return 0;
-
-fail:
-	debugfs_remove_recursive(root_dir);
-	root_dir = NULL;
-	devices_dir = NULL;
-	return -EFAULT;
-}
-
-void ioss_debugfs_exit(void)
-{
-	debugfs_remove_recursive(root_dir);
-	root_dir = NULL;
-	devices_dir = NULL;
-}
+static struct kobject* root_kobj;
 
 static int get_idev_statistics(struct ioss_device *idev,
 		struct ioss_device_stats *stats)
@@ -106,15 +72,30 @@ static int get_idev_statistics(struct ioss_device *idev,
 	return 0;
 }
 
-static ssize_t read_idev_statistics(struct file *file, char __user *user_buf,
-		size_t size, loff_t *ppos)
+static ssize_t sysfs_read_idev_statistics(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
-	ssize_t ret_cnt = 0;
-	struct ioss_device *idev = file->private_data;
+	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct net_device *netdev=NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_interface *iface = NULL;
 	struct ioss_device_stats dev_stats;
+
+	netdev = to_net_dev(parent);
+	if (!netdev) {
+		pr_err("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	iface = ioss_netdev_to_iface(netdev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
 
 	if (get_idev_statistics(idev, &dev_stats)) {
 		ioss_dev_err(idev, "Failed to get idev statistics");
@@ -178,20 +159,38 @@ static ssize_t read_idev_statistics(struct file *file, char __user *user_buf,
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "emac_tx_pause_frames",
 			 dev_stats.emac_tx_pause_frames);
 
-	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
+	memcpy(user_buf, buf, len);
 	kfree(buf);
 
-	return ret_cnt;
+	return len;
 }
 
-static ssize_t read_idev_stats(struct file *file, char __user *user_buf, size_t size, loff_t *ppos)
+DEVICE_ATTR(statistics, 0644, sysfs_read_idev_statistics,  NULL);
+
+static ssize_t sysfs_read_idev_stats(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
-	ssize_t ret_cnt = 0;
-	struct ioss_device *idev = file->private_data;
+	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct net_device *netdev=NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_interface *iface = NULL;
 	struct ioss_device_stats dev_stats;
+
+	netdev = to_net_dev(parent);
+	if (!netdev) {
+		pr_err("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	iface = ioss_netdev_to_iface(netdev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
 
 	if (get_idev_statistics(idev, &dev_stats)) {
 		ioss_dev_err(idev, "Failed to get idev statistics");
@@ -230,11 +229,12 @@ static ssize_t read_idev_stats(struct file *file, char __user *user_buf, size_t 
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu", dev_stats.emac_tx_pause_frames);
 	len += scnprintf(buf + len, BUF_LEN - len, "\n");
 
-	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
+	memcpy(user_buf, buf, len);
 	kfree(buf);
 
-	return ret_cnt;
+	return len;
 }
+DEVICE_ATTR(stats, 0644, sysfs_read_idev_stats,  NULL);
 
 static size_t fill_ch_ipa_config(char *buf, size_t buflen, const char *cfg, const char *active_cfg)
 {
@@ -286,16 +286,33 @@ static size_t fill_ch_entry(char *buf, size_t buflen, struct ioss_channel *ch, b
 	return len;
 }
 
-static ssize_t read_idev_channels(struct file *file, char __user *user_buf, size_t size, loff_t *ppos)
+static ssize_t sysfs_read_idev_channels(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 2048;
-	ssize_t ret_cnt = 0;
 	struct ioss_channel *ch;
-	struct ioss_device *idev = file->private_data;
+
+	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct net_device *netdev=NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_interface *iface = NULL;
 	const char *heading =
 			"           NAME DIR             TRAFFIC VALID  ID   IPA CONFIGS";
+
+	netdev = to_net_dev(parent);
+	if (!netdev) {
+		pr_err("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	iface = ioss_netdev_to_iface(netdev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
 
 	buf = kmalloc(BUF_LEN, GFP_KERNEL);
 	if (!buf)
@@ -309,22 +326,57 @@ static ssize_t read_idev_channels(struct file *file, char __user *user_buf, size
 	list_for_each_entry(ch, &idev->interface.invalid_channels, node)
 		len += fill_ch_entry(buf + len, BUF_LEN - len, ch, false);
 
-	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
+	memcpy(user_buf, buf, len);
 	kfree(buf);
 
-	return ret_cnt;
+	return len;
 }
+DEVICE_ATTR(channels, 0644, sysfs_read_idev_channels,  NULL);
 
-static ssize_t read_ch_statistics(struct file *file, char __user *user_buf,
-		size_t size, loff_t *ppos)
+static ssize_t sysfs_read_ch_statistics(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
-	ssize_t ret_cnt = 0;
-	struct ioss_channel *ch = file->private_data;
-	struct ioss_device *idev = ioss_ch_dev(ch);
 	struct ioss_channel_stats ch_stats;
+	struct ioss_channel *ch=NULL, *ch_tmp;
+	struct device *parent = kobj_to_dev(root_kobj->parent);
+	const char *name = kobject_name(&dev->kobj);
+	char *ch_name = kstrdup(name, GFP_KERNEL);
+	struct net_device *netdev=NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_interface *iface = NULL;
+	char *dir = strsep(&ch_name, "-");
+	int id= 0;
+
+	netdev = to_net_dev(parent);
+	if (!netdev) {
+		pr_err("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	iface = ioss_netdev_to_iface(netdev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
+
+	if(ch_name)
+		sscanf(ch_name, "%d", &id);
+
+	ioss_for_each_channel(ch_tmp, iface) {
+		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
+		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
+			ch = ch_tmp;
+			break;
+		}
+	}
+	if(!ch){
+		ioss_dev_err(idev, "Failed to get channel");
+		return -EFAULT;
+	}
 
 	memset(&ch_stats, 0, sizeof(struct ioss_channel_stats));
 
@@ -344,21 +396,57 @@ static ssize_t read_ch_statistics(struct file *file, char __user *user_buf,
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "desc_unavail",
 			 ch_stats.desc_unavail);
 
-	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
+	memcpy(user_buf, buf, len);
 	kfree(buf);
 
-	return ret_cnt;
+	return len;
 }
+DEVICE_ATTR(ch_statistics, 0644, sysfs_read_ch_statistics,  NULL);
 
-static ssize_t read_ch_stats(struct file *file, char __user *user_buf, size_t size, loff_t *ppos)
+static ssize_t sysfs_read_ch_stats(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
-	ssize_t ret_cnt = 0;
-	struct ioss_channel *ch = file->private_data;
 	struct ioss_channel_stats ch_stats;
-	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct ioss_channel *ch=NULL, *ch_tmp;
+	struct device *parent = kobj_to_dev(root_kobj->parent);
+	const char *name = kobject_name(&dev->kobj);
+	char *ch_name = kstrdup(name, GFP_KERNEL);
+	struct net_device *netdev=NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_interface *iface = NULL;
+	char *dir = strsep(&ch_name, "-");
+	int id= 0;
+
+	netdev = to_net_dev(parent);
+	if (!netdev) {
+		pr_err("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	iface = ioss_netdev_to_iface(netdev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
+
+	if(ch_name)
+		sscanf(ch_name, "%d", &id);
+
+	ioss_for_each_channel(ch_tmp, iface) {
+	char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
+		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
+			ch = ch_tmp;
+			break;
+		}
+	}
+	if(!ch){
+		ioss_dev_err(idev, "Failed to get channel");
+		return -EFAULT;
+	}
 
 	memset(&ch_stats, 0, sizeof(struct ioss_channel_stats));
 
@@ -376,23 +464,59 @@ static ssize_t read_ch_stats(struct file *file, char __user *user_buf, size_t si
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", ch_stats.desc_unavail);
 	len += scnprintf(buf + len, BUF_LEN - len, "\n");
 
-	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
+	memcpy(user_buf, buf, len);
 	kfree(buf);
 
-	return ret_cnt;
+	return len;
 }
+DEVICE_ATTR(ch_stats, 0644, sysfs_read_ch_stats,  NULL);
 
-static ssize_t read_ch_status(struct file *file, char __user *user_buf, size_t size, loff_t *ppos)
+static ssize_t sysfs_read_ch_status(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
-	ssize_t ret_cnt = 0;
-	struct ioss_channel *ch = file->private_data;
-	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct ioss_channel *ch=NULL, *ch_tmp;
+	struct device *parent = kobj_to_dev(root_kobj->parent);
+	const char *name = kobject_name(&dev->kobj);
+	char *ch_name = kstrdup(name, GFP_KERNEL);
+	struct net_device *netdev=NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_interface *iface = NULL;
 	struct ioss_channel_status ch_status;
+	char *dir = strsep(&ch_name, "-");
+	int id= 0;
+
+	netdev = to_net_dev(parent);
+	if (!netdev) {
+		pr_err("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+ 	iface = ioss_netdev_to_iface(netdev);
+  	if (!iface)
+  		return -EINVAL;
+
+  	idev = ioss_iface_dev(iface);
+  	if(!idev)
+  		return -EINVAL;
+
+	if(ch_name)
+		sscanf(ch_name, "%d", &id);
 
 	memset(&ch_status, 0, sizeof(struct ioss_channel_status));
+
+	ioss_for_each_channel(ch_tmp, iface) {
+		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
+		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
+			ch = ch_tmp;
+			break;
+		}
+	}
+	if(!ch){
+		ioss_dev_err(idev, "Failed to get channel");
+		return -EFAULT;
+	}
 
 	if (ioss_dev_op(idev, get_channel_status, ch, &ch_status)) {
 		ioss_dev_err(idev, "Failed to get channel status");
@@ -412,21 +536,57 @@ static ssize_t read_ch_status(struct file *file, char __user *user_buf, size_t s
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "head_ptr", ch_status.head_ptr);
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "tail_ptr", ch_status.tail_ptr);
 
-	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
+	memcpy(user_buf, buf, len);
 	kfree(buf);
-
-	return ret_cnt;
+	return len;
 }
+DEVICE_ATTR(ch_status, 0644, sysfs_read_ch_status,  NULL);
 
-static ssize_t read_ch_stat(struct file *file, char __user *user_buf, size_t size, loff_t *ppos)
+static ssize_t sysfs_read_ch_stat(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
-	ssize_t ret_cnt = 0;
-	struct ioss_channel *ch = file->private_data;
-	struct ioss_device *idev = ioss_ch_dev(ch);
 	struct ioss_channel_status ch_status;
+	struct ioss_channel *ch=NULL, *ch_tmp;
+	struct device *parent = kobj_to_dev(root_kobj->parent);
+	const char *name = kobject_name(&dev->kobj);
+	char *ch_name = kstrdup(name, GFP_KERNEL);
+	struct net_device *netdev=NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_interface *iface = NULL;
+	char *dir = strsep(&ch_name, "-");
+	int id= 0;
+
+	netdev = to_net_dev(parent);
+	if (!netdev) {
+		pr_err("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	iface = ioss_netdev_to_iface(netdev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
+
+	if(ch_name)
+		sscanf(ch_name, "%d", &id);
+
+	ioss_for_each_channel(ch_tmp, iface) {
+	char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
+		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
+			ch = ch_tmp;
+			break;
+		}
+	}
+
+	if(!ch){
+		ioss_dev_err(idev, "Failed to get channel");
+		return -EFAULT;
+	}
 
 	memset(&ch_status, 0, sizeof(struct ioss_channel_status));
 
@@ -447,159 +607,111 @@ static ssize_t read_ch_stat(struct file *file, char __user *user_buf, size_t siz
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu", ch_status.tail_ptr);
 	len += scnprintf(buf + len, BUF_LEN - len, "\n");
 
-	ret_cnt = simple_read_from_buffer(user_buf, size, ppos, buf, len);
+	memcpy(user_buf, buf, len);
 	kfree(buf);
 
-	return ret_cnt;
+	return len;
 }
+DEVICE_ATTR(ch_stat, 0644, sysfs_read_ch_stat, NULL);
 
-static const struct file_operations fops_idev_statistics = {
-	.read = read_idev_statistics,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static const struct file_operations fops_idev_stats = {
-	.read = read_idev_stats,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static const struct file_operations fops_idev_channels = {
-	.read = read_idev_channels,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static const struct file_operations fops_ch_statistics = {
-	.read = read_ch_statistics,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static const struct file_operations fops_ch_stats = {
-	.read = read_ch_stats,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static const struct file_operations fops_ch_status = {
-	.read = read_ch_status,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-static const struct file_operations fops_ch_stat = {
-	.read = read_ch_stat,
-	.open = simple_open,
-	.owner = THIS_MODULE,
-	.llseek = default_llseek,
-};
-
-int ioss_debugfs_add_idev(struct ioss_device *idev)
+int ioss_sysfs_add_idev(struct ioss_device *idev)
 {
-	struct dentry *statistics;
-	struct dentry *stats;
-	struct dentry *channels;
+	int ret;
 
-	idev->debugfs = debugfs_create_dir(idev->net_dev->name, devices_dir);
-	if (IS_ERR_OR_NULL(idev->debugfs)) {
-		ioss_dev_err(idev, "Failed to create %s debugfs directory", idev->net_dev->name);
-		goto err_debugfs;
+	if (!idev)
+		return -EINVAL;
+
+	idev->kobj = kobject_create_and_add("ioss", &idev->net_dev->dev.kobj);
+	if (!idev->kobj) {
+		ioss_log_err(NULL, "Failed to create root  sysfs directory for IOSS");
+		return -EFAULT;
 	}
+	root_kobj = idev->kobj;
 
-	statistics = debugfs_create_file("statistics", 0444, idev->debugfs, idev,
-		     &fops_idev_statistics);
-	if (IS_ERR_OR_NULL(statistics)) {
-		ioss_dev_err(idev, "Failed to create debugfs file for %s", idev->net_dev->name);
-		goto err_debugfs;
+	ret = sysfs_create_file(idev->kobj, &dev_attr_statistics.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create sysfs file for %s", idev->net_dev->name);
+		goto err_sysfs;
 	}
-
-	stats = debugfs_create_file("stats", 0444, idev->debugfs, idev, &fops_idev_stats);
-	if (IS_ERR_OR_NULL(stats)) {
-		ioss_dev_err(idev, "Failed to create debugfs file for %s", idev->net_dev->name);
-		goto err_debugfs;
+	ret = sysfs_create_file(idev->kobj, &dev_attr_stats.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create sysfs file for %s", idev->net_dev->name);
+		goto err_sysfs;
 	}
-
-	channels = debugfs_create_file("channels", 0444, idev->debugfs, idev, &fops_idev_channels);
-	if (IS_ERR_OR_NULL(channels)) {
-		ioss_dev_err(idev, "Failed to create debugfs channels for %s", idev->net_dev->name);
-		goto err_debugfs;
+	ret = sysfs_create_file(idev->kobj, &dev_attr_channels.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create sysfs file for %s", idev->net_dev->name);
+		goto err_sysfs;
 	}
 
 	return 0;
 
-err_debugfs:
-	debugfs_remove_recursive(idev->debugfs);
+err_sysfs:
+	kobject_del(idev->kobj);
+	kobject_put(idev->kobj);
 	return -EFAULT;
 }
 
-void ioss_debugfs_remove_idev(struct ioss_device *idev)
+void ioss_sysfs_remove_idev(struct ioss_device *idev)
 {
-	debugfs_remove_recursive(idev->debugfs);
-	idev->debugfs = NULL;
+	if (idev->kobj) {
+		kobject_del(idev->kobj);
+		kobject_put(idev->kobj);
+	}
 }
 
-int ioss_debugfs_add_channel(struct ioss_channel *ch)
+int ioss_sysfs_add_channel(struct ioss_channel *ch)
 {
-	struct dentry *statistics;
-	struct dentry *stats;
-	struct dentry *status;
-	struct dentry *stat;
-
 	char dir_name[32];
 	struct ioss_device *idev = ioss_ch_dev(ch);
+	int ret;
 
 	snprintf(dir_name, sizeof(dir_name), "%s-%d",
 		 ((ch->direction == IOSS_CH_DIR_RX) ? "rx" : "tx"), ch->id);
 
-	ch->debugfs = debugfs_create_dir(dir_name, idev->debugfs);
-	if (IS_ERR_OR_NULL(ch->debugfs)) {
-		ioss_dev_err(idev, "Failed to create %s debugfs directory", dir_name);
-		goto err_debugfs;
+	ch->kobj = kobject_create_and_add(dir_name, idev->kobj);
+	if (!ch->kobj) {
+		ioss_dev_err(idev, "Failed to create %s sysfs directory", dir_name);
+		return -EFAULT;
 	}
 
-	statistics = debugfs_create_file("statistics", 0444, ch->debugfs, ch, &fops_ch_statistics);
-	if (IS_ERR_OR_NULL(statistics)) {
-		ioss_dev_err(idev, "Failed to create statistics debugfs file for %s", dir_name);
-		goto err_debugfs;
+	ret = sysfs_create_file(ch->kobj, &dev_attr_ch_statistics.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create statistics sysfs file for %s", dir_name);
+		goto err_sysfs;
 	}
 
-	stats = debugfs_create_file("stats", 0444, ch->debugfs, ch, &fops_ch_stats);
-	if (IS_ERR_OR_NULL(stats)) {
-		ioss_dev_err(idev, "Failed to create stats debugfs file for %s", dir_name);
-		goto err_debugfs;
+	ret = sysfs_create_file(ch->kobj, &dev_attr_ch_stats.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create stats sysfs file for %s", dir_name);
+		goto err_sysfs;
 	}
 
-	status = debugfs_create_file("status", 0444, ch->debugfs, ch, &fops_ch_status);
-	if (IS_ERR_OR_NULL(status)) {
-		ioss_dev_err(idev, "Failed to create status debugfs file for %s", dir_name);
-		goto err_debugfs;
+	ret = sysfs_create_file(ch->kobj, &dev_attr_ch_status.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create status sysfs file for %s", dir_name);
+		goto err_sysfs;
 	}
 
-	stat = debugfs_create_file("stat", 0444, ch->debugfs, ch, &fops_ch_stat);
-	if (IS_ERR_OR_NULL(stat)) {
-		ioss_dev_err(idev, "Failed to create stat debugfs file for %s", dir_name);
-		goto err_debugfs;
+
+	ret = sysfs_create_file(ch->kobj, &dev_attr_ch_stat.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create stat sysfs file for %s", dir_name);
+		goto err_sysfs;
 	}
 
 	return 0;
 
-err_debugfs:
-	debugfs_remove_recursive(ch->debugfs);
-	ch->debugfs = NULL;
+err_sysfs:
+	kobject_del(ch->kobj);
+	kobject_put(ch->kobj);
 	return -EFAULT;
 }
 
-void ioss_debugfs_remove_channel(struct ioss_channel *ch)
+void ioss_sysfs_remove_channel(struct ioss_channel *ch)
 {
-	debugfs_remove_recursive(ch->debugfs);
-	ch->debugfs = NULL;
+	if (ch->kobj) {
+		kobject_del(ch->kobj);
+		kobject_put(ch->kobj);
+	}
 }
-
