@@ -1026,29 +1026,29 @@ exit:
 }
 
 static void rtl8168_get_cp_len(struct rtl8168_private *tp,
-                               u16 cp_len[RTL8168_CP_NUM])
+                               int cp_len[RTL8168_CP_NUM])
 {
         int i;
         u16 status;
-        u16 tmp_cp_len = 0;
+        int tmp_cp_len;
 
         status = RTL_R8(tp, PHYstatus);
         if (status & LinkStatus) {
                 if (status & _10bps) {
-                        tmp_cp_len = 0;
+                        tmp_cp_len = -1;
                 } else if (status & (_100bps | _1000bpsF)) {
                         rtl8168_mdio_write(tp, 0x1f, 0x0a88);
                         tmp_cp_len = rtl8168_mdio_read(tp, 0x10);
                 } else
-                        goto exit;
+                        tmp_cp_len = 0;
         } else
-                goto exit;
+                tmp_cp_len = 0;
 
-        tmp_cp_len &= 0xff;
+        if (tmp_cp_len > 0)
+                tmp_cp_len &= 0xff;
         for (i=0; i<RTL8168_CP_NUM; i++)
                 cp_len[i] = tmp_cp_len;
 
-exit:
         rtl8168_mdio_write(tp, 0x1f, 0x0000);
 
         for (i=0; i<RTL8168_CP_NUM; i++)
@@ -1130,12 +1130,30 @@ exit:
 }
 
 static void rtl8168_get_cp_status(struct rtl8168_private *tp,
-                                  int cp_status[RTL8168_CP_NUM])
+                                  int cp_status[RTL8168_CP_NUM],
+                                  bool poe_mode)
 {
+        u16 status;
         int i;
 
-        for (i =0; i<RTL8168_CP_NUM; i++)
-                cp_status[i] = _rtl8168_get_cp_status(tp, i);
+        status = RTL_R8(tp, PHYstatus);
+        if (status & LinkStatus && !(status & (_10bps | _100bps))) {
+                for (i=0; i<RTL8168_CP_NUM; i++)
+                        cp_status[i] = rtl8168_cp_normal;
+        } else {
+                /* cannot do vcd when link is on */
+                rtl8168_vcd_test(tp);
+
+                for (i=0; i<RTL8168_CP_NUM; i++)
+                        cp_status[i] = _rtl8168_get_cp_status(tp, i);
+        }
+
+        if (poe_mode) {
+                for (i=0; i<RTL8168_CP_NUM; i++) {
+                        if (cp_status[i] == rtl8168_cp_mismatch)
+                                cp_status[i] = rtl8168_cp_normal;
+                }
+        }
 }
 
 #ifdef ENABLE_R8168_PROCFS
@@ -1474,15 +1492,16 @@ static int proc_get_pci_registers(struct seq_file *m, void *v)
         return 0;
 }
 
-static int proc_get_cable_info(struct seq_file *m, void *v)
+static int _proc_get_cable_info(struct seq_file *m, void *v, bool poe_mode)
 {
         int i;
         u16 status;
         int cp_status[RTL8168_CP_NUM] = {0};
-        u16 cp_len[RTL8168_CP_NUM] = {0};
+        int cp_len[RTL8168_CP_NUM] = {0};
         struct net_device *dev = m->private;
         struct rtl8168_private *tp = netdev_priv(dev);
         const char *pair_str[RTL8168_CP_NUM] = {"1-2", "3-6", "4-5", "7-8"};
+        int ret;
 
         switch (tp->mcfg) {
         case CFG_METHOD_30:
@@ -1490,15 +1509,16 @@ static int proc_get_cable_info(struct seq_file *m, void *v)
                 /* support */
                 break;
         default:
-                return -EOPNOTSUPP;
+                ret = -EOPNOTSUPP;
+                goto error_out;
         }
 
         rtnl_lock();
 
         rtl8168_mdio_write(tp, 0x1f, 0x0000);
         if (rtl8168_mdio_read(tp, MII_BMCR) & BMCR_PDOWN) {
-                rtnl_unlock();
-                return -EIO;
+                ret = -EIO;
+                goto error_unlock;
         }
 
         status = RTL_R8(tp, PHYstatus);
@@ -1510,36 +1530,44 @@ static int proc_get_cable_info(struct seq_file *m, void *v)
 
         rtl8168_get_cp_len(tp, cp_len);
 
-        if (tp->link_ok(dev)) {
-                for (i=0; i<RTL8168_CP_NUM; i++)
-                        cp_status[i] = rtl8168_cp_normal;
-        } else {
-                /* cannot do vcd when link is on */
-                rtl8168_vcd_test(tp);
-
-                rtl8168_get_cp_status(tp, cp_status);
-        }
+        rtl8168_get_cp_status(tp, cp_status, poe_mode);
 
         seq_puts(m, "\npair\tlength\tstatus   \tpp\n");
 
         for (i=0; i<RTL8168_CP_NUM; i++) {
-                seq_printf(m, "%s\t%d\t%s\t",
-                           pair_str[i], cp_len[i],
-                           rtl8168_get_cp_status_string(cp_status[i]));
+                if (cp_len[i] < 0)
+                        seq_printf(m, "%s\t%s\t%s\t",
+                                   pair_str[i], "none",
+                                   rtl8168_get_cp_status_string(cp_status[i]));
+                else
+                        seq_printf(m, "%s\t%d\t%s\t",
+                                   pair_str[i], cp_len[i],
+                                   rtl8168_get_cp_status_string(cp_status[i]));
                 if (cp_status[i] == rtl8168_cp_normal)
                         seq_printf(m, "none\n");
                 else
                         seq_printf(m, "%dm\n", rtl8168_get_cp_pp(tp, i));
         }
 
-        tp->phy_reset_enable(dev);
+        seq_putc(m, '\n');
 
-        rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
+        ret = 0;
 
+error_unlock:
         rtnl_unlock();
 
-        seq_putc(m, '\n');
-        return 0;
+error_out:
+        return ret;
+}
+
+static int proc_get_cable_info(struct seq_file *m, void *v)
+{
+        return _proc_get_cable_info(m, v, 0);
+}
+
+static int proc_get_poe_cable_info(struct seq_file *m, void *v)
+{
+        return _proc_get_cable_info(m, v, 1);
 }
 
 static int proc_dump_rx_desc(struct seq_file *m, void *v)
@@ -1635,6 +1663,26 @@ static int proc_dump_tx_desc(struct seq_file *m, void *v)
 
         rtnl_lock();
 
+#ifdef ENABLE_LIB_SUPPORT
+        (void)i;
+        if (tp->tx_ring[0].TxDescArray) {
+                struct rtl8168_tx_ring *ring = &tp->tx_ring[0];
+
+                seq_printf(m, "\ndump rtk tx desc:%d\n", ring->num_tx_desc);
+                _proc_dump_tx_desc(m, ring->TxDescArray,
+                                   ring->TxDescAllocSize,
+                                   ring->num_tx_desc);
+        }
+
+        if (tp->lib_tx_ring[1].desc_addr) {
+                struct rtl8168_ring *ring = &tp->lib_tx_ring[1];
+
+                seq_printf(m, "\ndump lib tx desc:%d\n", ring->ring_size);
+                _proc_dump_tx_desc(m, ring->desc_addr,
+                                   ring->desc_size,
+                                   ring->ring_size);
+        }
+#else
         for (i=0; i<tp->HwSuppNumTxQueues; i++) {
                 struct rtl8168_tx_ring *ring = &tp->tx_ring[i];
                 if (!ring->TxDescArray)
@@ -1643,17 +1691,6 @@ static int proc_dump_tx_desc(struct seq_file *m, void *v)
                 _proc_dump_tx_desc(m, ring->TxDescArray,
                                    ring->TxDescAllocSize,
                                    ring->num_tx_desc);
-        }
-
-#ifdef ENABLE_LIB_SUPPORT
-        for (i=0; i<tp->HwSuppNumTxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_tx_ring[i];
-                if (!ring->desc_addr)
-                        continue;
-                seq_printf(m, "\ndump lib Q%d tx desc:%d\n", i, ring->ring_size);
-                _proc_dump_tx_desc(m, ring->desc_addr,
-                                   ring->desc_size,
-                                   ring->ring_size);
         }
 #endif //ENABLE_LIB_SUPPORT
 
@@ -2233,16 +2270,17 @@ static int proc_get_pci_registers(char *page, char **start,
         return len;
 }
 
-static int proc_get_cable_info(char *page, char **start,
-                               off_t offset, int count,
-                               int *eof, void *data)
+static int _proc_get_cable_info(char *page, char **start,
+                                off_t offset, int count,
+                                int *eof, void *data,
+                                bool poe_mode)
 {
         int i;
         u16 status;
         int len = 0;
         struct net_device *dev = data;
         int cp_status[RTL8168_CP_NUM] = {0};
-        u16 cp_len[RTL8168_CP_NUM] = {0};
+        int cp_len[RTL8168_CP_NUM] = {0};
         struct rtl8168_private *tp = netdev_priv(dev);
         const char *pair_str[RTL8168_CP_NUM] = {"1-2", "3-6", "4-5", "7-8"};
 
@@ -2268,24 +2306,22 @@ static int proc_get_cable_info(char *page, char **start,
 
         rtl8168_get_cp_len(tp, cp_len);
 
-        if (tp->link_ok(dev)) {
-                for (i=0; i<RTL8168_CP_NUM; i++)
-                        cp_status[i] = rtl8168_cp_normal;
-        } else {
-                /* cannot do vcd when link is on */
-                rtl8168_vcd_test(tp);
-
-                rtl8168_get_cp_status(tp, cp_status);
-        }
+        rtl8168_get_cp_status(tp, cp_status, poe_mode);
 
         len += snprintf(page + len, count - len,
                         "\npair\tlength\tstatus   \tpp\n");
 
         for (i=0; i<RTL8168_CP_NUM; i++) {
-                len += snprintf(page + len, count - len,
-                                "%s\t%d\t%s\t",
-                                pair_str[i], cp_len[i],
-                                rtl8168_get_cp_status_string(cp_status[i]));
+                if (cp_len[i] < 0)
+                        len += snprintf(page + len, count - len,
+                                        "%s\t%s\t%s\t",
+                                        pair_str[i], "none",
+                                        rtl8168_get_cp_status_string(cp_status[i]));
+                else
+                        len += snprintf(page + len, count - len,
+                                        "%s\t%d\t%s\t",
+                                        pair_str[i], cp_len[i],
+                                        rtl8168_get_cp_status_string(cp_status[i]));
                 if (cp_status[i] == rtl8168_cp_normal)
                         len += snprintf(page + len, count - len, "none\n");
                 else
@@ -2293,12 +2329,27 @@ static int proc_get_cable_info(char *page, char **start,
                                         rtl8168_get_cp_pp(tp, i));
         }
 
-        rtnl_unlock();
-
         len += snprintf(page + len, count - len, "\n");
+
+out_unlock:
+        rtnl_unlock();
 
         *eof = 1;
         return len;
+}
+
+static int proc_get_cable_info(char *page, char **start,
+                               off_t offset, int count,
+                               int *eof, void *data)
+{
+        return _proc_get_cable_info(page, start, offset, count, eof, data, 0);
+}
+
+static int proc_get_poe_cable_info(char *page, char **start,
+                                   off_t offset, int count,
+                                   int *eof, void *data)
+{
+        return _proc_get_cable_info(page, start, offset, count, eof, data, 1);
 }
 
 static int proc_dump_rx_desc(char *page, char **start,
@@ -2600,6 +2651,7 @@ static const struct rtl8168_proc_file rtl8168_debug_proc_files[] = {
 
 static const struct rtl8168_proc_file rtl8168_test_proc_files[] = {
         { "cdt", &proc_get_cable_info },
+        { "cdt_poe", &proc_get_poe_cable_info },
         { "" }
 };
 
@@ -4451,7 +4503,7 @@ rtl8168_enable_lib_interrupt(struct rtl8168_private *tp)
 {
         int i;
 
-        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
+        for (i=0; i<rtl8168_tot_rx_rings(tp); i++)
                 rtl8168_enable_interrupt_by_vector(tp, i);
 }
 
@@ -4469,7 +4521,7 @@ rtl8168_disable_lib_interrupt(struct rtl8168_private *tp)
 {
         int i;
 
-        for (i=1; i<rtl8168_tot_rx_rings(tp); i++)
+        for (i=0; i<rtl8168_tot_rx_rings(tp); i++)
                 rtl8168_disable_interrupt_by_vector(tp, i);
 }
 
@@ -4538,12 +4590,20 @@ rtl8168_irq_mask_and_ack(struct rtl8168_private *tp)
 }
 
 static void
+rtl8168_disable_rx_packet_filter(struct rtl8168_private *tp)
+{
+        RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) &
+                ~(AcceptErr | AcceptRunt |AcceptBroadcast | AcceptMulticast |
+                  AcceptMyPhys |  AcceptAllPhys));
+}
+
+static void
 rtl8168_nic_reset(struct net_device *dev)
 {
         struct rtl8168_private *tp = netdev_priv(dev);
         int i;
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8168_disable_rx_packet_filter(tp);
 
         rtl8168_enable_rxdvgate(dev);
 
@@ -4627,6 +4687,9 @@ rtl8168_nic_reset(struct net_device *dev)
                 }
                 break;
         }
+
+        /* reset rcr */
+        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
 }
 
 static void
@@ -4766,7 +4829,7 @@ static void rtl8168_mac_loopback_test(struct rtl8168_private *tp)
                                 break;
                 }
 
-                RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) & ~(AcceptErr | AcceptRunt | AcceptBroadcast | AcceptMulticast | AcceptMyPhys |  AcceptAllPhys));
+                rtl8168_disable_rx_packet_filter(tp);
 
                 rx_len = rx_cmd & 0x3FFF;
                 rx_len -= 4;
@@ -8831,7 +8894,7 @@ rtl8168_exit_oob(struct net_device *dev)
         struct rtl8168_private *tp = netdev_priv(dev);
         u16 data16;
 
-        RTL_W32(tp, RxConfig, RTL_R32(tp, RxConfig) & ~(AcceptErr | AcceptRunt | AcceptBroadcast | AcceptMulticast | AcceptMyPhys |  AcceptAllPhys));
+        rtl8168_disable_rx_packet_filter(tp);
 
         if (HW_SUPP_SERDES_PHY(tp)) {
                 if (tp->HwSuppSerDesPhyVer == 1) {
@@ -26553,7 +26616,7 @@ err1:
                 eee->supported  = SUPPORTED_100baseT_Full |
                                   SUPPORTED_1000baseT_Full;
                 eee->advertised = mmd_eee_adv_to_ethtool_adv_t(MDIO_EEE_1000T | MDIO_EEE_100TX);
-		eee->tx_lpi_enabled = eee_enable;
+                eee->tx_lpi_enabled = eee_enable;
                 eee->tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
         }
 
@@ -29024,7 +29087,7 @@ rtl8168_hw_config(struct net_device *dev)
         }
 #endif
 
-        RTL_W32(tp, RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+        rtl8168_disable_rx_packet_filter(tp);
 
         rtl8168_hw_reset(dev);
 
@@ -29033,7 +29096,7 @@ rtl8168_hw_config(struct net_device *dev)
                 RTL_W8(tp, 0xF1, RTL_R8(tp, 0xF1) & ~BIT_7);
                 rtl8168_hw_aspm_clkreq_enable(tp, false);
         }
-	rtl8168_set_eee_lpi_timer(tp);
+        rtl8168_set_eee_lpi_timer(tp);
 
         //clear io_rdy_l23
         switch (tp->mcfg) {
@@ -30064,7 +30127,7 @@ rtl8168_change_mtu(struct net_device *dev,
 #endif //LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 
         dev->mtu = new_mtu;
-	tp->eee.tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
+        tp->eee.tx_lpi_timer = dev->mtu + ETH_HLEN + 0x20;
 
         if (!netif_running(dev))
                 goto out;
@@ -30571,14 +30634,6 @@ rtl8168_wait_for_quiescence(struct net_device *dev)
 #endif //CONFIG_R8168_NAPI
 }
 
-static int rtl8168_rx_nostuck(struct rtl8168_private *tp)
-{
-        int i, ret = 1;
-        for (i = 0; i < tp->num_rx_rings && i < R8168_MAX_RX_QUEUES; i++)
-                ret &= (tp->rx_ring[i].dirty_rx == tp->rx_ring[i].cur_rx);
-        return ret;
-}
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,20)
 static void rtl8168_reset_task(void *_data)
 {
@@ -30591,7 +30646,6 @@ static void rtl8168_reset_task(struct work_struct *work)
                 container_of(work, struct rtl8168_private, reset_task.work);
         struct net_device *dev = tp->dev;
 #endif
-        u32 budget = ~(u32)0;
         int i;
 
         rtnl_lock();
@@ -30601,37 +30655,26 @@ static void rtl8168_reset_task(struct work_struct *work)
             !test_and_clear_bit(R8168_FLAG_TASK_RESET_PENDING, tp->task_flags))
                 goto out_unlock;
 
-        rtl8168_wait_for_quiescence(dev);
-
-        for (i = 0; i < tp->num_rx_rings; i++) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-                rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[i], &budget);
-#else
-                rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[i], budget);
-#endif	//LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
-        }
+        netdev_err(dev, "Device reseting!\n");
 
         netif_carrier_off(dev);
         netif_tx_disable(dev);
+        _rtl8168_wait_for_quiescence(dev);
         rtl8168_hw_reset(dev);
 
         rtl8168_tx_clear(tp);
 
-        if (rtl8168_rx_nostuck(tp)) {
-                rtl8168_rx_clear(tp);
-                rtl8168_init_ring(dev);
-                rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
-        } else {
-                if (unlikely(net_ratelimit())) {
-                        struct rtl8168_private *tp = netdev_priv(dev);
+        rtl8168_init_ring_indexes(tp);
 
-                        if (netif_msg_intr(tp)) {
-                                printk(PFX KERN_EMERG
-                                       "%s: Rx buffers shortage\n", dev->name);
-                        }
-                }
-                rtl8168_schedule_reset_work(tp);
-        }
+        rtl8168_tx_desc_init(tp);
+        for (i = 0; i < tp->num_rx_desc; i++)
+                rtl8168_mark_to_asic(tp->RxDescArray + i, tp->rx_buf_sz);
+
+#ifdef CONFIG_R8168_NAPI
+        rtl8168_enable_napi(tp);
+#endif //CONFIG_R8168_NAPI
+
+        rtl8168_set_speed(dev, tp->autoneg, tp->speed, tp->duplex, tp->advertising);
 
 out_unlock:
         rtnl_unlock();
@@ -30700,6 +30743,8 @@ rtl8168_tx_timeout(struct net_device *dev)
 #endif
 {
         struct rtl8168_private *tp = netdev_priv(dev);
+
+        netdev_err(dev, "Transmit timeout reset Device!\n");
 
         /* Let's wait a bit while any (async) irq lands on */
         rtl8168_schedule_reset_work(tp);
@@ -31337,7 +31382,7 @@ rtl8168_rx_interrupt(struct net_device *dev,
                 goto rx_out;
 
 #ifdef ENABLE_LIB_SUPPORT
-        if (ring->index > 0) {
+        if (tp->num_rx_rings == 0 && ring->index ==0) {
 		rtl8168_lib_rx_interrupt(tp);
                 goto rx_out;
         }
@@ -31668,7 +31713,7 @@ static irqreturn_t rtl8168_interrupt_msix(int irq, void *dev_instance)
                  * Skip its interrupt here or its queue will be initialized
                  * incorrectly.
                  */
-                if (message_id >= tp->num_rx_rings)
+                if (message_id >= tp->num_hw_tot_en_rx_rings)
                         break;
 
 #ifdef CONFIG_R8168_NAPI
@@ -31683,7 +31728,7 @@ static irqreturn_t rtl8168_interrupt_msix(int irq, void *dev_instance)
                 if (message_id == 0)
                         rtl8168_tx_all_interrupt(tp);
 
-                if (message_id < tp->num_rx_rings) {
+                if (message_id < tp->num_hw_tot_en_rx_rings) {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
                         rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[message_id], &budget);
 #else
@@ -31714,7 +31759,7 @@ static int rtl8168_poll_vector(napi_ptr napi, napi_budget budget, bool all_rx_q)
                 rtl8168_tx_all_interrupt(tp);
 
         if (all_rx_q)
-                for (i = 0; i < tp->num_rx_rings; i++)
+                for (i = 0; i < tp->num_hw_tot_en_rx_rings; i++)
                         work_done += rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[i], budget);
         else
                 work_done += rtl8168_rx_interrupt(dev, tp, &tp->rx_ring[message_id], budget);
@@ -32020,7 +32065,7 @@ rtl8168_resume(struct device *device)
 {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
         struct pci_dev *pdev = to_pci_dev(device);
-#endif 
+#endif
         struct net_device *dev = pci_get_drvdata(pdev);
         struct rtl8168_private *tp = netdev_priv(dev);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,10)

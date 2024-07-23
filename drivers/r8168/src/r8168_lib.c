@@ -83,49 +83,43 @@ rtl8168_lib_rx_fill(struct rtl8168_ring *ring)
         u32 i;
 
         for (i = 0; i < ring->ring_size; i++) {
-                desc = rtl8168_get_rxdesc(tp, tp->RxDescArray, i, ring->queue_num);
+                desc = rtl8168_get_rxdesc(tp, tp->RxDescArray, i, 0);
                 rtl8168_map_to_asic(tp, ring, desc,
-                                    ring->bufs[i].dma_addr, ring->buff_size, i);
+                                    ring->bufs[i].dma_addr,
+                                    ring->buff_size, i);
         }
 
-        rtl8168_mark_as_last_descriptor(tp,
-                                        rtl8168_get_rxdesc(tp, tp->RxDescArray, ring->ring_size - 1, ring->queue_num));
+        desc = rtl8168_get_rxdesc(tp, tp->RxDescArray, ring->ring_size - 1,
+                                  0);
+        rtl8168_mark_as_last_descriptor(tp, desc);
 }
 
 struct rtl8168_ring *rtl8168_get_tx_ring(struct rtl8168_private *tp)
 {
-        int i;
+        struct rtl8168_ring *ring;
 
         WARN_ON_ONCE(tp->num_tx_rings < 1);
 
-        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
-                if (i < R8168_MAX_TX_QUEUES) {
-                        struct rtl8168_ring *ring = &tp->lib_tx_ring[i];
-                        if (!ring->allocated) {
-                                ring->allocated = true;
-                                return ring;
-                        }
-                }
-        }
+        ring = &tp->lib_tx_ring[1];
+        if (ring->allocated)
+                return NULL;
 
-        return NULL;
+        ring->allocated = true;
+
+        return ring;
 }
 
 struct rtl8168_ring *rtl8168_get_rx_ring(struct rtl8168_private *tp)
 {
-        int i;
+        struct rtl8168_ring *ring;
 
-        WARN_ON_ONCE(tp->num_rx_rings < 1);
+        ring = &tp->lib_rx_ring[1];
+        if (ring->allocated)
+                return NULL;
 
-        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_rx_ring[i];
-                if (!ring->allocated) {
-                        ring->allocated = true;
-                        return ring;
-                }
-        }
+        ring->allocated = true;
 
-        return NULL;
+        return ring;
 }
 
 static void rtl8168_put_ring(struct rtl8168_ring *ring)
@@ -138,17 +132,10 @@ static void rtl8168_put_ring(struct rtl8168_ring *ring)
 
 static void rtl8168_init_rx_ring(struct rtl8168_ring *ring)
 {
-        //struct rtl8168_private *tp = ring->private;
-        //u16 rdsar_reg;
-
         if (!ring->allocated)
                 return;
 
         rtl8168_lib_rx_fill(ring);
-
-        //rdsar_reg = RDSAR_Q1_LOW_8168 + (ring->queue_num - 1) * 8;
-        //RTL_W32(tp, rdsar_reg, ((u64)ring->desc_daddr & DMA_BIT_MASK(32)));
-        //RTL_W32(tp, rdsar_reg + 4, ((u64)ring->desc_daddr >> 32));
 }
 
 static void rtl8168_init_tx_ring(struct rtl8168_ring *ring)
@@ -195,7 +182,7 @@ static void rtl8168_free_ring_mem(struct rtl8168_ring *ring)
                                 rtl_buf->addr = NULL;
                         }
                 } else {
-                        for (i=0; i<ring->ring_size ; i++) {
+                        for (i=0; i<ring->ring_size; i++) {
                                 struct rtl8168_buf *rtl_buf = &ring->bufs[i];
                                 if (rtl_buf->addr) {
                                         dma_free_coherent(
@@ -237,10 +224,12 @@ static int rtl8168_alloc_ring_mem(struct rtl8168_ring *ring)
                                           "lib rx desc num not equal to sw path!\n");
                                 goto error_out;
                         }
+
                         ring->desc_size = ring->ring_size * tp->RxDescLength;
-                        ring->desc_addr = rtl8168_get_rxdesc(tp, tp->RxDescArray, 0, 1);
+                        ring->desc_addr = rtl8168_get_rxdesc(tp, tp->RxDescArray,
+                                                             0, 0);
                         /*
-                         * ipa will calculate the rx q1 daddr
+                         * ipa will calculate the rx q0 daddr
                          * based on RxPhyAddr.
                          */
                         ring->desc_daddr = tp->RxPhyAddr;
@@ -338,8 +327,10 @@ struct rtl8168_ring *rtl8168_request_ring(struct net_device *ndev,
         /* initialize descriptors to point to buffers allocated */
         if (direction == RTL8168_CH_DIR_TX)
                 rtl8168_init_tx_ring(ring);
-        else if (direction == RTL8168_CH_DIR_RX)
+        /* rx ring will set in enable ring */
+        /*else if (direction == RTL8168_CH_DIR_RX)
                 rtl8168_init_rx_ring(ring);
+        */
 
         rtnl_unlock();
 
@@ -396,12 +387,19 @@ int rtl8168_enable_ring(struct rtl8168_ring *ring)
         tp = ring->private;
         dev = tp->dev;
 
+        if (!netif_running(dev)) {
+                netif_warn(tp, drv, dev, "closed not enable ring. \n");
+                goto out_unlock;
+        }
+
         /* Start the ring if needed */
         netif_tx_disable(dev);
         _rtl8168_wait_for_quiescence(dev);
         rtl8168_hw_reset(dev);
         rtl8168_tx_clear(tp);
         rtl8168_rx_clear(tp);
+        if (ring->direction == RTL8168_CH_DIR_RX)
+                tp->num_rx_rings = 0;
         rtl8168_init_ring(dev);
 
         ring->enabled = true;
@@ -415,6 +413,7 @@ int rtl8168_enable_ring(struct rtl8168_ring *ring)
 
         netif_tx_start_all_queues(dev);
 
+out_unlock:
         rtnl_unlock();
 
         return 0;
@@ -449,6 +448,9 @@ void rtl8168_disable_ring(struct rtl8168_ring *ring)
 
         ring->enabled = false;
 
+        if (ring->direction == RTL8168_CH_DIR_RX)
+                tp->num_rx_rings = 1;
+
         //rtl8168_hw_config(dev);
         //rtl8168_hw_start(dev);
 
@@ -477,7 +479,7 @@ int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
         /* map doorbell address */
         doorbell = ioremap(paddr, sizeof(data));
         if (!doorbell)
-                return -EIO ;
+                return -EIO;
 
         if (ring->direction == RTL8168_CH_DIR_TX) {
                 db_tx = doorbell;
@@ -492,7 +494,7 @@ int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
         } else
                 db_rx = doorbell;
 
-        message_id = ring->queue_num;
+        message_id = 0;
 
         tp = ring->private;
         pdev = tp->pci_dev;
@@ -500,6 +502,7 @@ int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
         if (flags & MSIX_event_type) {
                 /* Update MSI-X table entry with @addr and @data */
                 /* Initialize any MSI-X/interrupt related register in HW */
+                /* Interrupt all controlled by sw path.
                 u16 reg = message_id * 0x10;
 
                 rtnl_lock();
@@ -515,6 +518,7 @@ int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
                 rtl8168_eri_write(tp, reg + 12, 4, data >> 32, ERIAR_MSIX);
 
                 rtnl_unlock();
+                */
         }
 
 out:
@@ -572,6 +576,7 @@ void rtl8168_release_event(struct rtl8168_ring *ring)
         addr = ring->event.addr;
         data = ring->event.data;
 
+        /* Interrupt all controlled by sw path.
         rtnl_lock();
 
         rtl8168_eri_write(tp, reg, 4, (u64)addr & DMA_BIT_MASK(32), ERIAR_MSIX);
@@ -580,6 +585,7 @@ void rtl8168_release_event(struct rtl8168_ring *ring)
         rtl8168_eri_write(tp, reg + 12, 4, data >> 32, ERIAR_MSIX);
 
         rtnl_unlock();
+        */
 
 out:
         ring->event.allocated = 0;
@@ -612,9 +618,21 @@ out:
 
 int rtl8168_enable_event(struct rtl8168_ring *ring)
 {
+        struct rtl8168_private *tp;
+        struct net_device *dev;
+
+        if (!ring)
+                return -EINVAL;
+
         rtnl_lock();
 
-        _rtl8168_enable_event(ring);
+        tp = ring->private;
+        dev = tp->dev;
+
+        if (!netif_running(dev))
+                netif_warn(tp, drv, dev, "closed not enable event. \n");
+        else
+                _rtl8168_enable_event(ring);
 
         rtnl_unlock();
 
@@ -650,8 +668,12 @@ int rtl8168_rss_redirect(struct net_device *ndev,
                          unsigned long flags,
                          struct rtl8168_ring *ring)
 {
+#ifdef ENABLE_RSS_SUPPORT
         struct rtl8168_private *tp = ring->private;
         int i;
+
+        if (!tp->EnableRss)
+                return 0;
 
         /* Disable RSS if needed */
         /* Update RSS hash table to set all entries point to ring->queue */
@@ -659,17 +681,21 @@ int rtl8168_rss_redirect(struct net_device *ndev,
         /* Enable RSS */
 
         for (i = 0; i < rtl8168_rss_indir_tbl_entries(tp); i++)
-                tp->rss_indir_tbl[i] = ring->queue_num;
+                tp->rss_indir_tbl[i] = 0;
 
         _rtl8168_config_rss(tp);
-
+#endif
         return 0;
 }
 EXPORT_SYMBOL(rtl8168_rss_redirect);
 
 int rtl8168_rss_reset(struct net_device *ndev)
 {
+#ifdef ENABLE_RSS_SUPPORT
         struct rtl8168_private *tp = netdev_priv(ndev);
+
+        if (!tp->EnableRss)
+                return 0;
 
         /* Disable RSS */
         /* Reset RSS hash table */
@@ -677,7 +703,7 @@ int rtl8168_rss_reset(struct net_device *ndev)
 
         rtl8168_init_rss(tp);
         _rtl8168_config_rss(tp);
-
+#endif
         return 0;
 }
 EXPORT_SYMBOL(rtl8168_rss_reset);
@@ -828,51 +854,35 @@ EXPORT_SYMBOL(rtl8168_lib_save_regs);
 
 void rtl8168_init_lib_ring(struct rtl8168_private *tp)
 {
-        int i;
+        struct rtl8168_ring *ring;
 
-        for (i = tp->num_tx_rings; i < tp->HwSuppNumTxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_tx_ring[i];
-
-                if (!ring->allocated)
-                        continue;
-
+        /* init lib tx ring */
+        ring = &tp->lib_tx_ring[1];
+        if (ring->allocated) {
+                rtl8168_init_tx_ring(ring);
                 if (ring->event.enabled)
                         _rtl8168_enable_event(ring);
-
-                rtl8168_init_tx_ring(ring);
         }
 
-        for (i = tp->num_rx_rings; i < tp->HwSuppNumRxQueues; i++) {
-                struct rtl8168_ring *ring = &tp->lib_rx_ring[i];
-
-                if (!ring->allocated)
-                        continue;
-
+        /* init lib rx ring */
+        ring = &tp->lib_rx_ring[1];
+        if (ring->allocated) {
+                rtl8168_init_rx_ring(ring);
                 if (ring->event.enabled)
                         _rtl8168_enable_event(ring);
-
-                rtl8168_init_rx_ring(ring);
         }
 }
 
 void rtl8168_lib_tx_interrupt(struct rtl8168_private *tp)
 {
-        if (!tp->lib_tx_ring[1].enabled)
-                return;
-
-	if (db_tx) {
-        	writel_relaxed(1, db_tx);
-	}
+        if (tp->lib_tx_ring[1].enabled && db_tx)
+                writel_relaxed(1, db_tx);
 }
 
 void rtl8168_lib_rx_interrupt(struct rtl8168_private *tp)
 {
-        if (!tp->lib_rx_ring[1].enabled)
-                return;
-
-	if (db_rx) {
-	        writel_relaxed(1, db_rx);
-	}
+        if (tp->lib_rx_ring[1].enabled && db_rx)
+                writel_relaxed(1, db_rx);
 }
 
 /*
@@ -993,7 +1003,6 @@ void *rtl8168_lib_get_rdsar(struct net_device *ndev)
 {
         struct rtl8168_private *tp = netdev_priv(ndev);
         void *rdsar = NULL;
-        int i;
 
         if (rtl8168_num_lib_rx_rings(tp) < 1)
                 goto out;
@@ -1001,11 +1010,10 @@ void *rtl8168_lib_get_rdsar(struct net_device *ndev)
         if (tp->RxDescArray == NULL)
                 goto out;
 
-        for (i=0; i<rtl8168_tot_rx_rings(tp); i++)
-                if(tp->lib_rx_ring[i].enabled)
-                        break;
+        if(tp->lib_rx_ring[1].enabled)
+                goto out;
 
-        rdsar = (void*)rtl8168_get_rxdesc(tp, tp->RxDescArray, 0, i);
+        rdsar = (void*)rtl8168_get_rxdesc(tp, tp->RxDescArray, 0, 1);
 
 out:
         return rdsar;

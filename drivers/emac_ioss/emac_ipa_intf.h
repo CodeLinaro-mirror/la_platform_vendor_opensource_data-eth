@@ -25,6 +25,8 @@
 #define MASK_ALL_IPA_CH	0x0000FFFF
 #define EMAC0_IPA_RX_INTR_EN	BIT(8)
 #define EMAC0_IPA_TX_INTR_EN	BIT(0)
+#define EMAC0_IPA_RX2_INTR_EN	BIT(10)
+#define EMAC0_IPA_TX2_INTR_EN	BIT(2)
 #define EMAC0_IPA_RX3_INTR_EN	BIT(11)
 #define EMAC0_IPA_TX3_INTR_EN	BIT(3)
 
@@ -39,6 +41,29 @@
 /* Supporting MACROs for SCM API's */
 #define EMAC_SELECT_ALLCH		0xFFFF
 #define EMAC_CHANNEL_INTR_EN	(0x1 << 31)
+
+/* Channel configs for various features */
+
+/* Default Config */
+#define DEFAULT_QUEUE_RX_TX	IPA_MUL_QUEUE_BE0
+
+#define DEFAULT_CHANNEL_RX_TX	IPA_MUL_CHANNEL_BE0
+
+/* Easymesh Config */
+#define EASYMESH_QUEUE_RX_TX_BE_TAGGED	IPA_MUL_QUEUE_BE0
+#define EASYMESH_QUEUE_RX_TX_BE	IPA_MUL_QUEUE_BE0
+
+#define EASYMESH_CHANNEL_RX_TX_BE_TAGGED	IPA_MUL_CHANNEL_BE2
+#define EASYMESH_CHANNEL_RX_TX_BE	IPA_MUL_CHANNEL_BE0
+
+#define	EZMESH_VID_FILTER	0
+
+/* TSN Config */
+#define TSN_QUEUE_TX_LL	IPA_MUL_QUEUE_BE3
+
+#define TSN_CHANNEL_RX_DEFAULT	IPA_MUL_CHANNEL_BE0
+#define TSN_CHANNEL_TX_DEFAULT	IPA_MUL_CHANNEL_BE0
+#define TSN_CHANNEL_TX_LL	IPA_MUL_CHANNEL_BE3
 
 enum channel_dir {
 	CH_DIR_RX,
@@ -105,6 +130,7 @@ struct channel_info {
 	dma_addr_t dma_map_dbaddr;	/* dma mapped address for ntn3 fw to access the db*/
 
 	bool ezmesh_enabled;		/* stores ezmesh enabled infomration */
+	bool tsn_enabled;		/* flag to know if tsn feature is enabled or not*/
 	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
 
 };
