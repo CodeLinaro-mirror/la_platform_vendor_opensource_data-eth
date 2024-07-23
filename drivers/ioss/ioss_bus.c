@@ -288,8 +288,14 @@ static void ioss_bus_remove(struct device *dev)
 	int rc;
 	struct ioss_device *idev = to_ioss_device(dev);
 	struct ioss_interface *iface = &idev->interface;
+	struct ioss_driver *idrv = NULL;
 
 	ioss_dev_log(idev, "De-initializing device");
+
+	idrv = to_ioss_driver(idev->dev.driver);
+
+	if (idev->qos_enabled)
+		rc = idrv->qos_ops->clear_qos(idev);
 
 	remove_qos_sysfs_nodes(dev);
 
