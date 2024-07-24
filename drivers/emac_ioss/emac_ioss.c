@@ -500,7 +500,7 @@ static int stmmac_ioss_update_skb(struct ioss_channel *ch, struct sk_buff *skb)
 	struct ioss_device *idev = ioss_ch_dev(ch);
 	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
 
-	if (priv->hw->rx_csum)
+	if (priv->hw->rx_csum && skb->ip_summed == CHECKSUM_NONE)
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 	return 0;
