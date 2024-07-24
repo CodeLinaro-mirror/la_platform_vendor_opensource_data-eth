@@ -34,9 +34,10 @@
  *   7      - Added support for channel allocation using IPA config type and channel
  *            traffic type properties
  *   8	    - Added API to update skb coming in UL exception path
+ *   9	    - Added QOS Support
  */
 
-#define IOSS_API_VER 8
+#define IOSS_API_VER 9
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -149,6 +150,7 @@ enum ioss_traffic_type {
 	IOSS_TRAFFIC_BE, /* 0 = Best Effort */
 	IOSS_TRAFFIC_BE_TAGGED, /* Best Effort VLAN tagged */
 	IOSS_TRAFFIC_LL, /* Low Latency */
+	IOSS_TRAFFIC_QOS, /* Quality of Service */
 	IOSS_TRAFFIC_TYPE_MAX
 };
 
@@ -340,6 +342,16 @@ struct ioss_channel {
 
 	void *ioss_priv;
 	int multi_rx_queues;
+
+	int channel_num;
+	u32 tc_mapping;
+};
+
+struct qos_pipe_mapping {
+	u32 pipe_to_tc_mapping_rx[5]; // Rename to ch_tc_mapping_rx
+	bool is_rx_tc_sw[5]; // Rename to is_rx_ch_sw
+	u32 pipe_to_tc_mapping_tx[5];
+	bool is_tx_tc_sw[5];
 };
 
 struct ioss_device {
@@ -367,6 +379,12 @@ struct ioss_device {
 		u64 system_suspend;
 		u64 system_resume;
 	} pm_stats;
+
+	bool qos_enabled;
+	bool clear_qos_hw;
+	u8 qos_rx_channels;
+	u8 qos_tx_channels;
+	struct qos_pipe_mapping curr_qos_config;
 };
 
 #define to_ioss_device(device) \
@@ -631,6 +649,7 @@ struct ioss_driver {
 	bool (*match)(struct device *dev);
 
 	struct ioss_driver_ops *ops;
+	struct ioss_qos_ops *qos_ops;
 	enum ioss_filter_types filter_types;
 
 	/* IOSS managed */
