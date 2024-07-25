@@ -1733,10 +1733,10 @@ EXPORT_SYMBOL_GPL(create_qos_sysfs_nodes);
 
 void remove_qos_sysfs_nodes(struct device *dev)
 {
-	kobject_del(qos_kobj);
 	kobject_del(qos_tc_params_kobj);
-	kobject_put(qos_kobj);
 	kobject_put(qos_tc_params_kobj);
+	kobject_del(qos_kobj);
+	kobject_put(qos_kobj);
 }
 EXPORT_SYMBOL_GPL(remove_qos_sysfs_nodes);
 
