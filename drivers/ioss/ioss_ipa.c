@@ -4,6 +4,7 @@
  */
 
 #include <linux/etherdevice.h>
+#include <linux/string.h>
 
 #include "ioss_i.h"
 
@@ -23,6 +24,7 @@ static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type
 		[IOSS_TRAFFIC_BE] = IPA_ETH_PIPE_BEST_EFFORT,
 #if IPA_ETH_API_VER > 2
 		[IOSS_TRAFFIC_BE_TAGGED] = IPA_ETH_PIPE_BEST_EFFORT_VLAN,
+		[IOSS_TRAFFIC_QOS]	=	IPA_ETH_PIPE_TRAFFIC_TYPE_QOS,
 #endif
 		[IOSS_TRAFFIC_LL] = IPA_ETH_PIPE_LOW_LATENCY,
 	};
@@ -37,6 +39,7 @@ static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa
 		[IPA_ETH_PIPE_LOW_LATENCY] = IOSS_TRAFFIC_LL,
 #if IPA_ETH_API_VER > 2
 		[IPA_ETH_PIPE_BEST_EFFORT_VLAN] = IOSS_TRAFFIC_BE_TAGGED,
+		[IPA_ETH_PIPE_TRAFFIC_TYPE_QOS]	=	IOSS_TRAFFIC_QOS,
 #endif
 	};
 
@@ -91,6 +94,10 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	pi->dir = to_ipa_dir(ch->direction);
 #if IPA_ETH_API_VER > 2
 	pi->traffic_type = to_ipa_traffic_type(ch->traffic_type);
+#endif
+
+#if IPA_ETH_API_VER >= 4
+	pi->tc_bmap = ch->tc_mapping;
 #endif
 
 	desc_mem = list_first_entry_or_null(
@@ -182,7 +189,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	ec->priv = iface;
 	ec->inst_id = iface->instance_id;
-#if IPA_ETH_API_VER < 3
+#if IPA_ETH_API_VER < 4
 	ec->traffic_type = to_ipa_traffic_type(DEFAULT_IOSS_TRAFFIC_TYPE);
 #endif
 	ec->client_type = ioss_ipa_hal_get_ctype(idev);
@@ -311,6 +318,11 @@ static bool validate_channel(struct ioss_channel *ch,
 	if (ch->direction != dir)
 		return false;
 
+	if (traffic == IOSS_TRAFFIC_QOS) {
+		ch->traffic_type = IOSS_TRAFFIC_QOS;
+		return true;
+	}
+
 	if (ch->traffic_type != traffic)
 		return false;
 
@@ -366,6 +378,7 @@ static int ioss_ipa_validate_one_channel(struct ioss_interface *iface, struct ip
 int ioss_ipa_validate_channels(struct ioss_interface *iface)
 {
 	int ret;
+	int required_channels = 0;
 	struct ioss_device *idev = ioss_iface_dev(iface);
 	u32 inst_id = iface->instance_id;
 	enum ipa_eth_client_type ct = ioss_ipa_hal_get_ctype(idev);
@@ -390,8 +403,12 @@ int ioss_ipa_validate_channels(struct ioss_interface *iface)
 
 	ioss_ipa_invalidate_channels(iface);
 
+	required_channels = ipa_config->num_dma_channel;
+	if (!strcmp(ipa_config->config, "qos"))
+		required_channels = 2;
+
 	return ioss_ipa_validate_one_channel(
-			iface, ipa_config->dma_config, ipa_config->num_dma_channel);
+			iface, ipa_config->dma_config, required_channels);
 }
 
 #else
@@ -428,6 +445,12 @@ void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
 {
 	struct ioss_channel *ch, *tmp_ch;
 
-	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node)
+	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
+		ioss_dev_log(ioss_iface_dev(iface), "Ch : %d, id : %d, dir : %d, traffic : %d, tc_mapping : %d",
+						ch->channel_num, ch->id, ch->direction, ch->traffic_type, ch->tc_mapping);
+		if (ch->traffic_type == IOSS_TRAFFIC_QOS && ch->tc_mapping != 0)
+			continue; // Don't invalidate QOS non-BE Channels
+		else
 		list_move(&ch->node, &iface->invalid_channels);
+	}
 }

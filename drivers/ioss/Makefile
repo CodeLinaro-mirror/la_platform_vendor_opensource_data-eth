@@ -16,9 +16,9 @@ ioss-y := \
 	ioss_ipa_hal.o \
 	ioss_mem.o \
 	ioss_utils.o \
-	ioss_platform.o
-
-ioss-$(CONFIG_DEBUG_FS) += ioss_debugfs.o
+	ioss_platform.o \
+	ioss_qos.o \
+	ioss_sysfs.o
 
 KBUILD_OPTIONS+=KBUILD_DTC_INCLUDE=$(KP_MODULE_ROOT)
 KBUILD_OPTIONS+=CONFIG_IOSS=m

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -193,12 +193,6 @@ static int __init ioss_module_init(void)
 		goto err_bus;
 	}
 
-	rc = ioss_debugfs_init();
-	if (rc) {
-		ioss_log_err(NULL, "Failed to create the debugfs directory");
-		goto err_debugfs;
-	}
-
 	rc = platform_driver_register(&ioss_drv);
 	if (rc) {
 		ioss_log_err(NULL, "Failed to register IOSS platform driver");
@@ -208,8 +202,6 @@ static int __init ioss_module_init(void)
 	return 0;
 
 err_platform:
-	ioss_debugfs_exit();
-err_debugfs:
 	bus_unregister(&ioss_bus);
 err_bus:
 	return rc;
@@ -219,7 +211,6 @@ module_init(ioss_module_init);
 static void __exit ioss_module_exit(void)
 {
 	platform_driver_unregister(&ioss_drv);
-	ioss_debugfs_exit();
 	bus_unregister(&ioss_bus);
 	ioss_log_deinit();
 }
