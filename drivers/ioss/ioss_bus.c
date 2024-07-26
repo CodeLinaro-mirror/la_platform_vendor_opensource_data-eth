@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -202,6 +202,12 @@ static int ioss_bus_probe(struct device *dev)
 		goto err_watch;
 	}
 
+	rc = ioss_sysfs_add_idev(idev);
+	if (rc) {
+		ioss_dev_err(idev, "Unable to add idev to sysfs");
+		goto err_sysfs;
+	}
+
 	rc = sysfs_create_file(&idev->net_dev->dev.kobj,
 				&dev_attr_suspend_ipa_offload.attr);
 	if (rc) {
@@ -289,6 +295,7 @@ static void ioss_bus_remove(struct device *dev)
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
+	ioss_sysfs_remove_idev(idev);
 
 	if(emac_ipa_cdev && iface->auto_resume_disabled)
 	{
