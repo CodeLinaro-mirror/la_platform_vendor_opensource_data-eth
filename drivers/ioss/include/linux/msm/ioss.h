@@ -346,10 +346,10 @@ struct ioss_channel {
 };
 
 struct qos_pipe_mapping {
-	u32 pipe_to_tc_mapping_rx[5]; // Rename to ch_tc_mapping_rx
-	bool is_rx_tc_sw[5]; // Rename to is_rx_ch_sw
-	u32 pipe_to_tc_mapping_tx[5];
-	bool is_tx_tc_sw[5];
+	u32 pipe_to_tc_mapping_rx[8]; // Rename to ch_tc_mapping_rx
+	bool is_rx_tc_sw[8]; // Rename to is_rx_ch_sw
+	u32 pipe_to_tc_mapping_tx[8];
+	bool is_tx_tc_sw[8];
 };
 
 struct ioss_device {
@@ -380,6 +380,7 @@ struct ioss_device {
 	} pm_stats;
 
 	bool qos_enabled;
+	bool qos_cached;
 	bool clear_qos_hw;
 	u8 qos_rx_channels;
 	u8 qos_tx_channels;
