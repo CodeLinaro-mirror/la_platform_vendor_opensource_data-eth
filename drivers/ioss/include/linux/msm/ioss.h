@@ -385,6 +385,8 @@ struct ioss_device {
 	u8 qos_rx_channels;
 	u8 qos_tx_channels;
 	struct qos_pipe_mapping curr_qos_config;
+	struct kobject *qos_kobj;
+	struct kobject *qos_tc_params_kobj;
 };
 
 #define to_ioss_device(device) \

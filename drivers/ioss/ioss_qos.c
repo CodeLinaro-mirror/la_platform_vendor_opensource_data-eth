@@ -22,9 +22,6 @@
 		} \
 	} while(0)
 
-static struct kobject* qos_kobj;
-static struct kobject* qos_tc_params_kobj;
-
 static struct IOSS_QOS_TABLE ioss_qos_table;
 static struct IOSS_QOS_NEW_NODES ioss_qos_new_nodes;
 
@@ -1789,6 +1786,8 @@ static DEVICE_ATTR(tx_pcp, S_IRWXU | S_IRUGO | S_IRWXG,
 int ioss_qos_create_sysfs(struct device *dev)
 {
 	struct ioss_device *idev = to_ioss_device(dev);
+	struct kobject *qos_kobj = NULL;
+	struct kobject *tc_param_kobj = NULL;
 
 	INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
 	INIT_LIST_HEAD(&ioss_qos_table.qos_rx_committed_table);
@@ -1799,7 +1798,7 @@ int ioss_qos_create_sysfs(struct device *dev)
 	qos_kobj = kobject_create_and_add("qos", &idev->net_dev->dev.kobj);
 	if (!qos_kobj) {
 		ioss_qos_dev_err(idev, "Unable to create qos kobject");
-		goto err_qos_sysfs;
+		goto err_qos_kobj;
 	}
 
 	__create_sysfs(idev, qos_kobj, add_tc, 0, qos_id, err_qos_sysfs);
@@ -1810,37 +1809,47 @@ int ioss_qos_create_sysfs(struct device *dev)
 	__create_sysfs(idev, qos_kobj, add_handle, 0, qos_id, err_qos_sysfs);
 	__create_sysfs(idev, qos_kobj, tx_handle, 0, qos_id, err_qos_sysfs);
 
-	qos_tc_params_kobj = kobject_create_and_add("add_tc_params", qos_kobj);
-	if (!qos_tc_params_kobj) {
-		ioss_qos_dev_err(idev, "Unable to create qos-add_tc_params kobject");
-		goto err_qos_sysfs;
+	tc_param_kobj = kobject_create_and_add("add_tc_params", qos_kobj);
+	if (!tc_param_kobj) {
+		ioss_qos_dev_err(idev, "Unable to create qos/add_tc_params kobject");
+		goto err_tc_param_kobj;
 	}
 
-	__create_sysfs(idev, qos_tc_params_kobj, vlan_id, 0, qos_id, err_qos_sysfs);
-	__create_sysfs(idev, qos_tc_params_kobj, pcp, 0, qos_id, err_qos_sysfs);
-	__create_sysfs(idev, qos_tc_params_kobj, src, 0, qos_id, err_qos_sysfs);
-	__create_sysfs(idev, qos_tc_params_kobj, dst, 0, qos_id, err_qos_sysfs);
-	__create_sysfs(idev, qos_tc_params_kobj, bw, 0, qos_id, err_qos_sysfs);
-	__create_sysfs(idev, qos_tc_params_kobj, action, 0, qos_id, err_qos_sysfs);
-	__create_sysfs(idev, qos_tc_params_kobj, smac, 0, qos_id, err_qos_sysfs);
-	__create_sysfs(idev, qos_tc_params_kobj, dmac, 0, qos_id, err_qos_sysfs);
-	__create_sysfs(idev, qos_tc_params_kobj, tx_pcp, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, tc_param_kobj, vlan_id, 0, qos_id, err_tc_param_sysfs);
+	__create_sysfs(idev, tc_param_kobj, pcp, 0, qos_id, err_tc_param_sysfs);
+	__create_sysfs(idev, tc_param_kobj, src, 0, qos_id, err_tc_param_sysfs);
+	__create_sysfs(idev, tc_param_kobj, dst, 0, qos_id, err_tc_param_sysfs);
+	__create_sysfs(idev, tc_param_kobj, bw, 0, qos_id, err_tc_param_sysfs);
+	__create_sysfs(idev, tc_param_kobj, action, 0, qos_id, err_tc_param_sysfs);
+	__create_sysfs(idev, tc_param_kobj, smac, 0, qos_id, err_tc_param_sysfs);
+	__create_sysfs(idev, tc_param_kobj, dmac, 0, qos_id, err_tc_param_sysfs);
+	__create_sysfs(idev, tc_param_kobj, tx_pcp, 0, qos_id, err_tc_param_sysfs);
+
+	idev->qos_kobj = qos_kobj;
+	idev->qos_tc_params_kobj = tc_param_kobj;
 
 	return 0;
 
+err_tc_param_sysfs:
+	kobject_del(tc_param_kobj);
+err_tc_param_kobj:
+	kobject_put(tc_param_kobj);
 err_qos_sysfs:
+	kobject_del(qos_kobj);
+err_qos_kobj:
 	kobject_put(qos_kobj);
-	kobject_put(qos_tc_params_kobj);
 	return -EINVAL;
 }
 
 
 void ioss_qos_remove_sysfs(struct device *dev)
 {
-	kobject_del(qos_tc_params_kobj);
-	kobject_put(qos_tc_params_kobj);
-	kobject_del(qos_kobj);
-	kobject_put(qos_kobj);
+        struct ioss_device *idev = to_ioss_device(dev);
+
+	kobject_del(idev->qos_tc_params_kobj);
+	kobject_put(idev->qos_tc_params_kobj);
+	kobject_del(idev->qos_kobj);
+	kobject_put(idev->qos_kobj);
 }
 
 static int ioss_parse_qos_channel(struct ioss_device *idev,
