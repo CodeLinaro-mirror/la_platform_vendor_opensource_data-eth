@@ -256,7 +256,7 @@ static int ioss_bus_probe(struct device *dev)
 		}
 	}
 
-	rc = create_qos_sysfs_nodes(dev);
+	rc = ioss_qos_create_sysfs(dev);
 	if (rc) {
 		ioss_dev_err(idev, "unable to create qos sysfs nodes");
 		goto err_sysfs;
@@ -297,7 +297,7 @@ static void ioss_bus_remove(struct device *dev)
 	if (idev->qos_enabled)
 		rc = idrv->qos_ops->clear_qos(idev);
 
-	remove_qos_sysfs_nodes(dev);
+	ioss_qos_remove_sysfs(dev);
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);

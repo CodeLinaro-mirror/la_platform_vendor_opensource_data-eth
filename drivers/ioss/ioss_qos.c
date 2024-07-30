@@ -10,6 +10,18 @@
 
 #include "ioss_i.h"
 
+#define __create_sysfs(idev, qos_kobj, qos_node, uid, gid, qos_sysfs_err) \
+	do { \
+		if (sysfs_create_file(qos_kobj, &dev_attr_##qos_node.attr)) { \
+			ioss_dev_err(idev, "unable to create " #qos_node " node"); \
+			goto qos_sysfs_err; \
+		} \
+		if (sysfs_file_change_owner(qos_kobj, #qos_node, KUIDT_INIT(uid), KGIDT_INIT(gid))) { \
+			ioss_dev_err(idev, "unable to change owner of " #qos_node " sysfs node"); \
+			goto qos_sysfs_err; \
+		} \
+	} while(0)
+
 static struct kobject* qos_kobj;
 static struct kobject* qos_tc_params_kobj;
 
@@ -1774,7 +1786,7 @@ static DEVICE_ATTR(tx_pcp, S_IRWXU | S_IRUGO | S_IRWXG,
 		show_tx_pcp, store_tx_pcp);
 
 
-int create_qos_sysfs_nodes(struct device *dev)
+int ioss_qos_create_sysfs(struct device *dev)
 {
 	struct ioss_device *idev = to_ioss_device(dev);
 
@@ -1790,13 +1802,13 @@ int create_qos_sysfs_nodes(struct device *dev)
 		goto err_qos_sysfs;
 	}
 
-	create_qos_sysfs_node(idev, qos_kobj, add_tc, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_kobj, qos_table, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_kobj, del_tc, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_kobj, commit, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_kobj, info, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_kobj, add_handle, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_kobj, tx_handle, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_kobj, add_tc, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_kobj, qos_table, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_kobj, del_tc, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_kobj, commit, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_kobj, info, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_kobj, add_handle, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_kobj, tx_handle, 0, qos_id, err_qos_sysfs);
 
 	qos_tc_params_kobj = kobject_create_and_add("add_tc_params", qos_kobj);
 	if (!qos_tc_params_kobj) {
@@ -1804,15 +1816,15 @@ int create_qos_sysfs_nodes(struct device *dev)
 		goto err_qos_sysfs;
 	}
 
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, vlan_id, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, pcp, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, src, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, dst, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, bw, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, action, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, smac, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, dmac, 0, qos_id, err_qos_sysfs);
-	create_qos_sysfs_node(idev, qos_tc_params_kobj, tx_pcp, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, vlan_id, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, pcp, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, src, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, dst, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, bw, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, action, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, smac, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, dmac, 0, qos_id, err_qos_sysfs);
+	__create_sysfs(idev, qos_tc_params_kobj, tx_pcp, 0, qos_id, err_qos_sysfs);
 
 	return 0;
 
@@ -1821,17 +1833,15 @@ err_qos_sysfs:
 	kobject_put(qos_tc_params_kobj);
 	return -EINVAL;
 }
-EXPORT_SYMBOL_GPL(create_qos_sysfs_nodes);
 
 
-void remove_qos_sysfs_nodes(struct device *dev)
+void ioss_qos_remove_sysfs(struct device *dev)
 {
 	kobject_del(qos_tc_params_kobj);
 	kobject_put(qos_tc_params_kobj);
 	kobject_del(qos_kobj);
 	kobject_put(qos_kobj);
 }
-EXPORT_SYMBOL_GPL(remove_qos_sysfs_nodes);
 
 static int ioss_parse_qos_channel(struct ioss_device *idev,
 		struct device_node *np, u32 tc_mapping, int ch_num)
