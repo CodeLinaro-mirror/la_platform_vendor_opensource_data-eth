@@ -2683,17 +2683,25 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 	return snprintf(buf, TABLE_BUFFER, "%s\n", table);
 }
 
-static ssize_t stmmac_get_qos_info(struct ioss_device *idev, char* buf)
+static ssize_t stmmac_get_qos_info(struct ioss_device *idev, char* buf, ssize_t buf_size)
 {
-	const int ROW_BUFFER   =   60;
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	char *row = kzalloc(sizeof(char) * ROW_BUFFER, GFP_KERNEL);
+	int bytes_written = 0;
 
-	if (priv->plat->rx_qos_queues_to_use && priv->plat->tx_queues_to_use)
-		return scnprintf(buf, ROW_BUFFER, "qos enabled \n", row);
-	else
-		return scnprintf(buf, ROW_BUFFER, "qos disabled \n", row);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_qos_supported: %d\n", priv->plat->qos_supported);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_qos_config: %s\n", priv->plat->qoscfg);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_rx_queues: %d\n", priv->plat->rx_qos_queues_to_use);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_tx_queues: %d\n", priv->plat->tx_qos_queues_to_use);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_dl_queue_sel: %s\n", stmmac_is_skprio_routing(ndev)
+				  ? "skprio": "pcp");
+
+	return bytes_written;
 }
 
 static struct ioss_qos_ops stmmac_qos_ops = {
@@ -2703,7 +2711,7 @@ static struct ioss_qos_ops stmmac_qos_ops = {
 	.clear_qos = stmmac_clear_qos,
 	.show_qos = stmmac_show_qos,
 	.clear_qos_cache = stmmac_clear_qos_cache,
-	.show_qos_info = stmmac_get_qos_info,
+	.get_qos_info = stmmac_get_qos_info,
 };
 
 static struct ioss_driver_ops stmmac_ioss_ops = {

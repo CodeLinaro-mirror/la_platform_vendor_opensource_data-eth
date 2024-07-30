@@ -540,6 +540,11 @@ void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_in
  */
 void stmmac_configure_tx_queue(struct stmmac_priv *priv, u8 queue, u8 txmode);
 
+/* stmmac qos tx routing strategy
+ * param[in] ndev : stmmac netdev data structure
+ */
+bool stmmac_is_skprio_routing (struct net_device *ndev);
+
 /* Configure RX queue path in SW/HW
  * param[in] ndev : stmmac netdev data structure
  * param[in] queue number

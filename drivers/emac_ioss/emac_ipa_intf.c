@@ -2088,6 +2088,13 @@ void stmmac_configure_tx_queue(struct stmmac_priv *priv, u8 queue, u8 txmode)
 }
 EXPORT_SYMBOL_GPL(stmmac_configure_tx_queue);
 
+bool stmmac_is_skprio_routing (struct net_device *ndev)
+{
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	return priv->plat->is_skprio_routing(priv);
+}
+EXPORT_SYMBOL_GPL(stmmac_is_skprio_routing);
+
 int config_rx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw)
 {
 	int ret = 0;
