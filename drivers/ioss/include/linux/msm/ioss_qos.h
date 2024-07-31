@@ -10,8 +10,6 @@
 #include <linux/if_ether.h>
 #include <linux/ctype.h>
 
-#include "ioss.h"
-
 /**
  *   API
  * Version    Changes
@@ -46,7 +44,7 @@
 		__ioss_qos_log_msg(ioss_qos_get_ipclog_buf(), fmt, ## args); \
 	} while (0)
 
-
+struct ioss_device;
 #define ioss_qos_dev_err(idev, fmt, args...) \
 	do { \
 		struct ioss_device *__idev = (idev); \
@@ -195,6 +193,13 @@ enum ioss_qos_response {
     QOS_COMMIT_FAIL = 1,
     QOS_COMMIT_EMPTY = 2,
     QOS_COMMIT_LINK_DOWN = 3
+};
+
+struct qos_pipe_mapping {
+	u32 pipe_to_tc_mapping_rx[8]; // Rename to ch_tc_mapping_rx
+	bool is_rx_tc_sw[8]; // Rename to is_rx_ch_sw
+	u32 pipe_to_tc_mapping_tx[8];
+	bool is_tx_tc_sw[8];
 };
 
 struct response {
