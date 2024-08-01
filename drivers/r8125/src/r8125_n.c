@@ -5093,7 +5093,7 @@ rtl8125_powerdown_pll(struct net_device *dev, u8 from_suspend)
                         if (tp->wol_opts & WAKE_PHY)
                                 tp->check_keep_link_speed = 1;
                 } else {
-                        if (HW_SUPPORT_D0_SPEED_UP(tp)) {
+                        if (tp->D0SpeedUpSpeed != D0_SPEED_UP_SPEED_DISABLE) {
                                 rtl8125_enable_d0_speedup(tp);
                                 tp->check_keep_link_speed = 1;
                         }
@@ -8178,6 +8178,10 @@ rtl8125_hw_phy_config_8125b_2(struct net_device *dev)
         SetEthPhyOcpBit(tp, 0xA438, BIT_12);
         */
 
+#ifdef ENABLE_LIB_SUPPORT
+        /* disable phy speed down */
+        ClearEthPhyOcpBit(tp, 0xA442, BIT_3 | BIT_2);
+#endif /* ENABLE_LIB_SUPPORT */
 
         if (aspm) {
                 if (HW_HAS_WRITE_PHY_MCU_RAM_CODE(tp)) {
