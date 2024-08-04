@@ -8,7 +8,7 @@
 #ifndef __STMMAC_THIN_H__
 #define __STMMAC_THIN_H__
 
-#define STMMAC_RESOURCE_NAME   "stmmaceth"
+#define STMMAC_RESOURCE_NAME   "stmmac_thin"
 #define DRV_MODULE_VERSION	"Jan_2016"
 
 #include <linux/if_vlan.h>
@@ -175,17 +175,17 @@ enum emac_state {
 			  &priv->plat->stmmac_emb_smmu_ctx.smmu_pdev->dev : \
 			  priv->device)
 
-void stmmac_set_ethtool_ops(struct net_device *netdev);
+void stmmac_thin_set_ethtool_ops(struct net_device *netdev);
 
 void stmmac_mac_link_down(struct net_device *ndev);
 void stmmac_mac_link_up(struct net_device *ndev);
 int stmmac_dvr_init(struct net_device *ndev);
 void stmmac_ch_status(struct net_device *ndev);
 
-int stmmac_resume(struct device *dev);
-int stmmac_suspend(struct device *dev);
-int stmmac_dvr_remove(struct device *dev);
-int stmmac_dvr_probe(struct device *device,
+int stmmac_thin_resume(struct device *dev);
+int stmmac_thin_suspend(struct device *dev);
+int stmmac_thin_dvr_remove(struct device *dev);
+int stmmac_thin_dvr_probe(struct device *device,
 		     struct plat_stmmacenet_data *plat_dat,
 		     struct stmmac_resources *res);
 
