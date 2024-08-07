@@ -1376,9 +1376,10 @@ static ssize_t store_tx_pcp(struct device *dev,
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
+	tmp = buf;
 
 	if (!ioss_qos_new_nodes.tx_node)
-		return -EINVAL;
+		goto tx_pcp_err;
 
 	if (ioss_qos_new_nodes.tx_node->pcp.arr)
 		kfree(ioss_qos_new_nodes.tx_node->pcp.arr);
@@ -1386,14 +1387,13 @@ static ssize_t store_tx_pcp(struct device *dev,
 	ioss_qos_new_nodes.tx_node->pcp.arr = kzalloc(sizeof(u8) * len, GFP_KERNEL);
 	ioss_qos_new_nodes.tx_node->pcp.len = len;
 
-	tmp = buf;
 	while ( (pcp = strsep(&buf, " ")) ) {
 		if (0 == strlen(pcp))
 			continue;
 		if (kstrtou8(pcp, 10, &ioss_qos_new_nodes.tx_node->pcp.arr[i]) < 0)
-			goto pcp_err;
+			goto tx_pcp_err;
 		if (!is_valid_pcp(ioss_qos_new_nodes.tx_node->pcp.arr[i]))
-			goto pcp_err;
+			goto tx_pcp_err;
 		i++;
 	}
 
@@ -1401,7 +1401,7 @@ static ssize_t store_tx_pcp(struct device *dev,
 
 	return size;
 
-pcp_err:
+tx_pcp_err:
 	ioss_qos_dev_err(NULL, "[qos ioss] : invalid pcp value entered\n");
 	if (ioss_qos_new_nodes.tx_node) {
 		kfree(ioss_qos_new_nodes.tx_node->pcp.arr);
@@ -1432,9 +1432,10 @@ static ssize_t store_pcp(struct device *dev,
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
+	tmp = buf;
 
 	if (!ioss_qos_new_nodes.rx_hdl_node)
-		return -EINVAL;
+		goto pcp_err;
 
 	if (ioss_qos_new_nodes.rx_hdl_node->pcp.arr)
 		kfree(ioss_qos_new_nodes.rx_hdl_node->pcp.arr);
@@ -1442,7 +1443,6 @@ static ssize_t store_pcp(struct device *dev,
 	ioss_qos_new_nodes.rx_hdl_node->pcp.arr = kzalloc(sizeof(u8) * len, GFP_KERNEL);
 	ioss_qos_new_nodes.rx_hdl_node->pcp.len = len;
 
-	tmp = buf;
 	while ( (pcp = strsep(&buf, " ")) ) {
 		if (0 == strlen(pcp))
 			continue;
@@ -1487,9 +1487,10 @@ static ssize_t store_vlan_id(struct device *dev,
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
+	tmp = buf;
 
 	if (!ioss_qos_new_nodes.rx_hdl_node)
-		return -EINVAL;
+		goto vlan_err;
 
 	if (ioss_qos_new_nodes.rx_hdl_node->vlan_ids.arr)
 		kfree(ioss_qos_new_nodes.rx_hdl_node->vlan_ids.arr);
@@ -1497,7 +1498,6 @@ static ssize_t store_vlan_id(struct device *dev,
 	ioss_qos_new_nodes.rx_hdl_node->vlan_ids.arr = kzalloc(sizeof(u16) * len, GFP_KERNEL);
 	ioss_qos_new_nodes.rx_hdl_node->vlan_ids.len = len;
 
-	tmp = buf;
 	while ( (vid = strsep(&buf, " ")) ) {
 		if (0 == strlen(vid))
 			continue;
@@ -1544,6 +1544,7 @@ static ssize_t store_src(struct device *dev,
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
+	tmp = buf;
 
 	if (!ioss_qos_new_nodes.rx_hdl_node)
 		goto src_err;
@@ -1554,7 +1555,6 @@ static ssize_t store_src(struct device *dev,
 	ioss_qos_new_nodes.rx_hdl_node->src.arr = kzalloc(sizeof(struct qos_filters) * len, GFP_KERNEL);
 	ioss_qos_new_nodes.rx_hdl_node->src.len = len;
 
-	tmp = buf;
 	while ( (src = strsep(&buf, " ")) ) {
 		if (0 == strlen(src))
 			continue;
@@ -1596,6 +1596,7 @@ static ssize_t store_dst(struct device *dev,
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
+	tmp = buf;
 
 	if (!ioss_qos_new_nodes.rx_hdl_node)
 		goto dst_err;
@@ -1606,7 +1607,6 @@ static ssize_t store_dst(struct device *dev,
 	ioss_qos_new_nodes.rx_hdl_node->dst.arr = kzalloc(sizeof(struct qos_filters) * len, GFP_KERNEL);
 	ioss_qos_new_nodes.rx_hdl_node->dst.len = len;
 
-	tmp = buf;
 	while ( (src = strsep(&buf, " ")) ) {
 		if (0 == strlen(src))
 			continue;
@@ -1647,6 +1647,7 @@ static ssize_t store_smac(struct device *dev,
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
+	tmp = buf;
 
 	if (!ioss_qos_new_nodes.rx_hdl_node)
 		goto smac_err;
@@ -1657,7 +1658,6 @@ static ssize_t store_smac(struct device *dev,
 	ioss_qos_new_nodes.rx_hdl_node->smac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * len, GFP_KERNEL);
 	ioss_qos_new_nodes.rx_hdl_node->smac.len = len;
 
-	tmp = buf;
 	while ( (mac = strsep(&buf, " ")) ) {
 		if (0 == strlen(mac))
 			continue;
@@ -1700,6 +1700,7 @@ static ssize_t store_dmac(struct device *dev,
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
+	tmp = buf;
 
 	if (!ioss_qos_new_nodes.rx_hdl_node)
 		goto dmac_err;
@@ -1710,7 +1711,6 @@ static ssize_t store_dmac(struct device *dev,
 	ioss_qos_new_nodes.rx_hdl_node->dmac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * len, GFP_KERNEL);
 	ioss_qos_new_nodes.rx_hdl_node->dmac.len = len;
 
-	tmp = buf;
 	while ( (mac = strsep(&buf, " ")) ) {
 		if (0 == strlen(mac))
 			continue;
