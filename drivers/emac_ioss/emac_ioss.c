@@ -1194,12 +1194,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
                 return map_info;
         }
 
-	if(!stmmac_is_phy_link_up(priv)) {
-		ioss_qos_dev_err(idev, "Link is down \n");
-		map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
-		return map_info;
-	}
-
 	/* Cleanup the used tables */
 	if (priv->plat->qos_active) {
 		priv->unique_filter_old = priv->unique_filter_new;
@@ -1425,6 +1419,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		ioss_qos_dev_log(idev, "num_tx_hw_tc = %d\n", num_tx_hw_tc);
 
 		tx_avail = qos_tx_queues - 1;
+
+		if(!stmmac_is_phy_link_up(priv)) {
+			ioss_qos_dev_log(idev, "Link is down : CBS Params can't be calculated \n");
+			map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
+			return map_info;
+		}
 
 		/*CBS claculation*/
 		// Reserved about 5% bandwidth for speed >= 1Gbps and 10M for 100Mbps

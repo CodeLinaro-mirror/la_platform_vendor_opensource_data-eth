@@ -65,6 +65,9 @@
 #define TSN_CHANNEL_TX_DEFAULT	IPA_MUL_CHANNEL_BE0
 #define TSN_CHANNEL_TX_LL	IPA_MUL_CHANNEL_BE3
 
+/* QOS Config */
+#define QOS_RX_PCP0_QUEUE	0
+
 enum channel_dir {
 	CH_DIR_RX,
 	CH_DIR_TX,

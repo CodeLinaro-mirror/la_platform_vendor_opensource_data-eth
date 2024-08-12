@@ -736,6 +736,8 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		stmmac_map_mtl_to_dma(priv, priv->hw, queue_num, channel->channel_num);
 		if ((queue_num == EASYMESH_QUEUE_RX_TX_BE) && (channel->ezmesh_enabled))
 			enable_ezmesh_vlan_filtering(priv);
+		if ((queue_num == QOS_RX_PCP0_QUEUE) && (channel->qos_enabled) && (priv->unique_filter_new != PCP))
+			stmmac_enable_queue_dynamic_dma_ch_selection(priv, priv->hw, QOS_RX_PCP0_QUEUE);
 	}
 
 	return channel;
