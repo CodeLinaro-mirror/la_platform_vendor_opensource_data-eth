@@ -375,7 +375,6 @@ struct ioss_device {
 	} pm_stats;
 
 	bool qos_enabled;
-	bool qos_cached;
 	bool clear_qos_hw;
 	u8 qos_rx_channels;
 	u8 qos_tx_channels;
