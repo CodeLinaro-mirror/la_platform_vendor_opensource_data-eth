@@ -7,8 +7,6 @@
 
 #include "ioss_i.h"
 
-static struct kobject* root_kobj;
-
 static int get_idev_statistics(struct ioss_device *idev,
 		struct ioss_device_stats *stats)
 {
@@ -77,7 +75,7 @@ static ssize_t sysfs_read_idev_statistics(struct device *dev, struct device_attr
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
-	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct device *parent = kobj_to_dev(dev->kobj.parent);
 	struct net_device *netdev=NULL;
 	struct ioss_device *idev = NULL;
 	struct ioss_interface *iface = NULL;
@@ -172,7 +170,7 @@ static ssize_t sysfs_read_idev_stats(struct device *dev, struct device_attribute
 	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
-	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct device *parent = kobj_to_dev(dev->kobj.parent);
 	struct net_device *netdev=NULL;
 	struct ioss_device *idev = NULL;
 	struct ioss_interface *iface = NULL;
@@ -293,7 +291,7 @@ static ssize_t sysfs_read_idev_channels(struct device *dev, struct device_attrib
 	const size_t BUF_LEN = 2048;
 	struct ioss_channel *ch;
 
-	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct device *parent = kobj_to_dev(dev->kobj.parent);
 	struct net_device *netdev=NULL;
 	struct ioss_device *idev = NULL;
 	struct ioss_interface *iface = NULL;
@@ -340,7 +338,7 @@ static ssize_t sysfs_read_ch_statistics(struct device *dev, struct device_attrib
 	const size_t BUF_LEN = 3000;
 	struct ioss_channel_stats ch_stats;
 	struct ioss_channel *ch=NULL, *ch_tmp;
-	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct device *parent = kobj_to_dev(dev->kobj.parent->parent);
 	const char *name = kobject_name(&dev->kobj);
 	char *ch_name = kstrdup(name, GFP_KERNEL);
 	struct net_device *netdev=NULL;
@@ -410,7 +408,7 @@ static ssize_t sysfs_read_ch_stats(struct device *dev, struct device_attribute *
 	const size_t BUF_LEN = 3000;
 	struct ioss_channel_stats ch_stats;
 	struct ioss_channel *ch=NULL, *ch_tmp;
-	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct device *parent = kobj_to_dev(dev->kobj.parent->parent);
 	const char *name = kobject_name(&dev->kobj);
 	char *ch_name = kstrdup(name, GFP_KERNEL);
 	struct net_device *netdev=NULL;
@@ -477,7 +475,7 @@ static ssize_t sysfs_read_ch_status(struct device *dev, struct device_attribute 
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
 	struct ioss_channel *ch=NULL, *ch_tmp;
-	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct device *parent = kobj_to_dev(dev->kobj.parent->parent);
 	const char *name = kobject_name(&dev->kobj);
 	char *ch_name = kstrdup(name, GFP_KERNEL);
 	struct net_device *netdev=NULL;
@@ -549,7 +547,7 @@ static ssize_t sysfs_read_ch_stat(struct device *dev, struct device_attribute *a
 	const size_t BUF_LEN = 3000;
 	struct ioss_channel_status ch_status;
 	struct ioss_channel *ch=NULL, *ch_tmp;
-	struct device *parent = kobj_to_dev(root_kobj->parent);
+	struct device *parent = kobj_to_dev(dev->kobj.parent->parent);
 	const char *name = kobject_name(&dev->kobj);
 	char *ch_name = kstrdup(name, GFP_KERNEL);
 	struct net_device *netdev=NULL;
@@ -626,7 +624,6 @@ int ioss_sysfs_add_idev(struct ioss_device *idev)
 		ioss_log_err(NULL, "Failed to create root  sysfs directory for IOSS");
 		return -EFAULT;
 	}
-	root_kobj = idev->kobj;
 
 	ret = sysfs_create_file(idev->kobj, &dev_attr_statistics.attr);
 	if (ret) {
