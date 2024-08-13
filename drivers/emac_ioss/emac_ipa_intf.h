@@ -239,6 +239,8 @@ struct dma_filter_table {
 };
 #define to_dma_filter_table(ptr) list_entry(ptr, struct dma_filter_table, node)
 
+#define PCP_MAX_VALUE	7
+
 /*CBS params*/
 #define SGMII_INTERFACE_BIT	8
 #define SGMII_2500X_BIT	32
