@@ -2093,7 +2093,6 @@ static int stmmac_enable_qos(struct ioss_device *idev)
 	ioss_qos_dev_log(idev, "Enter");
 
 	if (priv->plat->rx_qos_queues_to_use >= 3) {
-		priv->plat->qos_active = true;
 		stmmac_enable_qos_queue_cfg(priv, &qos_tables);
 		if (priv->unique_filter_new != PCP) {
 			stmmac_enable_qos_filtering(ndev, &qos_tables);
@@ -2103,6 +2102,7 @@ static int stmmac_enable_qos(struct ioss_device *idev)
 		/*cbs routing*/
 		stmmac_config_qos_cbs(priv, &qos_tables);
 		qos_tables.filter_cnt = 0;
+		priv->plat->qos_active = true;
 	}
 
 	return 0;
