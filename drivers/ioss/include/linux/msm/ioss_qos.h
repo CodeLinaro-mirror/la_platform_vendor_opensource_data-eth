@@ -215,24 +215,11 @@ struct ioss_qos_ops {
 	ssize_t (*show_qos_info)(struct ioss_device *idev, char *buf);
 };
 
-#define create_qos_sysfs_node(idev, qos_kobj, qos_node, uid, gid, qos_sysfs_err) \
-	do { \
-		if (sysfs_create_file(qos_kobj, &dev_attr_##qos_node.attr)) { \
-			ioss_dev_err(idev, "unable to create " #qos_node " node"); \
-			goto qos_sysfs_err; \
-		} \
-		if (sysfs_file_change_owner(qos_kobj, #qos_node, KUIDT_INIT(uid), KGIDT_INIT(gid))) { \
-			ioss_dev_err(idev, "unable to change owner of " #qos_node " sysfs node"); \
-			goto qos_sysfs_err; \
-		} \
-	} while(0)
-
-
 #define QOS_TABLE_ROW_BUFFER 16
 #define QOS_TABLE_BUFFER 2048
 
-int create_qos_sysfs_nodes(struct device *dev);
-void remove_qos_sysfs_nodes(struct device *dev);
+int ioss_qos_create_sysfs(struct device *dev);
+void ioss_qos_remove_sysfs(struct device *dev);
 
 static inline int getbitpos(int n)
 {
