@@ -1169,11 +1169,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		return map_info;
 	}
 
-	if(!stmmac_is_phy_link_up(priv)) {
-		ioss_qos_dev_err(idev, "Link is down \n");
-		map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
-		return map_info;
-	}
 
 	/* Cleanup the used tables */
 	if (priv->plat->qos_active) {
@@ -1390,6 +1385,13 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		sw_ch = 0;
 		hw_ch = 0;
 		tx_avail = qos_tx_queues - 1;
+
+		if(!stmmac_is_phy_link_up(priv)) {
+			ioss_qos_dev_err(idev, "Link is down: CBS Params can't be calculated\n");
+			map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
+			return map_info;
+		}
+
 		/*CBS claculation*/
 		switch (priv->speed) {
 			case SPEED_10000:
