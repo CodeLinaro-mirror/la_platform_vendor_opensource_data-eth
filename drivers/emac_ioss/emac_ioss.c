@@ -1932,7 +1932,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 						} else {
 							if (temp_filter_node->ip_dest.ipv4_dst_addr == priv->app_filters[i].ip_dest.ipv4_dst_addr &&
 							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
-								break;
+								flt_appd = true;
 							} else {
 								/* The applied filter is not needed, clear it*/
 								if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
