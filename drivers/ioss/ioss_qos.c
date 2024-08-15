@@ -1098,7 +1098,7 @@ static ssize_t store_commit(struct device *dev,
 	else if (res.qos_response_status == QOS_COMMIT_LINK_DOWN) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit  : Ethernet Link down \n");
 		idev->qos_cached = 1;
-		return -EINVAL;
+		return 0;
 	}
 	idev->qos_cached = 0;
 
