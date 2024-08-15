@@ -1672,26 +1672,26 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		list_for_each_entry(temp_filter_node, &qos_tables.dma_filter_table, node) {
 			switch (priv->unique_filter_new) {
 			case VLAN_ID:
-				ioss_qos_dev_log(idev, "%d: vlanid %d - ch %d\n", i, temp_filter_node->vlan_id, temp_filter_node->dma_ch);
+				ioss_qos_dev_log(idev, "vlanid %d - ch %d\n", temp_filter_node->vlan_id, temp_filter_node->dma_ch);
 				break;
 			case SRC_IP:
 				if (!temp_filter_node->ip_src.ipv6_src) {
-					ioss_qos_dev_log(idev, "i = %d: SRC_IP/MASK = %d/%d - ch %d\n", i, temp_filter_node->ip_src.ipv4_src_addr,
+					ioss_qos_dev_log(idev, "SRC_IP/MASK = %pI4l/%d - ch %d\n", &temp_filter_node->ip_src.ipv4_src_addr,
 							 temp_filter_node->ip_src.src_mask_length, temp_filter_node->dma_ch);
 				}
 				break;
 			case DEST_IP:
 				if (!temp_filter_node->ip_dest.ipv6_dst) {
-					ioss_qos_dev_log(idev, "i = %d: DST_IP/MASK = %d/%d - ch = %d\n", i, temp_filter_node->ip_dest.ipv4_dst_addr,
+					ioss_qos_dev_log(idev, "DST_IP/MASK = %pI4l/%d - ch = %d\n",&temp_filter_node->ip_dest.ipv4_dst_addr,
 							 temp_filter_node->ip_dest.dst_mask_length, temp_filter_node->dma_ch);
 				}
 				break;
 			case SRC_PORT:
-				ioss_qos_dev_log(idev, "i = %d: SRC_PORT/PROTO = %d/%d - ch = %d\n", i, temp_filter_node->src_port.port_num,
+				ioss_qos_dev_log(idev, "SRC_PORT/PROTO = %d/%d - ch = %d\n", temp_filter_node->src_port.port_num,
 								 temp_filter_node->src_port.proto, temp_filter_node->dma_ch);
 				break;
 			case DEST_PORT:
-				ioss_qos_dev_log(idev, "i = %d: DST_PORT/PROTO = %d/%d - ch = %d\n", i, temp_filter_node->dst_port.port_num,
+				ioss_qos_dev_log(idev, "DST_PORT/PROTO = %d/%d - ch = %d\n", temp_filter_node->dst_port.port_num,
 								 temp_filter_node->dst_port.proto, temp_filter_node->dma_ch);
 				break;
 			default:
@@ -1829,7 +1829,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 								filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 								filter_node->dst_port.port_num = temp_filter_node->dst_port.port_num;
 								filter_node->dst_port.proto = temp_filter_node->dst_port.proto;
-								ioss_qos_dev_log(idev, "add port %d to filter table\n", filter_node->dst_port.port_num);
 							}
 						}
 						break;
@@ -1974,15 +1973,15 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				break;
 			case SRC_IP:
 				if (!priv->app_filters[i].ip_src.ipv6_src) {
-					ioss_qos_dev_log(idev, "i = %d: src_ip/mask = %d/%d - ch = %d\n", i,
-							 priv->app_filters[i].ip_src.ipv4_src_addr,
+					ioss_qos_dev_log(idev, "i = %d: src_ip/mask = %pI4l/%d - ch = %d\n", i,
+							 &priv->app_filters[i].ip_src.ipv4_src_addr,
 							 priv->app_filters[i].ip_src.src_mask_length, priv->app_filters[i].dma_ch);
 				}
 				break;
 			case DEST_IP:
 				if (!priv->app_filters[i].ip_dest.ipv6_dst) {
-					ioss_qos_dev_log(idev, "i = %d: dst_ip/mask = %d/%d - ch = %d\n", i,
-							 priv->app_filters[i].ip_dest.ipv4_dst_addr,
+					ioss_qos_dev_log(idev, "i = %d: dst_ip/mask = %pI4l/%d - ch = %d\n", i,
+							 &priv->app_filters[i].ip_dest.ipv4_dst_addr,
 							 priv->app_filters[i].ip_dest.dst_mask_length, priv->app_filters[i].dma_ch);
 				}
 				break;
@@ -2003,28 +2002,28 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		list_for_each_entry(temp_filter_node, &qos_tables.flt_to_app, node) {
 			switch (priv->unique_filter_new) {
 			case VLAN_ID:
-				ioss_qos_dev_log(idev, "i = %d: vlanid = %d - ch = %d\n", i, temp_filter_node->vlan_id, temp_filter_node->dma_ch);
+				ioss_qos_dev_log(idev, "vlanid = %d - ch = %d\n", temp_filter_node->vlan_id, temp_filter_node->dma_ch);
 				break;
 			case SRC_IP:
 				if (!temp_filter_node->ip_src.ipv6_src) {
-					ioss_qos_dev_log(idev, "i = %d: src_addr/mask = %d/%d - ch = %d\n", i,
-							 temp_filter_node->ip_src.ipv4_src_addr,
+					ioss_qos_dev_log(idev, "src_addr/mask = %pI4l/%d - ch = %d\n",
+							 &temp_filter_node->ip_src.ipv4_src_addr,
 							 temp_filter_node->ip_src.src_mask_length, temp_filter_node->dma_ch);
 				}
 				break;
 			case DEST_IP:
 				if (!temp_filter_node->ip_dest.ipv6_dst) {
-					ioss_qos_dev_log(idev, "i = %d: dst_addr/mask = %d/%d - ch = %d\n", i,
-							 temp_filter_node->ip_dest.ipv4_dst_addr,
+					ioss_qos_dev_log(idev, "dst_addr/mask = %pI4l/%d - ch = %d\n",
+							 &temp_filter_node->ip_dest.ipv4_dst_addr,
 							 temp_filter_node->ip_dest.dst_mask_length, temp_filter_node->dma_ch);
 				}
 				break;
 			case SRC_PORT:
-				ioss_qos_dev_log(idev, "i = %d: src_port/proto = %d/%d - ch = %d\n", i, temp_filter_node->src_port.port_num,
+				ioss_qos_dev_log(idev, "src_port/proto = %d/%d - ch = %d\n", temp_filter_node->src_port.port_num,
 						 temp_filter_node->src_port.proto, temp_filter_node->dma_ch);
 				break;
 			case DEST_PORT:
-				ioss_qos_dev_log(idev, "i = %d: dst_port/proto = %d/%d - ch = %d\n", i, temp_filter_node->dst_port.port_num,
+				ioss_qos_dev_log(idev, "dst_port/proto = %d/%d - ch = %d\n", temp_filter_node->dst_port.port_num,
 						 temp_filter_node->dst_port.proto, temp_filter_node->dma_ch);
 				break;
 			default:
