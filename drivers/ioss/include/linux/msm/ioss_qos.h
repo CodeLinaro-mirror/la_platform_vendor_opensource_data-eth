@@ -194,7 +194,8 @@ enum ioss_qos_response {
     QOS_COMMIT_SUCCESS = 0,
     QOS_COMMIT_FAIL = 1,
     QOS_COMMIT_EMPTY = 2,
-    QOS_COMMIT_LINK_DOWN = 3
+    QOS_COMMIT_LINK_DOWN = 3,
+    QOS_COMMIT_BW_EXHAUST = 4
 };
 
 struct response {
@@ -212,6 +213,7 @@ struct ioss_qos_ops {
 	int (*clear_qos)(struct ioss_device *idev);
     ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
 	int (*clear_qos_cache)(struct ioss_device *idev);
+	int (*get_max_tx_tc)(struct ioss_device *idev);
 };
 
 #define create_qos_sysfs_node(idev, qos_kobj, qos_node, uid, gid, qos_sysfs_err) \

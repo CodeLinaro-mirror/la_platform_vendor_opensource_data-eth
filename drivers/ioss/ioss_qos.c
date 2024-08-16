@@ -568,6 +568,13 @@ static ssize_t store_add_tc(struct device *dev,
 	u16 len = 0;
 	size_t i = 0;
 	char *tmp = NULL;
+	u16 node_cnt = 0;
+	struct device *parent = NULL;
+	struct ioss_device *idev = NULL;
+	struct ioss_driver *idrv = NULL;
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+	int max_tx_tc = 0;
 	bool is_dir_rx = false;
 	bool add_to_list = false;
 	char *dup = kstrdup(user_buf, GFP_KERNEL);
@@ -575,6 +582,26 @@ static ssize_t store_add_tc(struct device *dev,
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
+
+	parent = kobj_to_dev(dev->kobj.parent);
+	if (!parent)
+		return -EINVAL;
+
+	net_dev = to_net_dev(parent);
+	if (!net_dev)
+		return -EINVAL;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
+
+	idrv = to_ioss_driver(idev->dev.driver);
+	if (!idrv)
+		return -EINVAL;
 
 	if (len != 2)
 		return -EINVAL;
@@ -625,6 +652,7 @@ static ssize_t store_add_tc(struct device *dev,
 		}
 	}
 	else {
+		max_tx_tc = idrv->qos_ops->get_max_tx_tc(idev);
 		if (add_to_list) {
 			if (!ioss_qos_new_nodes.tx_node)
 				goto add_err;
@@ -642,8 +670,14 @@ static ssize_t store_add_tc(struct device *dev,
 				ioss_qos_dev_err(NULL, "[ioss qos] : tx tc prio already exists");
 				goto add_err;
 			}
-			ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
-			ioss_qos_new_nodes.tx_node->tc_prio = prio;
+			node_cnt = get_node_count(&ioss_qos_table.qos_tx_pending_table);
+			if (node_cnt < max_tx_tc) {
+				ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
+				ioss_qos_new_nodes.tx_node->tc_prio = prio;
+			} else {
+				ioss_qos_dev_err(NULL, "[ioss qos] : Only %u tx tc's are supported\n", max_tx_tc);
+				return -EINVAL;
+			}
 		}
 	}
 
@@ -1099,6 +1133,11 @@ static ssize_t store_commit(struct device *dev,
 		ioss_qos_dev_err(idev, "[ioss qos] : commit  : Ethernet Link down \n");
 		idev->qos_cached = 1;
 		return 0;
+	}
+	else if (res.qos_response_status == QOS_COMMIT_BW_EXHAUST) {
+		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
+		idev->qos_cached = 1;
+		return -EINVAL;
 	}
 	idev->qos_cached = 0;
 
