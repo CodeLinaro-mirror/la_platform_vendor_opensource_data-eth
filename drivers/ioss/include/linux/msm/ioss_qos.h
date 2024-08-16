@@ -192,7 +192,8 @@ enum ioss_qos_response {
     QOS_COMMIT_SUCCESS = 0,
     QOS_COMMIT_FAIL = 1,
     QOS_COMMIT_EMPTY = 2,
-    QOS_COMMIT_LINK_DOWN = 3
+    QOS_COMMIT_LINK_DOWN = 3,
+    QOS_COMMIT_BW_EXHAUST = 4
 };
 
 struct qos_pipe_mapping {
@@ -218,6 +219,7 @@ struct ioss_qos_ops {
 	ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
 	int (*clear_qos_cache)(struct ioss_device *idev);
 	ssize_t (*get_qos_info)(struct ioss_device *idev, char *buf, ssize_t buf_size);
+	int (*get_max_tx_tc)(struct ioss_device *idev);
 };
 
 #define QOS_TABLE_ROW_BUFFER 16
