@@ -50,7 +50,7 @@ static void qos_adjust_txq_cbs_bw(struct list_head *qos_tx, u16 available_bw)
 				 temp_tx->tc_prio, min_bw,max_bw, (available_bw - total_allocated_bw), total_allocated_bw);
 
 		remaining_bw = min(max_bw, (available_bw - total_min_bw - total_allocated_bw));
-		temp_tx->bw_allocated = min(min_bw, remaining_bw);
+		temp_tx->bw_allocated = max(min_bw, remaining_bw);
 		total_allocated_bw += temp_tx->bw_allocated;
 		qos_tables.bw_allocated[temp_tx->tc_prio] = temp_tx->bw_allocated;
 		ioss_qos_dev_log(NULL, "[ioss qos] Alloted BW for TC%d = %d", temp_tx->tc_prio, temp_tx->bw_allocated);
@@ -1150,10 +1150,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	u8 sw_queue = 0, hw_queue = 0;
 	u8 channel = 0;
 	struct qos_routing_rx *temp_rx;
-	struct qos_routing_tx *temp_tx;
+	struct qos_routing_tx *temp_tx, *temp_tx_next;
 	int qos_rx_queues = priv->plat->rx_qos_queues_to_use;
 	int qos_tx_queues = priv->plat->tx_qos_queues_to_use;
-	u8 pcp_mask = 0, pcp_mask_old = 0;;
+	u8 pcp_mask = 0, pcp_mask_old = 0;
+	bool min_bw_exceed = false;
+	int bw_total_min = 0;
 	int bw_avail = 1000;
 	int aggr_bw = 0;
 	struct response map_info;
@@ -1391,27 +1393,37 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		}
 
 		/*CBS claculation*/
+		// Reserved about 5% bandwidth for speed >= 1Gbps and 10M for 100Mbps
 		switch (priv->speed) {
 			case SPEED_10000:
-				bw_avail = 9900;
+				bw_avail = 9500;
 				break;
 			case SPEED_5000:
-				bw_avail = 4900;
+				bw_avail = 4750;
 				break;
 			case SPEED_2500:
-				bw_avail = 2400;
+				bw_avail = 2350;
 				break;
 			case SPEED_1000:
 				bw_avail = 950;
 				break;
 			case SPEED_100:
-				bw_avail = 100;
+				bw_avail = 90;
 				break;
 			case SPEED_10:
 			default:
 				map_info.qos_response_status = QOS_COMMIT_FAIL;
 				ioss_qos_dev_err(idev, "Invalid Speed for QOS\n");
 				goto err_inval_speed;
+		}
+
+		// Check if minimum bw requirement can be sufficed for all TC
+		list_for_each_entry_safe(temp_tx, temp_tx_next, qos_tx, node) {
+			bw_total_min += temp_tx->cbs_bw.low_bw;
+			if (bw_total_min > bw_avail) {
+				list_del(&temp_tx->node);
+				min_bw_exceed = true;
+			}
 		}
 
 		qos_adjust_txq_cbs_bw(qos_tx, bw_avail);
@@ -1446,6 +1458,11 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			}
 		}
 
+		if (min_bw_exceed) {
+			map_info.qos_response_status = QOS_COMMIT_BW_EXHAUST;
+			ioss_qos_dev_err(idev, "BW EXHAUSTED. Cannot suffice minimun bw requirement");
+			return map_info;
+		}
 
 		for (i = priv->plat->tx_queues_to_use - 1; i > 1; i--) {
 			if (qos_tables.tx_routing_info[i].mode_to_use == MTL_QUEUE_AVB) {
