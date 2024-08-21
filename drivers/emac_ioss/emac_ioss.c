@@ -1175,6 +1175,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	/* Cleanup the used tables */
 	if (priv->plat->qos_active) {
 		priv->unique_filter_old = priv->unique_filter_new;
+		priv->max_filters_old = priv->max_filters_new;
 		if (priv->unique_filter_old != PCP) {
 			if (&qos_tables.dma_filter_table)
 				delete_filter_table(&qos_tables.dma_filter_table);
@@ -1183,8 +1184,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		}
 		if (&qos_tables.pcp_route_table)
 			delete_route_table(&qos_tables.pcp_route_table);
-		for (i = 0; i < priv->plat->tx_queues_to_use; i++)
-			priv->tx_queue_pcp_map[i] = 0;
 	}
 	memset(&qos_tables, 0, sizeof(struct qos_struct));
 	INIT_LIST_HEAD(&qos_tables.pcp_route_table);
@@ -1192,26 +1191,37 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	map_info.qos_response_status = QOS_COMMIT_EMPTY;
 	/* First time initialization before enabling qos (after clear qos) */
 	if (!priv->plat->qos_active) {
+		priv->max_filters_old = 32;
 		for (i = 0; i < priv->plat->rx_qos_queues_to_use; i++) {
-			if (i == 0) {
+			if (i == 0)
 				priv->is_rx_sw[i] = 0;
-				qos_tables.rx_channel_info[i] = 2;
-			} else {
+			else
 				priv->is_rx_sw[i] = 1;
-				qos_tables.rx_channel_info[i] = 1;
-			}
 		}
 
 		for (i = 0; i < priv->plat->tx_qos_queues_to_use; i++) {
-			if (i == 0) {
+			if (i == 0)
 				priv->is_tx_sw[i] = 0;
-				qos_tables.tx_channel_info[i] = 2;
-			} else {
+			else
 				priv->is_tx_sw[i] = 1;
-				qos_tables.tx_channel_info[i] = 1;
-			}
 		}
 	}
+	/*Initialize channel info*/
+	for (i = 0; i < priv->plat->rx_qos_queues_to_use; i++) {
+		if (i == 0)
+			qos_tables.rx_channel_info[i] = IOSS_QOS_HW_PATH;
+		else
+			qos_tables.rx_channel_info[i] = IOSS_QOS_SW_PATH;
+	}
+
+	for (i = 0; i < priv->plat->tx_qos_queues_to_use; i++) {
+		priv->tx_queue_pcp_map[i] = 0;
+		if (i == 0)
+			qos_tables.tx_channel_info[i] = IOSS_QOS_HW_PATH;
+		else
+			qos_tables.tx_channel_info[i] = IOSS_QOS_SW_PATH;
+	}
+
 
 	if (qos_rx_queues < 3 || qos_tx_queues < 3) {
 		ioss_qos_dev_err(idev, "No. of TX/RX queues not sufficient for QOS\n");
@@ -1613,30 +1623,36 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	/* Check if dma filter table changed */
 	/* IF filter table changed find the filters to be applied and deleted/modified */
 	if (priv->unique_filter_new != PCP) {
+		if(priv->unique_filter_new == VLAN_ID)
+			priv->max_filters_new = priv->dma_cap.nrvf_num;
+		else if(priv->unique_filter_new >= SRC_IP && priv->unique_filter_new <= DEST_PORT)
+			priv->max_filters_new = priv->dma_cap.l3l4fnum;
+
+		ioss_qos_dev_log(idev, "Max filters new = %d, Max filters old = %d\n", priv->max_filters_new, priv->max_filters_old);
 		ioss_qos_dev_log(idev, "Printing new dma_filter_table\n");
 		list_for_each_entry(temp_filter_node, &qos_tables.dma_filter_table, node) {
 			switch (priv->unique_filter_new) {
 			case VLAN_ID:
-				ioss_qos_dev_log(idev, "%d: vlanid %d - ch %d\n", i, temp_filter_node->vlan_id, temp_filter_node->dma_ch);
+				ioss_qos_dev_log(idev, "vlanid %d - ch %d\n", temp_filter_node->vlan_id, temp_filter_node->dma_ch);
 				break;
 			case SRC_IP:
 				if (!temp_filter_node->ip_src.ipv6_src) {
-					ioss_qos_dev_log(idev, "i = %d: SRC_IP/MASK = %d/%d - ch %d\n", i, temp_filter_node->ip_src.ipv4_src_addr,
+					ioss_qos_dev_log(idev, "SRC_IP/MASK = %pI4l/%d - ch %d\n", &temp_filter_node->ip_src.ipv4_src_addr,
 							 temp_filter_node->ip_src.src_mask_length, temp_filter_node->dma_ch);
 				}
 				break;
 			case DEST_IP:
 				if (!temp_filter_node->ip_dest.ipv6_dst) {
-					ioss_qos_dev_log(idev, "i = %d: DST_IP/MASK = %d/%d - ch = %d\n", i, temp_filter_node->ip_dest.ipv4_dst_addr,
+					ioss_qos_dev_log(idev, "DST_IP/MASK = %pI4l/%d - ch = %d\n",&temp_filter_node->ip_dest.ipv4_dst_addr,
 							 temp_filter_node->ip_dest.dst_mask_length, temp_filter_node->dma_ch);
 				}
 				break;
 			case SRC_PORT:
-				ioss_qos_dev_log(idev, "i = %d: SRC_PORT/PROTO = %d/%d - ch = %d\n", i, temp_filter_node->src_port.port_num,
+				ioss_qos_dev_log(idev, "SRC_PORT/PROTO = %d/%d - ch = %d\n", temp_filter_node->src_port.port_num,
 								 temp_filter_node->src_port.proto, temp_filter_node->dma_ch);
 				break;
 			case DEST_PORT:
-				ioss_qos_dev_log(idev, "i = %d: DST_PORT/PROTO = %d/%d - ch = %d\n", i, temp_filter_node->dst_port.port_num,
+				ioss_qos_dev_log(idev, "DST_PORT/PROTO = %d/%d - ch = %d\n", temp_filter_node->dst_port.port_num,
 								 temp_filter_node->dst_port.proto, temp_filter_node->dma_ch);
 				break;
 			default:
@@ -1648,7 +1664,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		ioss_qos_dev_log(idev, "New filter = %d, Old filter = %d \n", priv->unique_filter_new, priv->unique_filter_old);
 		if (priv->unique_filter_new != priv->unique_filter_old)  {
 			/* Delete existing HW filter table as complete filter table changed */
-			memset(&priv->app_filters, 0, 32*sizeof(struct dma_flt));
+			memset(&priv->app_filters, 0, priv->max_filters_old*sizeof(struct dma_flt));
 			/* Assign new filter table to new flt_to_app as both will be same */
 			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
 			ioss_qos_dev_log(idev, "Response filter change = %d\n", map_info.qos_response_status);
@@ -1656,8 +1672,8 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			/* Search for filters in existing table and add the filters whichever are required */
 			/* Check DMA CH as well */
 			list_for_each_entry(temp_filter_node, &qos_tables.dma_filter_table, node) {
-				for (i = 0; i < 32; i++) {
-					if (priv->app_filters[i].action == IDX_UNUSED && i != 31)
+				for (i = 0; i < priv->max_filters_new; i++) {
+					if (priv->app_filters[i].action == IDX_UNUSED && i != (priv->max_filters_new - 1))
 						continue;
 					switch (priv->unique_filter_new) {
 					case VLAN_ID:
@@ -1667,7 +1683,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 							flt_appd = true;
 						} else {
 							/* The new filter is not present, add it to the flt_app list*/
-							if (i == 31) {
+							if (i == priv->max_filters_new - 1) {
 								filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 								filter_node->vlan_id = temp_filter_node->vlan_id;
 							}
@@ -1684,7 +1700,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 								k = 0;
 								flt_appd = true;
 							} else {
-								if(i == 31) {
+								if(i == priv->max_filters_new - 1) {
 									filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 									for (j = 0; j < 16; j++)
 										filter_node->ip_src.ipv6_src_addr[j] = temp_filter_node->ip_src.ipv6_src_addr[j];
@@ -1694,14 +1710,14 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 
 								}
 							}
-	
+
 						} else {
 							if (temp_filter_node->ip_src.ipv4_src_addr == priv->app_filters[i].ip_src.ipv4_src_addr &&
 							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
 								ioss_qos_dev_log(idev, "filter is already applied at index = %d\n", i);
 								flt_appd = true;
 							} else {
-								if (i == 31) {
+								if (i == priv->max_filters_new - 1) {
 									filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 									filter_node->ip_src.ipv4_src_addr = temp_filter_node->ip_src.ipv4_src_addr;
 									filter_node->ip_src.src_mask_length = temp_filter_node->ip_src.src_mask_length;
@@ -1721,7 +1737,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 								k = 0;
 								flt_appd = true;
 							} else {
-								if (i == 31) {
+								if (i == priv->max_filters_new - 1) {
 									filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 									for (j = 0; j < 16; j++)
 										filter_node->ip_dest.ipv6_dst_addr[j] = temp_filter_node->ip_dest.ipv6_dst_addr[j];
@@ -1731,14 +1747,14 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 
 								}
 							}
-	
+
 						} else {
 							if (temp_filter_node->ip_dest.ipv4_dst_addr == priv->app_filters[i].ip_dest.ipv4_dst_addr &&
 							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
 								ioss_qos_dev_log(idev, "filter is already applied at index = %d\n", i);
 								flt_appd = true;
 							} else {
-								if (i == 31) {
+								if (i == priv->max_filters_new - 1) {
 									filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 									filter_node->ip_dest.ipv4_dst_addr = temp_filter_node->ip_dest.ipv4_dst_addr;
 									filter_node->ip_dest.dst_mask_length = temp_filter_node->ip_dest.dst_mask_length;
@@ -1755,7 +1771,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 							flt_appd = true;
 						} else {
 							/* The new filter is not present, add it to the flt_app list*/
-							if(i == 31) {
+							if(i == priv->max_filters_new - 1) {
 								filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 								filter_node->src_port.port_num = temp_filter_node->src_port.port_num;
 								filter_node->src_port.proto = temp_filter_node->src_port.proto;
@@ -1770,11 +1786,10 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 							flt_appd = true;
 						} else {
 							/* The new filter is not present, add it to the flt_app list*/
-							if(i == 31) {
+							if(i == priv->max_filters_new - 1) {
 								filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
 								filter_node->dst_port.port_num = temp_filter_node->dst_port.port_num;
 								filter_node->dst_port.proto = temp_filter_node->dst_port.proto;
-								ioss_qos_dev_log(idev, "add port %d to filter table\n", filter_node->dst_port.port_num);
 							}
 						}
 						break;
@@ -1786,26 +1801,26 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 						break;
 					}
 				}
-				if (i == 32) {
+				if (i == priv->max_filters_new) {
 					filter_node->dma_ch = temp_filter_node->dma_ch;
 					filter_node->tc_prio = temp_filter_node->tc_prio;
 					list_add_tail(&filter_node->node, &qos_tables.flt_to_app);
 					map_info.qos_response_status = QOS_COMMIT_SUCCESS;
 				}
-			} 
+			}
 		}
 		/* Add filters to be deleted */
 		/* Set action flag to IDX_CLEAR to delete them later */
 		if (priv->unique_filter_new != priv->unique_filter_old) {
 			/*If unique filter changed, need to delete all filters*/
-			for (i = 0; i < 32; i++) {
+			for (i = 0; i < priv->max_filters_new; i++) {
 				if (priv->app_filters[i].action == IDX_USED)
 					priv->app_filters[i].action = IDX_CLEAR;
 			}
 			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
 			ioss_qos_dev_log(idev, "Response filter change = %d\n", map_info.qos_response_status);
 		} else {
-			for (i = 0; i < 32; i++) {
+			for (i = 0; i < priv->max_filters_new; i++) {
 				if (priv->app_filters[i].action == IDX_UNUSED)
 					continue;
 				list_for_each_entry(temp_filter_node, &qos_tables.dma_filter_table, node) {
@@ -1834,7 +1849,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 								if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
 									priv->app_filters[i].action = IDX_CLEAR;
 							}
-	
 						} else {
 							if (temp_filter_node->ip_src.ipv4_src_addr == priv->app_filters[i].ip_src.ipv4_src_addr &&
 							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
@@ -1860,7 +1874,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 								if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
 									priv->app_filters[i].action = IDX_CLEAR;
 							}
-	
 						} else {
 							if (temp_filter_node->ip_dest.ipv4_dst_addr == priv->app_filters[i].ip_dest.ipv4_dst_addr &&
 							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
@@ -1900,13 +1913,15 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 					if (flt_appd) {
 						flt_appd = false;
 						break;
+					} else {
+						map_info.qos_response_status = QOS_COMMIT_SUCCESS;
 					}
 				}
 			}
 		}
 		/*debug code to print hw filters*/
 		ioss_qos_dev_log(idev, "Printing existing HW filter\n");
-		for (i = 0; i < 32; i++)
+		for (i = 0; i < priv->max_filters_new; i++)
 		{
 			if (priv->app_filters[i].action == IDX_UNUSED)
 				continue;
@@ -1917,15 +1932,15 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				break;
 			case SRC_IP:
 				if (!priv->app_filters[i].ip_src.ipv6_src) {
-					ioss_qos_dev_log(idev, "i = %d: src_ip/mask = %d/%d - ch = %d\n", i,
-							 priv->app_filters[i].ip_src.ipv4_src_addr,
+					ioss_qos_dev_log(idev, "i = %d: src_ip/mask = %pI4l/%d - ch = %d\n", i,
+							 &priv->app_filters[i].ip_src.ipv4_src_addr,
 							 priv->app_filters[i].ip_src.src_mask_length, priv->app_filters[i].dma_ch);
 				}
 				break;
 			case DEST_IP:
 				if (!priv->app_filters[i].ip_dest.ipv6_dst) {
-					ioss_qos_dev_log(idev, "i = %d: dst_ip/mask = %d/%d - ch = %d\n", i,
-							 priv->app_filters[i].ip_dest.ipv4_dst_addr,
+					ioss_qos_dev_log(idev, "i = %d: dst_ip/mask = %pI4l/%d - ch = %d\n", i,
+							 &priv->app_filters[i].ip_dest.ipv4_dst_addr,
 							 priv->app_filters[i].ip_dest.dst_mask_length, priv->app_filters[i].dma_ch);
 				}
 				break;
@@ -1946,28 +1961,28 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		list_for_each_entry(temp_filter_node, &qos_tables.flt_to_app, node) {
 			switch (priv->unique_filter_new) {
 			case VLAN_ID:
-				ioss_qos_dev_log(idev, "i = %d: vlanid = %d - ch = %d\n", i, temp_filter_node->vlan_id, temp_filter_node->dma_ch);
+				ioss_qos_dev_log(idev, "vlanid = %d - ch = %d\n", temp_filter_node->vlan_id, temp_filter_node->dma_ch);
 				break;
 			case SRC_IP:
 				if (!temp_filter_node->ip_src.ipv6_src) {
-					ioss_qos_dev_log(idev, "i = %d: src_addr/mask = %d/%d - ch = %d\n", i,
-							 temp_filter_node->ip_src.ipv4_src_addr,
+					ioss_qos_dev_log(idev, "src_addr/mask = %pI4l/%d - ch = %d\n",
+							 &temp_filter_node->ip_src.ipv4_src_addr,
 							 temp_filter_node->ip_src.src_mask_length, temp_filter_node->dma_ch);
 				}
 				break;
 			case DEST_IP:
 				if (!temp_filter_node->ip_dest.ipv6_dst) {
-					ioss_qos_dev_log(idev, "i = %d: dst_addr/mask = %d/%d - ch = %d\n", i,
-							 temp_filter_node->ip_dest.ipv4_dst_addr,
+					ioss_qos_dev_log(idev, "dst_addr/mask = %pI4l/%d - ch = %d\n",
+							 &temp_filter_node->ip_dest.ipv4_dst_addr,
 							 temp_filter_node->ip_dest.dst_mask_length, temp_filter_node->dma_ch);
 				}
 				break;
 			case SRC_PORT:
-				ioss_qos_dev_log(idev, "i = %d: src_port/proto = %d/%d - ch = %d\n", i, temp_filter_node->src_port.port_num,
+				ioss_qos_dev_log(idev, "src_port/proto = %d/%d - ch = %d\n", temp_filter_node->src_port.port_num,
 						 temp_filter_node->src_port.proto, temp_filter_node->dma_ch);
 				break;
 			case DEST_PORT:
-				ioss_qos_dev_log(idev, "i = %d: dst_port/proto = %d/%d - ch = %d\n", i, temp_filter_node->dst_port.port_num,
+				ioss_qos_dev_log(idev, "dst_port/proto = %d/%d - ch = %d\n", temp_filter_node->dst_port.port_num,
 						 temp_filter_node->dst_port.proto, temp_filter_node->dma_ch);
 				break;
 			default:
@@ -2085,6 +2100,7 @@ static int stmmac_clear_qos(struct ioss_device *idev)
 		stmmac_restore_dma_config(ndev, &qos_tables);
 		/* Cleanup the used tables */
 		priv->unique_filter_old = priv->unique_filter_new;
+		priv->max_filters_old = priv->max_filters_new;
 		if (priv->unique_filter_old != PCP) {
 			if (&qos_tables.dma_filter_table)
 				delete_filter_table(&qos_tables.dma_filter_table);
