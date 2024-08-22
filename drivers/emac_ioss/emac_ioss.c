@@ -1184,6 +1184,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	bool pcp_not_unique = false;
 	bool flt_appd = false;
 	u8 tx_hw_qos_ch_available = 0;
+	u8 old_tx_queue_pcp_map[MTL_MAX_TX_QUEUES];
 
         if (!priv->plat->qos_supported) {
                 map_info.qos_response_status  = QOS_COMMIT_FAIL;
@@ -1229,6 +1230,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		}
 
 		for (i = 0; i < priv->plat->tx_qos_queues_to_use; i++) {
+		old_tx_queue_pcp_map[i] = priv->tx_queue_pcp_map[i];
 			if (i == 0) {
 				priv->is_tx_sw[i] = 0;
 				qos_tables.tx_channel_info[i] = 2;
@@ -1517,6 +1519,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
                                   	ioss_qos_dev_log(idev, "tx queue = %d, pcp = %d\n",
                                                          channel, priv->tx_queue_pcp_map[channel]);
 				}
+
+				if (priv->tx_queue_pcp_map[channel] != old_tx_queue_pcp_map[channel]) {
+					map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+					ioss_qos_dev_log(idev, "Response TC TX ch SW PCP change = %d\n", map_info.qos_response_status);
+				}
+
 			}
 		}
 
