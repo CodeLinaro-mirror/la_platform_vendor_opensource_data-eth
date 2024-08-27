@@ -2112,6 +2112,9 @@ void disable_qos(struct ioss_device *idev)
 	delete_qos_channels(iface);
 	idrv->qos_ops->clear_qos(idev);
 
+	// Add delay before reconnecting ipa
+	msleep(1000);
+
 	idev->dev.offline = 0;
 	ioss_iface_queue_refresh(iface, true);
 	ioss_qos_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
