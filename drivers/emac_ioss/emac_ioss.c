@@ -1401,7 +1401,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		if(!stmmac_is_phy_link_up(priv)) {
 			ioss_qos_dev_err(idev, "Link is down: CBS Params can't be calculated\n");
 			map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
-			return map_info;
+			goto err_inval_speed;
 		}
 
 		/*CBS claculation*/
@@ -1443,7 +1443,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			if (temp_tx->bw_allocated < temp_tx->cbs_bw.low_bw) {
 				map_info.qos_response_status = QOS_COMMIT_BW_EXHAUST;
 				ioss_qos_dev_err(idev, "BW EXHAUSTED for TX TC %d\n",temp_tx->tc_prio);
-				return map_info;
+				goto err_bw_exhaust;
 			}
 			if (tx_avail > 1) {
 				channel = tx_avail;
@@ -1479,7 +1479,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		if (min_bw_exceed) {
 			map_info.qos_response_status = QOS_COMMIT_BW_EXHAUST;
 			ioss_qos_dev_err(idev, "BW EXHAUSTED. Cannot suffice minimun bw requirement");
-			return map_info;
+			goto err_bw_exhaust;
 		}
 
 		for (i = priv->plat->tx_queues_to_use - 1; i > 1; i--) {
@@ -2006,6 +2006,11 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	/* check for any other memory leaks*/
 err_inval_speed:
 err_inval_interface:
+err_bw_exhaust:
+	if (priv->unique_filter_new != PCP && priv->unique_filter_new != INVALID_FILTER)
+			delete_filter_table(&qos_tables.dma_filter_table);
+	delete_route_table(&qos_tables.pcp_route_table);
+	delete_filter_table(&qos_tables.flt_to_app);
 	return map_info;
 }
 
