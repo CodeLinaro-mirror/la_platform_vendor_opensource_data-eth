@@ -1846,7 +1846,7 @@ void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_t
 	struct stmmac_priv *priv = netdev_priv(ndev);
 
 	for (i = 1; i < priv->plat->rx_queues_to_use; i++) {
-		if (qos_table_info->rx_channel_info[i] == IOSS_QOS_HW_PATH) {
+		if (!priv->is_rx_sw[i]) {
 			ioss_qos_dev_log(NULL, "[iemac qos]: Move CH %d to SW\n", i);
 			stmmac_config_rx_queue(ndev, i, false);
 		}
@@ -1855,7 +1855,7 @@ void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_t
 	}
 
 	for (i = 2; i < priv->plat->tx_queues_to_use; i++) {
-		if (qos_table_info->tx_channel_info[i] == IOSS_QOS_HW_PATH)
+		if (!priv->is_tx_sw[i])
 			stmmac_config_tx_queue(ndev, i, false);
 
 		/*Change mode to use for TX queues*/
