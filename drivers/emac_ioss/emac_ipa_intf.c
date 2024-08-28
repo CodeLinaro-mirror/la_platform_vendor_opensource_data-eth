@@ -1787,6 +1787,22 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 	for (queue = 0; queue < priv->plat->rx_qos_queues_to_use; queue++) {
 		rxmode = priv->plat->rx_queues_cfg[queue].mode_to_use;
 		thresh_rx_mode = priv->plat->rx_queues_cfg[queue].threshold_byte;
+
+		if (queue && (qos_table_info->queue_to_pcp_map[queue] != priv->queue_pcp_map[queue])) {
+			stmmac_rx_queue_prio(priv, priv->hw, qos_table_info->queue_to_pcp_map[queue], queue);
+			for (i = 0; i <= PCP_MAX_VALUE; i++) {
+				if (qos_table_info->queue_to_pcp_map[queue] & BIT(i)) {
+					stmmac_pfc_tx_flow_ctrl(priv, i);
+					ioss_qos_dev_log(NULL, "[iemac qos] Enable PFC for prio = %d", i);
+				}
+			}
+			/* Copy new pcp_map to priv */
+			priv->queue_pcp_map[queue] = qos_table_info->queue_to_pcp_map[queue];
+			ioss_qos_dev_log(NULL, "[iemac qos]: Install pcp routing pcp = %d, queue = %d\n",
+							getbitpos(qos_table_info->queue_to_pcp_map[queue]), queue);
+			ioss_qos_dev_log(NULL, "[iemac qos]: rxmode = %d, rxfifosz = %d thresh_rx_mode = %d\n",
+					 rxmode, rxfifosz, thresh_rx_mode);
+		}
 		if (queue && !qos_table_info->queue_to_pcp_map[queue]) {
 			/* Disable queues which aren't used */
 			if (!priv->queue_dis[queue]) {
@@ -1801,22 +1817,6 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 				stmmac_rx_queue_enable(priv, priv->hw, rxmode, queue);
 				priv->queue_dis[queue] = false;
 			}
-		}
-
-		if (qos_table_info->queue_to_pcp_map[queue] != priv->queue_pcp_map[queue]) {
-			stmmac_rx_queue_prio(priv, priv->hw, qos_table_info->queue_to_pcp_map[queue], queue);
-			for (i = 0; i <= PCP_MAX_VALUE; i++) {
-				if (qos_table_info->queue_to_pcp_map[queue] & BIT(i)) {
-					stmmac_pfc_tx_flow_ctrl(priv, i);
-					ioss_qos_dev_log(NULL, "[iemac qos] Enable PFC for prio = %d", i);
-				}
-			}
-			/* Copy new pcp_map to priv */
-			priv->queue_pcp_map[queue] = qos_table_info->queue_to_pcp_map[queue];
-			ioss_qos_dev_log(NULL, "[iemac qos]: Install pcp routing pcp = %d, queue = %d\n",
-							getbitpos(qos_table_info->queue_to_pcp_map[queue]), queue);
-			ioss_qos_dev_log(NULL, "[iemac qos]: rxmode = %d, rxfifosz = %d thresh_rx_mode = %d\n",
-					 rxmode, rxfifosz, thresh_rx_mode);
 		}
 
 		if (queue != 0)
