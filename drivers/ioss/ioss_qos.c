@@ -1135,7 +1135,6 @@ static ssize_t store_commit(struct device *dev,
 	}
 	else if (res.qos_response_status == QOS_COMMIT_BW_EXHAUST) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
-		idev->qos_cached = 1;
 		return -EINVAL;
 	}
 	idev->qos_cached = 0;
@@ -2003,9 +2002,11 @@ int ioss_recommit_qos(struct ioss_device *idev)
 
 	if (res.qos_response_status == QOS_COMMIT_FAIL) {
 		ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
+		idev->qos_cached = 0;
 		return -EINVAL;
 	}
 	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
+		idev->qos_cached = 0;
 		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
 		return -EINVAL;
 	}
