@@ -8435,7 +8435,8 @@ static netdev_tx_t tc956xmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		if (skb->data[19] & 0x01) {
 			struct timespec64 ts = ns_to_timespec64(skb->tstamp);
 			u32 Presentation_time, Traverse_time, app_launch_time;
-			u64 ns, lt;
+			u64 ns = 0;
+			u64 lt;
 #ifndef CONFIG_ARCH_DMA_ADDR_T_64BIT
 			u64 quotient;
 			u32 reminder;
@@ -10328,7 +10329,7 @@ static int tc956xmac_ioctl_set_est(struct tc956xmac_priv *priv, void __user *dat
 	struct tc956xmac_est *cfg = priv->plat->est;
 	struct tc956xmac_ioctl_est_cfg *est;
 	int ret = 0;
-	u64 system_time;
+	u64 system_time = 0;
 	u32 system_time_s;
 	u32 system_time_ns;
 #ifndef CONFIG_ARCH_DMA_ADDR_T_64BIT
@@ -10997,7 +10998,8 @@ static int tc956x_xgmac_get_fw_status(struct tc956xmac_priv *priv,
 static void tc956x_ptp_configuration(struct tc956xmac_priv *priv, u32 tcr_config)
 {
 	struct timespec64 now;
-	u32 control, sec_inc;
+	u32 control;
+	u32 sec_inc = 0;
 	u64 temp;
 
 	if (tcr_config == 0) {
@@ -11250,7 +11252,7 @@ static int tc956xmac_ptp_clk_config(struct tc956xmac_priv *priv, void __user *da
 	int ret = 0;
 	u32 value = 0;
 	__u64 temp = 0;
-	__u32 sec_inc;
+	__u32 sec_inc = 0;
 	struct timespec64 now;
 
 	DBGPR_FUNC(priv->device, "--> %s\n", __func__);
@@ -15023,6 +15025,9 @@ static int qps615_eeprom_readmac(uint8_t port_id, uint8_t dev_id)
 {
 	struct i2c_adapter *adapter;
 	int ret, i;
+	u8 wr_data[EEPROM_WRITE_OFFSET_BYTE] = {0, 0};
+	u8 rd_data[EEPROM_READ_BYTE];
+	struct i2c_msg msg[2];
 
 	adapter = i2c_get_adapter(EEPROM_I2C_ADAPTER_ID);
 	if (!adapter) {
@@ -15030,10 +15035,6 @@ static int qps615_eeprom_readmac(uint8_t port_id, uint8_t dev_id)
 		KPRINT_ERR("Chip at i2c Invalid i2c adapter %d\n", EEPROM_I2C_ADAPTER_ID);
 		return -ENODEV;
 	}
-
-	u8 wr_data[EEPROM_WRITE_OFFSET_BYTE] = {0, 0};
-	u8 rd_data[EEPROM_READ_BYTE];
-	struct i2c_msg msg[2];
 
 	msg[0].addr = EEPROM_I2C_ADDRESS;
 	msg[0].len = EEPROM_WRITE_OFFSET_BYTE;

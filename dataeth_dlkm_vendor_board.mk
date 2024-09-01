@@ -1,2 +1,3 @@
-BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/emac_ctrl_fe_virtio.ko
-BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/stmmac.ko
+ifeq ($(call is-board-platform-in-list, kalama), true)
+BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/tc956x_pcie_eth.ko
+endif

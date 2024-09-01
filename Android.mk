@@ -2,11 +2,6 @@
 
 LOCAL_PATH := $(call my-dir)
 
-# Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list, gen4), true)
-
-LOCAL_PATH := $(call my-dir)
-
 # This makefile is only for DLKM
 ifneq ($(findstring vendor,$(LOCAL_PATH)),)
 
@@ -24,6 +19,9 @@ DATAETH_SRC_FILES := \
 	$(wildcard $(LOCAL_PATH)/*) \
 	$(wildcard $(LOCAL_PATH)/*/*) \
 	$(wildcard $(LOCAL_PATH)/*/*/*)
+
+# Build/Package only in case of supported target
+ifeq ($(call is-board-platform-in-list, gen4), true)
 
 # Module.symvers needs to be generated as a intermediate module so that
 # other modules which depend on DATA-ETH  platform modules can set local
@@ -66,5 +64,20 @@ LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
 ###########################################################
 
+endif # gen4 supported target check
+
+ifeq ($(call is-board-platform-in-list, kalama), true)
+
+################################ qps615 ################################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
+LOCAL_MODULE              := tc956x_pcie_eth.ko
+LOCAL_MODULE_KBUILD_NAME  := drivers/qps615/src/tc956x_pcie_eth.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+###########################################################
+
+endif # kalama supported target check
 endif # DLKM check
-endif # supported target check
