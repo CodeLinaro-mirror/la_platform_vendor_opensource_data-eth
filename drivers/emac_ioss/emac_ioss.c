@@ -801,16 +801,17 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	not_a_filter = false;
 	count = 0;
 
+	filter_map = kzalloc(sizeof(struct filter_map_info), GFP_KERNEL);
 	list_for_each_entry(temp, qos_rx, node) {
+		/* If TC is for HW path and no IPA ch are available don't add to the filter table*/
+		if (temp->action == IOSS_QOS_HW_PATH && !qos_tables.ipa_qos_rx_ch)
+			continue;
+
 		/* if queue is assigned don't do pcp filtering */
 		filter_map = (struct filter_map_info *)(temp->filter_info);
 		if (filter_map->queue)
 			continue;
-		/* If TC is for HW path and no IPA ch are available don't add to the filter table*/
-		if (temp->action == IOSS_QOS_HW_PATH && !qos_tables.ipa_qos_rx_ch) {
-			temp->skipped = true;
-			continue;
-		}
+
 		/* dest_port */
 		if (temp->dst.len) {
 			for(i=0; i< temp->dst.len; i++) {
@@ -886,6 +887,10 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	count = 0;
 	not_a_filter = false;
 	list_for_each_entry(temp, qos_rx, node) {
+		/* If TC is for HW path and no IPA ch are available don't add to the filter table*/
+		if (temp->action == IOSS_QOS_HW_PATH && !qos_tables.ipa_qos_rx_ch)
+			continue;
+
 		/* if queue is assigned don't do dma filtering */
 		filter_map = (struct filter_map_info *)(temp->filter_info);
 		if (filter_map->queue)
@@ -962,6 +967,10 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	count = 0;
 	not_a_filter = false;
 	list_for_each_entry(temp, qos_rx, node) {
+		/* If TC is for HW path and no IPA ch are available don't add to the filter table*/
+		if (temp->action == IOSS_QOS_HW_PATH && !qos_tables.ipa_qos_rx_ch)
+			continue;
+
 		/* if queue is assigned don't do dma filtering */
 		filter_map = (struct filter_map_info *)(temp->filter_info);
 		if (filter_map->queue)
@@ -1003,6 +1012,10 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	count = 0;
 	not_a_filter = false;
 	list_for_each_entry(temp, qos_rx, node) {
+		/* If TC is for HW path and no IPA ch are available don't add to the filter table*/
+		if (temp->action == IOSS_QOS_HW_PATH && !qos_tables.ipa_qos_rx_ch)
+			continue;
+
 		/* if queue is assigned don't do dma filtering */
 		filter_map = (struct filter_map_info *)(temp->filter_info);
 		if (filter_map->queue)
@@ -1064,6 +1077,10 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 	count = 0;
 	not_a_filter = false;
 	list_for_each_entry(temp, qos_rx, node) {
+		/* If TC is for HW path and no IPA ch are available don't add to the filter table*/
+		if (temp->action == IOSS_QOS_HW_PATH && !qos_tables.ipa_qos_rx_ch)
+			continue;
+
 		/* if queue is assigned don't do dma filtering */
 		filter_map = (struct filter_map_info *)(temp->filter_info);
 		if (filter_map->queue)
@@ -1119,6 +1136,7 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 		delete_filter_table(&qos_tables.dma_filter_table);
 	}
 
+	kfree(filter_map);
 	return filter;
 
 filter_found:
@@ -1128,7 +1146,17 @@ filter_found:
 		}
 	}
 	ioss_qos_dev_log(NULL, "[ioss qos] No. of filters to be installed = %d\n\n", qos_tables.filter_cnt);
+	kfree(filter_map);
 	return filter;
+}
+
+inline bool stmmac_is_phy_link_up(struct stmmac_priv *priv)
+{
+	if (priv->plat->mac2mac_en || priv->plat->fixed_phy_mode)
+		return priv->plat->mac2mac_link;
+	else
+		return (priv->dev->phydev &&
+			priv->dev->phydev->link);
 }
 
 static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx)
@@ -1157,6 +1185,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	bool flt_appd = false;
 	u8 tx_hw_qos_ch_available = 0;
 
+	if(!stmmac_is_phy_link_up(priv)) {
+		ioss_qos_dev_err(idev, "Link is down \n");
+		map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
+		return map_info;
+	}
+
 	/* Cleanup the used tables */
 	if (priv->plat->qos_active) {
 		priv->unique_filter_old = priv->unique_filter_new;
@@ -1168,6 +1202,8 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		}
 		if (&qos_tables.pcp_route_table)
 			delete_route_table(&qos_tables.pcp_route_table);
+		for (i = 0; i < priv->plat->tx_queues_to_use; i++)
+			priv->tx_queue_pcp_map[i] = 0;
 	}
 
 	memset(&qos_tables, 0, sizeof(struct qos_struct));
@@ -1223,10 +1259,8 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		rx_queue_avail = qos_rx_queues - 1;
 
 		list_for_each_entry(temp_rx, qos_rx, node)	{
-			if (!qos_tables.ipa_qos_rx_ch && temp_rx->action == IOSS_QOS_HW_PATH) {
-				temp_rx->skipped = true;
+			if (!qos_tables.ipa_qos_rx_ch && temp_rx->action == IOSS_QOS_HW_PATH)
 				continue;
-			}
 
 			filter_info = kzalloc(sizeof(struct filter_map_info), GFP_KERNEL);
 			filter_node_pcp = kzalloc(sizeof(struct pcp_routing), GFP_KERNEL);
@@ -1241,14 +1275,14 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 									    		 temp_rx->pcp.arr[i], temp_rx->tc_prio);
 							} else {
 								pcp_mask |= 1 << temp_rx->pcp.arr[i];
-								filter_node_pcp->pcp |= 1 << temp_rx->pcp.arr[i];
 							}
+							filter_node_pcp->pcp |= 1 << temp_rx->pcp.arr[i];
 						} else {
 							pcp_not_unique = true;
-                                                  	if (temp_rx->action == IOSS_QOS_SW_PATH)
-                                                          	filter_info->channel = 3;
-                                                  	else if (temp_rx->action == IOSS_QOS_HW_PATH)
-                                                          	filter_info->channel = 2;
+							if (temp_rx->action == IOSS_QOS_SW_PATH)
+								filter_info->channel = 3;
+							else if (temp_rx->action == IOSS_QOS_HW_PATH)
+								filter_info->channel = 2;
 						}
 					}
 
@@ -1341,7 +1375,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		list_for_each_entry(temp_rx, qos_rx, node) {
 			if (!qos_tables.ipa_qos_rx_ch && temp_rx->action == IOSS_QOS_HW_PATH) {
 				ioss_qos_dev_log(idev, "RX TC = %d skipped <IPA HW QOS Channel unavailable>\n", temp_rx->tc_prio);
-				temp_rx->skipped = true;
 				continue;
 			}
 
@@ -1417,7 +1450,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			/* Skip HW TC if IPA pipes are unavailable */
 			if (!qos_tables.ipa_qos_tx_ch && temp_tx->action == IOSS_QOS_HW_PATH) {
 				ioss_qos_dev_log(idev, "TX TC = %d skipped <IPA HW QOS Channel unavailable>\n", temp_tx->tc_prio);
-				temp_tx->skipped = true;
 				continue;
 			}
 
@@ -1473,6 +1505,13 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 				qos_tables.tx_routing_info[channel].mode_to_use = MTL_QUEUE_DCB;
 			temp_tx->tx_param_info = (void *)(channel);
 			qos_tables.tx_channel_info[channel] = temp_tx->action;
+			if (temp_tx->action == IOSS_QOS_SW_PATH) {
+				for (i = 0; i < temp_tx->pcp.len; i++) {
+					priv->tx_queue_pcp_map[channel] |= 1 << temp_tx->pcp.arr[i];
+                                  	ioss_qos_dev_log(idev, "tx queue = %d, pcp = %d\n",
+                                                         channel, priv->tx_queue_pcp_map[channel]);
+				}
+			}
 		}
 
 		for (i = priv->plat->tx_queues_to_use - 1; i > 1; i--) {
@@ -1604,13 +1643,24 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			}
 		}
 	}
-	/* Now check if PCP table has changed (Should we stop queues before changing the pcp for queue)*/
-	for (i = 1; i < priv->plat->rx_qos_queues_to_use; i++) {
+	/* Prepare queue to pcp mapping and check if PCP table has changed*/
+	pcp_mask_old = 0;
+	pcp_mask = pcp_mask_old;
+	for (i = priv->plat->rx_qos_queues_to_use - 1; i > 0; i--) {
 		list_for_each_entry(temp_pcp_node, &qos_tables.pcp_route_table, node) {
-			ioss_qos_dev_log(idev, "prio = %d, pcp = %d, queue = %d\n",
-					 temp_pcp_node->tc_prio, getbitpos(temp_pcp_node->pcp), temp_pcp_node->queue);
-			if (temp_pcp_node->queue == i)
-				qos_tables.queue_to_pcp_map[i] |= temp_pcp_node->pcp;
+			if (temp_pcp_node->queue == i) {
+				pcp_mask |= temp_pcp_node->pcp;
+				if (pcp_mask != pcp_mask_old) {
+					/* TC having multiple PCP's but atleast one pcp is common*/
+					if (pcp_mask_old & temp_pcp_node->pcp) {
+						temp_pcp_node->pcp = pcp_mask - pcp_mask_old;
+					}
+					ioss_qos_dev_log(idev, "prio = %d, pcp = %d, queue = %d\n",
+							 temp_pcp_node->tc_prio, temp_pcp_node->pcp, temp_pcp_node->queue);
+					qos_tables.queue_to_pcp_map[i] |= temp_pcp_node->pcp;
+				}
+				pcp_mask_old = pcp_mask;
+			}
 		}
 		ioss_qos_dev_log(idev, "queue_pcp_map[%d] = %d\n", i, qos_tables.queue_to_pcp_map[i]);
 	}
@@ -2082,6 +2132,7 @@ static int stmmac_clear_qos(struct ioss_device *idev)
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	struct dma_filter_table *dma_filter_node;
+	int i = 0;
 
 	ioss_qos_dev_log(idev, "Enter");
 
@@ -2110,6 +2161,10 @@ static int stmmac_clear_qos(struct ioss_device *idev)
 
 		memset(&qos_tables, 0, sizeof(struct qos_struct));
 	}
+
+	for (i = 0; i < priv->plat->tx_queues_to_use; i++)
+		priv->tx_queue_pcp_map[i] = 0;
+
 	return 0;
 }
 
@@ -2145,6 +2200,7 @@ static int stmmac_clear_qos_cache(struct ioss_device *idev)
 			else
 				priv->is_tx_sw[i] = true;
 		}
+		priv->unique_filter_old = INVALID_FILTER;
 	}
 	return 0;
 }
@@ -2388,19 +2444,22 @@ static bool is_filter_applied(struct stmmac_priv *priv, enum qos_filter_type fil
 #define QOS_ROW_PREFIX(priv, filter_type, filter_value)\
 	(is_filter_applied(priv, filter_type, filter_value))? "  " : "# "
 
-#define TC_SKIP_PREFIX(tc_node)\
-	(tc_node->skipped? "# " : "  ")
+#define TC_SKIP_PREFIX(tc_node, hw_channels)\
+	(tc_node->action == IOSS_QOS_HW_PATH && !hw_channels? "# " : "  ")
 
 static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_head *qos_rx, struct list_head *qos_tx)
 {
 	size_t i;
 	u8 tc_queue   = 0;
 	u8 tc_channel = 0;
-	struct list_head *ptr;
+	u8 hw_rxch = idev->qos_rx_channels;
+	u8 hw_txch = idev->qos_tx_channels;
+	struct list_head *ptr, *hdl_ptr,*rx_flow_hdl;
 	struct sockaddr_storage *ss;
 	const int ROW_BUFFER   =   60;
 	const int TABLE_BUFFER = 4095;
-	struct qos_routing_rx *rx_node;
+	struct qos_rx_tc *rx_node;
+	struct qos_routing_rx_hdl *rx_hdl;
 	struct qos_routing_tx *tx_node;
 
 	struct net_device *ndev = idev->net_dev;
@@ -2414,148 +2473,206 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 	scnprintf(row, ROW_BUFFER, "UL TCs: \n");
 	strlcat(table, row, TABLE_BUFFER);
 	list_for_each(ptr, qos_rx) {
-		rx_node = to_qos_routing_rx(ptr);
-		scnprintf(row, ROW_BUFFER, "%s- %u:\n", TC_SKIP_PREFIX(rx_node), rx_node->tc_prio);
+		rx_node = to_qos_rx_tc(ptr);
+		scnprintf(row, ROW_BUFFER, "%s- %u:\n", TC_SKIP_PREFIX(rx_node, hw_rxch), rx_node->tc_prio);
 		strlcat(table, row, TABLE_BUFFER);
 
-		scnprintf(row, ROW_BUFFER, "  %saction: %s\n", TC_SKIP_PREFIX(rx_node),
+		scnprintf(row, ROW_BUFFER, "  %saction: %s\n", TC_SKIP_PREFIX(rx_node, hw_rxch),
 			  (rx_node->action == IOSS_QOS_HW_PATH)? "hw" : "sw");
 		strlcat(table, row, TABLE_BUFFER);
 
-		scnprintf(row, ROW_BUFFER, "  %spcp:\n", TC_SKIP_PREFIX(rx_node));
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->pcp.len; i++) {
-			scnprintf(row, ROW_BUFFER, "    %s- %u\n", rx_node->pcp.arr[i],
-				  TC_SKIP_PREFIX(rx_node));
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
-		scnprintf(row, ROW_BUFFER, "  %svlan:\n", TC_SKIP_PREFIX(rx_node));
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->vlan_ids.len; i++) {
-			scnprintf(row, ROW_BUFFER, "  %s%s- %u\n", TC_SKIP_PREFIX(rx_node),
-				  QOS_ROW_PREFIX(priv, VLAN_ID, &rx_node->vlan_ids.arr[i]), rx_node->vlan_ids.arr[i]);
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
-		scnprintf(row, ROW_BUFFER, "  %ssrc:\n", TC_SKIP_PREFIX(rx_node));
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->src.len; i++) {
-			ss = &rx_node->src.arr[i].address;
-			if (ss->ss_family == AF_INET) {
-				scnprintf(row, ROW_BUFFER, "  %s%s- %pI4/%u\n",
-					TC_SKIP_PREFIX(rx_node),
-					QOS_ROW_PREFIX(priv, SRC_IP, &rx_node->src.arr[i]),
-					&(((struct sockaddr_in *)ss)->sin_addr),
-					rx_node->src.arr[i].mask_length);
-			}
-			else if (ss->ss_family == AF_INET6) {
-				scnprintf(row, ROW_BUFFER, "  %s%s- %pI6/%u\n",
-					TC_SKIP_PREFIX(rx_node),
-					QOS_ROW_PREFIX(priv, SRC_IP, &rx_node->src.arr[i]),
-					&(((struct sockaddr_in6 *)ss)->sin6_addr),
-					rx_node->src.arr[i].mask_length);
-			}
-			else {
-				scnprintf(row, ROW_BUFFER, "  %s%s- [%s/%u]\n",
-					TC_SKIP_PREFIX(rx_node),
-					QOS_ROW_PREFIX(priv, SRC_PORT, &rx_node->src.arr[i]),
-					rx_node->src.arr[i].proto,
-					rx_node->src.arr[i].port_num);
-			}
-
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
-		scnprintf(row, ROW_BUFFER, "  %sdst:\n", TC_SKIP_PREFIX(rx_node));
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->dst.len; i++) {
-			ss = &rx_node->dst.arr[i].address;
-			if (ss->ss_family == AF_INET) {
-				scnprintf(row, ROW_BUFFER, "  %s%s- %pI4/%u\n",
-					TC_SKIP_PREFIX(rx_node),
-					QOS_ROW_PREFIX(priv, DEST_IP, &rx_node->dst.arr[i]),
-					&(((struct sockaddr_in *)ss)->sin_addr),
-					rx_node->dst.arr[i].mask_length);
-			}
-			else if (ss->ss_family == AF_INET6) {
-				scnprintf(row, ROW_BUFFER, "  %s%s- %pI6/%u\n",
-					TC_SKIP_PREFIX(rx_node),
-					QOS_ROW_PREFIX(priv, DEST_IP, &rx_node->dst.arr[i]),
-					&(((struct sockaddr_in6 *)ss)->sin6_addr),
-					rx_node->dst.arr[i].mask_length);
-			}
-			else {
-				scnprintf(row, ROW_BUFFER, "  %s%s- [%s/%u]\n",
-					TC_SKIP_PREFIX(rx_node),
-					QOS_ROW_PREFIX(priv, DEST_PORT, &rx_node->dst.arr[i]),
-					rx_node->dst.arr[i].proto,
-					rx_node->dst.arr[i].port_num);
-			}
-
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
-		scnprintf(row, ROW_BUFFER, "  %ssmac:\n", TC_SKIP_PREFIX(rx_node));
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->smac.len; i++) {
-			scnprintf(row, ROW_BUFFER, "  %s%s- %02x:%02x:%02x:%02x:%02x:%02x\n",
-				  TC_SKIP_PREFIX(rx_node),
-				  QOS_ROW_PREFIX(priv, SRC_MAC, &rx_node->smac.arr[i]),
-				  rx_node->smac.arr[i][0],
-				  rx_node->smac.arr[i][1],
-				  rx_node->smac.arr[i][2],
-				  rx_node->smac.arr[i][3],
-				  rx_node->smac.arr[i][4],
-				  rx_node->smac.arr[i][5]);
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
-		scnprintf(row, ROW_BUFFER, "  %sdmac:\n", TC_SKIP_PREFIX(rx_node));
-		strlcat(table, row, TABLE_BUFFER);
-		for (i = 0; i < rx_node->dmac.len; i++) {
-			scnprintf(row, ROW_BUFFER, "  %s%s- %02x:%02x:%02x:%02x:%02x:%02x\n",
-				  TC_SKIP_PREFIX(rx_node),
-				  QOS_ROW_PREFIX(priv, DEST_MAC, &rx_node->dmac.arr[i]),
-				  rx_node->dmac.arr[i][0],
-				  rx_node->dmac.arr[i][1],
-				  rx_node->dmac.arr[i][2],
-				  rx_node->dmac.arr[i][3],
-				  rx_node->dmac.arr[i][4],
-				  rx_node->dmac.arr[i][5]);
-			strlcat(table, row, TABLE_BUFFER);
-		}
-
 		find_tc_queue_channel(&qos_tables, rx_node->tc_prio, &tc_queue, &tc_channel, true);
 		scnprintf(row, ROW_BUFFER, "  %squeue: %u\n  %schannel: %u\n",
-			  TC_SKIP_PREFIX(rx_node), tc_queue,
-			  TC_SKIP_PREFIX(rx_node), tc_channel);
+			  TC_SKIP_PREFIX(rx_node, hw_rxch), tc_queue,
+			  TC_SKIP_PREFIX(rx_node, hw_rxch), tc_channel);
 		strlcat(table, row, TABLE_BUFFER);
+
+		rx_flow_hdl = &rx_node->hdl_node;
+		list_for_each(hdl_ptr, rx_flow_hdl) {
+			rx_hdl = to_qos_routing_rx_hdl(hdl_ptr);
+			scnprintf(row, ROW_BUFFER, "  %s- handle: %u\n",
+				  TC_SKIP_PREFIX(rx_node, hw_rxch), rx_hdl->hdl);
+			strlcat(table, row, TABLE_BUFFER);
+			scnprintf(row, ROW_BUFFER, "    %spcp:\n", TC_SKIP_PREFIX(rx_node, hw_rxch));
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < rx_hdl->pcp.len; i++) {
+				scnprintf(row, ROW_BUFFER, "      %s- %u\n",
+					  TC_SKIP_PREFIX(rx_node, hw_rxch), rx_hdl->pcp.arr[i]);
+				strlcat(table, row, TABLE_BUFFER);
+			}
+
+			scnprintf(row, ROW_BUFFER, "    %svlan:\n", TC_SKIP_PREFIX(rx_node, hw_rxch));
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < rx_hdl->vlan_ids.len; i++) {
+				scnprintf(row, ROW_BUFFER, "    %s%s- %u\n",
+					  TC_SKIP_PREFIX(rx_node, hw_rxch),
+					  QOS_ROW_PREFIX(priv, VLAN_ID, &rx_hdl->vlan_ids.arr[i]),
+					  rx_hdl->vlan_ids.arr[i]);
+				strlcat(table, row, TABLE_BUFFER);
+				rx_hdl->hdl_committed = is_filter_applied(priv, VLAN_ID, &rx_hdl->vlan_ids.arr[i]);
+			}
+
+			scnprintf(row, ROW_BUFFER, "    %ssrc:\n", TC_SKIP_PREFIX(rx_node, hw_rxch));
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < rx_hdl->src.len; i++) {
+				ss = &rx_hdl->src.arr[i].address;
+				if (ss->ss_family == AF_INET) {
+					scnprintf(row, ROW_BUFFER, "    %s%s- %pI4/%u\n",
+						TC_SKIP_PREFIX(rx_node, hw_rxch),
+						QOS_ROW_PREFIX(priv, SRC_IP, &rx_hdl->src.arr[i]),
+						&(((struct sockaddr_in *)ss)->sin_addr),
+						rx_hdl->src.arr[i].mask_length);
+					rx_hdl->hdl_committed = is_filter_applied(priv, SRC_IP, &rx_hdl->src.arr[i]);
+				}
+				else if (ss->ss_family == AF_INET6) {
+					scnprintf(row, ROW_BUFFER, "    %s%s- %pI6/%u\n",
+						TC_SKIP_PREFIX(rx_node, hw_rxch),
+						QOS_ROW_PREFIX(priv, SRC_IP, &rx_hdl->src.arr[i]),
+						&(((struct sockaddr_in6 *)ss)->sin6_addr),
+						rx_hdl->src.arr[i].mask_length);
+					rx_hdl->hdl_committed = is_filter_applied(priv, SRC_IP, &rx_hdl->src.arr[i]);
+				}
+				else {
+					scnprintf(row, ROW_BUFFER, "    %s%s- [%s/%u]\n",
+						TC_SKIP_PREFIX(rx_node, hw_rxch),
+						QOS_ROW_PREFIX(priv, SRC_PORT, &rx_hdl->src.arr[i]),
+						rx_hdl->src.arr[i].proto,
+						rx_hdl->src.arr[i].port_num);
+					rx_hdl->hdl_committed = is_filter_applied(priv, SRC_PORT, &rx_hdl->src.arr[i]);
+				}
+
+				strlcat(table, row, TABLE_BUFFER);
+			}
+
+			scnprintf(row, ROW_BUFFER, "    %sdst:\n", TC_SKIP_PREFIX(rx_node, hw_rxch));
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < rx_hdl->dst.len; i++) {
+				ss = &rx_hdl->dst.arr[i].address;
+				if (ss->ss_family == AF_INET) {
+					scnprintf(row, ROW_BUFFER, "    %s%s- %pI4/%u\n",
+						TC_SKIP_PREFIX(rx_node, hw_rxch),
+						QOS_ROW_PREFIX(priv, DEST_IP, &rx_hdl->dst.arr[i]),
+						&(((struct sockaddr_in *)ss)->sin_addr),
+						rx_hdl->dst.arr[i].mask_length);
+					rx_hdl->hdl_committed = is_filter_applied(priv, DEST_IP, &rx_hdl->dst.arr[i]);
+				}
+				else if (ss->ss_family == AF_INET6) {
+					scnprintf(row, ROW_BUFFER, "    %s%s- %pI6/%u\n",
+						TC_SKIP_PREFIX(rx_node, hw_rxch),
+						QOS_ROW_PREFIX(priv, DEST_IP, &rx_hdl->dst.arr[i]),
+						&(((struct sockaddr_in6 *)ss)->sin6_addr),
+						rx_hdl->dst.arr[i].mask_length);
+					rx_hdl->hdl_committed = is_filter_applied(priv, DEST_IP, &rx_hdl->dst.arr[i]);
+				}
+				else {
+					scnprintf(row, ROW_BUFFER, "    %s%s- [%s/%u]\n",
+						TC_SKIP_PREFIX(rx_node, hw_rxch),
+						QOS_ROW_PREFIX(priv, DEST_PORT, &rx_hdl->dst.arr[i]),
+						rx_hdl->dst.arr[i].proto,
+						rx_hdl->dst.arr[i].port_num);
+					rx_hdl->hdl_committed = is_filter_applied(priv, DEST_PORT, &rx_hdl->dst.arr[i]);
+				}
+
+				strlcat(table, row, TABLE_BUFFER);
+			}
+
+			scnprintf(row, ROW_BUFFER, "    %ssmac:\n", TC_SKIP_PREFIX(rx_node, hw_rxch));
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < rx_hdl->smac.len; i++) {
+				scnprintf(row, ROW_BUFFER, "    %s%s- %02x:%02x:%02x:%02x:%02x:%02x\n",
+						TC_SKIP_PREFIX(rx_node, hw_rxch),
+						QOS_ROW_PREFIX(priv, SRC_MAC, &rx_hdl->smac.arr[i]),
+						rx_hdl->smac.arr[i][0],
+						rx_hdl->smac.arr[i][1],
+						rx_hdl->smac.arr[i][2],
+						rx_hdl->smac.arr[i][3],
+						rx_hdl->smac.arr[i][4],
+						rx_hdl->smac.arr[i][5]);
+				strlcat(table, row, TABLE_BUFFER);
+				rx_hdl->hdl_committed = is_filter_applied(priv, SRC_MAC,  &rx_hdl->smac.arr[i]);
+			}
+
+			scnprintf(row, ROW_BUFFER, "    %sdmac:\n", TC_SKIP_PREFIX(rx_node, hw_rxch));
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < rx_hdl->dmac.len; i++) {
+				scnprintf(row, ROW_BUFFER, "     %s%s- %02x:%02x:%02x:%02x:%02x:%02x\n",
+						TC_SKIP_PREFIX(rx_node, hw_rxch),
+						QOS_ROW_PREFIX(priv, DEST_MAC, &rx_hdl->dmac.arr[i]),
+						rx_hdl->dmac.arr[i][0],
+						rx_hdl->dmac.arr[i][1],
+						rx_hdl->dmac.arr[i][2],
+						rx_hdl->dmac.arr[i][3],
+						rx_hdl->dmac.arr[i][4],
+						rx_hdl->dmac.arr[i][5]);
+				strlcat(table, row, TABLE_BUFFER);
+				rx_hdl->hdl_committed = is_filter_applied(priv, DEST_MAC, &rx_hdl->dmac.arr[i]);
+			}
+			if (rx_hdl->pcp.len)
+				rx_hdl->hdl_committed = true;
+		}
 	}
 
 	scnprintf(row, ROW_BUFFER, "DL TCs: \n");
 	strlcat(table, row, TABLE_BUFFER);
 	list_for_each(ptr, qos_tx) {
 		tx_node = to_qos_routing_tx(ptr);
-		scnprintf(row, ROW_BUFFER,"%s- %u:\n", TC_SKIP_PREFIX(tx_node), tx_node->tc_prio);
+		scnprintf(row, ROW_BUFFER,"%s- %u:\n", TC_SKIP_PREFIX(tx_node, hw_txch), tx_node->tc_prio);
 		strlcat(table, row, TABLE_BUFFER);
 
-		scnprintf(row, ROW_BUFFER, "  %saction: %s\n", TC_SKIP_PREFIX(tx_node),
+		scnprintf(row, ROW_BUFFER, "  %saction: %s\n", TC_SKIP_PREFIX(tx_node, hw_txch),
 			  (tx_node->action == IOSS_QOS_HW_PATH)? "HW" : "SW");
 		strlcat(table, row, TABLE_BUFFER);
 
-		scnprintf(row, ROW_BUFFER, "  %sbw: %u:%u\n", TC_SKIP_PREFIX(tx_node),
+		scnprintf(row, ROW_BUFFER, "  %sbw: %u:%u\n", TC_SKIP_PREFIX(tx_node, hw_txch),
 			  tx_node->cbs_bw.low_bw, tx_node->cbs_bw.high_bw);
 		strlcat(table, row, TABLE_BUFFER);
 
 		scnprintf(row, ROW_BUFFER, "    bw allocated: %u\n", qos_tables.bw_allocated[tx_node->tc_prio]);
 		strlcat(table, row, TABLE_BUFFER);
+		if (tx_node->action == IOSS_QOS_SW_PATH) {
+			scnprintf(row, ROW_BUFFER, "    handle: %u\n", tx_node->handle);
+			strlcat(table, row, TABLE_BUFFER);
 
+			scnprintf(row, ROW_BUFFER, "    pcp: ");
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < tx_node->pcp.len; i++) {
+				scnprintf(row, ROW_BUFFER, "%u ", tx_node->pcp.arr[i]);
+				strlcat(table, row, TABLE_BUFFER);
+			}
+			scnprintf(row, ROW_BUFFER, "\n");
+			strlcat(table, row, TABLE_BUFFER);
+                }
 		find_tc_queue_channel(&qos_tables, tx_node->tc_prio, &tc_queue, &tc_channel, false);
 		scnprintf(row, ROW_BUFFER, "  %squeue: %u\n  %schannel: %u\n",
-			  TC_SKIP_PREFIX(tx_node), tc_queue, TC_SKIP_PREFIX(tx_node), tc_channel);
+			  TC_SKIP_PREFIX(tx_node, hw_txch), tc_queue, TC_SKIP_PREFIX(tx_node, hw_txch), tc_channel);
 		strlcat(table, row, TABLE_BUFFER);
 	}
+
+	scnprintf(row, ROW_BUFFER, "Applied: ");
+	strlcat(table, row, TABLE_BUFFER);
+	list_for_each(ptr, qos_rx) {
+		rx_node = to_qos_rx_tc(ptr);
+		rx_flow_hdl = &rx_node->hdl_node;
+		list_for_each(hdl_ptr, rx_flow_hdl) {
+			rx_hdl = to_qos_routing_rx_hdl(hdl_ptr);
+			if (rx_hdl->hdl_committed) {
+				scnprintf(row, ROW_BUFFER, "%u ", rx_hdl->hdl);
+				strlcat(table, row, TABLE_BUFFER);
+			}
+		}
+	}
+	list_for_each(ptr, qos_tx) {
+		tx_node = to_qos_routing_tx(ptr);
+		if (tx_node->committed && tx_node->action == IOSS_QOS_SW_PATH) {
+			scnprintf(row, ROW_BUFFER, "%u ", tx_node->handle);
+			strlcat(table, row, TABLE_BUFFER);
+		}
+	}
+	scnprintf(row, ROW_BUFFER, "\n");
+	strlcat(table, row, TABLE_BUFFER);
+
+	kfree(row);
+	kfree(table);
 
 	return snprintf(buf, TABLE_BUFFER, "%s\n", table);
 }
@@ -2582,8 +2699,6 @@ static struct ioss_qos_ops stmmac_qos_ops = {
 	.clear_qos_cache = stmmac_clear_qos_cache,
 	.show_qos_info = stmmac_get_qos_info,
 };
-
-
 
 static struct ioss_driver_ops stmmac_ioss_ops = {
 	.open_device = stmmac_ioss_open_device,
