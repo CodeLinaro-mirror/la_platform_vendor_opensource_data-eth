@@ -10,8 +10,6 @@
 #include <linux/if_ether.h>
 #include <linux/ctype.h>
 
-#include "ioss.h"
-
 /**
  *   API
  * Version    Changes
@@ -46,7 +44,7 @@
 		__ioss_qos_log_msg(ioss_qos_get_ipclog_buf(), fmt, ## args); \
 	} while (0)
 
-
+struct ioss_device;
 #define ioss_qos_dev_err(idev, fmt, args...) \
 	do { \
 		struct ioss_device *__idev = (idev); \
@@ -67,11 +65,13 @@ struct IOSS_QOS_TABLE {
     struct list_head qos_rx_committed_table;
     struct list_head qos_tx_pending_table;
     struct list_head qos_tx_committed_table;
+    struct list_head qos_rx_tc_table;
 };
 
 struct IOSS_QOS_NEW_NODES {
-    struct qos_routing_rx *rx_node;
+    struct qos_rx_tc *rx_node;
     struct qos_routing_tx *tx_node;
+    struct qos_routing_rx_hdl *rx_hdl_node;
 };
 
 enum protocol {
@@ -124,11 +124,33 @@ enum action {
     IOSS_QOS_HW_PATH = 2
 };
 
+struct qos_routing_rx_hdl {
+	u8 tc_prio;
+	u32 hdl;
+	bool hdl_committed;
+	struct pcp_array pcp;
+	struct vlan_id_array vlan_ids;
+	struct qos_filters_array src;
+	struct qos_filters_array dst;
+	struct mac_array smac;
+	struct mac_array dmac;
+	struct list_head node;
+};
+
+struct qos_rx_tc {
+	u8 tc_prio;
+	bool committed;
+	enum action action;
+
+	struct list_head node;
+	struct list_head hdl_node;
+};
+
+
 struct qos_routing_rx {
     u8 tc_prio;
 
     bool committed;
-    bool skipped;
     enum action action;
 
     struct pcp_array pcp;
@@ -144,17 +166,21 @@ struct qos_routing_rx {
 
     struct list_head node;
 };
+
 #define to_qos_routing_rx(ptr) list_entry(ptr, struct qos_routing_rx, node)
+#define to_qos_rx_tc(ptr) list_entry(ptr, struct qos_rx_tc, node)
+#define to_qos_routing_rx_hdl(ptr) list_entry(ptr, struct qos_routing_rx_hdl, node)
 
 struct qos_routing_tx {
     u8 tc_prio;
 
     bool committed;
-    bool skipped;
     enum action action;
+    u32 handle;
 
     struct tx_cbs_bw cbs_bw;
     u16 bw_allocated;
+    struct pcp_array pcp;
 
     void *tx_param_info;
 
@@ -165,7 +191,15 @@ struct qos_routing_tx {
 enum ioss_qos_response {
     QOS_COMMIT_SUCCESS = 0,
     QOS_COMMIT_FAIL = 1,
-    QOS_COMMIT_EMPTY = 2
+    QOS_COMMIT_EMPTY = 2,
+    QOS_COMMIT_LINK_DOWN = 3
+};
+
+struct qos_pipe_mapping {
+	u32 pipe_to_tc_mapping_rx[8]; // Rename to ch_tc_mapping_rx
+	bool is_rx_tc_sw[8]; // Rename to is_rx_ch_sw
+	u32 pipe_to_tc_mapping_tx[8];
+	bool is_tx_tc_sw[8];
 };
 
 struct response {
@@ -181,29 +215,16 @@ struct ioss_qos_ops {
 	int (*request_qos)(struct ioss_device *idev);
 	int (*enable_qos)(struct ioss_device *idev);
 	int (*clear_qos)(struct ioss_device *idev);
-    ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
+	ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
 	int (*clear_qos_cache)(struct ioss_device *idev);
 	ssize_t (*show_qos_info)(struct ioss_device *idev, char *buf);
 };
 
-#define create_qos_sysfs_node(idev, qos_kobj, qos_node, uid, gid, qos_sysfs_err) \
-	do { \
-		if (sysfs_create_file(qos_kobj, &dev_attr_##qos_node.attr)) { \
-			ioss_dev_err(idev, "unable to create " #qos_node " node"); \
-			goto qos_sysfs_err; \
-		} \
-		if (sysfs_file_change_owner(qos_kobj, #qos_node, KUIDT_INIT(uid), KGIDT_INIT(gid))) { \
-			ioss_dev_err(idev, "unable to change owner of " #qos_node " sysfs node"); \
-			goto qos_sysfs_err; \
-		} \
-	} while(0)
-
-
 #define QOS_TABLE_ROW_BUFFER 16
 #define QOS_TABLE_BUFFER 2048
 
-int create_qos_sysfs_nodes(struct device *dev);
-void remove_qos_sysfs_nodes(struct device *dev);
+int ioss_qos_create_sysfs(struct device *dev);
+void ioss_qos_remove_sysfs(struct device *dev);
 
 static inline int getbitpos(int n)
 {

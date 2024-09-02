@@ -398,20 +398,25 @@ int rtl8168_enable_ring(struct rtl8168_ring *ring)
         rtl8168_hw_reset(dev);
         rtl8168_tx_clear(tp);
         rtl8168_rx_clear(tp);
-        if (ring->direction == RTL8168_CH_DIR_RX)
+        if (ring->direction == RTL8168_CH_DIR_RX) {
+                memset(tp->RxDescArray, 0x0, tp->RxDescAllocSize);
                 tp->num_rx_rings = 0;
+        }
+
         rtl8168_init_ring(dev);
 
         ring->enabled = true;
 
-        rtl8168_hw_config(dev);
-        rtl8168_hw_start(dev);
+        if (tp->lib_tx_ring[1].enabled && tp->lib_rx_ring[1].enabled) {
+                rtl8168_hw_config(dev);
+                rtl8168_hw_start(dev);
 
 #ifdef CONFIG_R8168_NAPI
-        rtl8168_enable_napi(tp);
+                rtl8168_enable_napi(tp);
 #endif//CONFIG_R8168_NAPI
 
-        netif_tx_start_all_queues(dev);
+                netif_tx_start_all_queues(dev);
+        }
 
 out_unlock:
         rtnl_unlock();

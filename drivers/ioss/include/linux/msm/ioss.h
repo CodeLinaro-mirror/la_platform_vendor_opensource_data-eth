@@ -19,6 +19,8 @@
 #include <linux/refcount.h>
 #include <linux/ethtool.h>
 
+#include "ioss_qos.h"
+
 /**
  *   API
  * Version    Changes
@@ -345,13 +347,6 @@ struct ioss_channel {
 	u32 tc_mapping;
 };
 
-struct qos_pipe_mapping {
-	u32 pipe_to_tc_mapping_rx[5]; // Rename to ch_tc_mapping_rx
-	bool is_rx_tc_sw[5]; // Rename to is_rx_ch_sw
-	u32 pipe_to_tc_mapping_tx[5];
-	bool is_tx_tc_sw[5];
-};
-
 struct ioss_device {
 	struct ioss *root;
 	struct device dev;
@@ -380,10 +375,15 @@ struct ioss_device {
 	} pm_stats;
 
 	bool qos_enabled;
+	bool qos_cached;
 	bool clear_qos_hw;
 	u8 qos_rx_channels;
 	u8 qos_tx_channels;
 	struct qos_pipe_mapping curr_qos_config;
+	struct kobject *qos_kobj;
+	struct kobject *qos_tc_params_kobj;
+	struct IOSS_QOS_TABLE ioss_qos_table;
+	struct IOSS_QOS_NEW_NODES ioss_qos_new_nodes;
 };
 
 #define to_ioss_device(device) \

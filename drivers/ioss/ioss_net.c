@@ -163,8 +163,10 @@ static void ioss_net_event_generic(struct ioss_interface *iface,
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	ioss_dev_log(idev, "Generic event for %s", net_dev->name);
-
-	ioss_iface_queue_refresh(iface, false);
+	if(idev->qos_cached)
+		ioss_recommit_qos(idev);
+	else
+		ioss_iface_queue_refresh(iface, false);
 }
 
 static void ioss_net_event_up(struct ioss_interface *iface,
