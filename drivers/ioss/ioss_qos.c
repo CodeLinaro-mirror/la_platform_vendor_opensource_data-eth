@@ -1133,7 +1133,7 @@ static ssize_t store_commit(struct device *dev,
 	else if (res.qos_response_status == QOS_COMMIT_LINK_DOWN) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit  : Ethernet Link down \n");
 		idev->qos_cached = 1;
-		return 0;
+		return size;
 	}
 	else if (res.qos_response_status == QOS_COMMIT_BW_EXHAUST) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
