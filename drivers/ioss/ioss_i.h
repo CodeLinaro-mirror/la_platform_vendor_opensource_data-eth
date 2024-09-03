@@ -132,7 +132,7 @@ int ioss_sysfs_add_channel(struct ioss_channel* ch);
 void ioss_sysfs_remove_channel(struct ioss_channel* ch);
 
 int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp);
-void disable_qos_ipa_channels(struct ioss_device *idev);
+void disable_qos(struct ioss_device *idev);
 int ioss_reconfigure_qos(struct ioss_device *idev);
 int ioss_enable_qos(struct ioss_device *idev);
 int ioss_recommit_qos(struct ioss_device *idev);

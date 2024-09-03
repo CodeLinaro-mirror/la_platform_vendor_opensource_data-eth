@@ -1039,8 +1039,6 @@ static ssize_t store_commit(struct device *dev,
 	if (has_qos_table_changed() == false) {
 		if (idev->clear_qos_hw == true) {
 			ioss_qos_dev_log(idev, "[ioss qos] : deleting qos tables and clearing qos filters from HW\n");
-			ret = idrv->qos_ops->clear_qos(idev);
-			ioss_qos_dev_log(idev, "[ioss qos] : clear_qos returned %d\n", ret);
 
 			delete_rx_table(&ioss_qos_table.qos_rx_pending_table);
 			INIT_LIST_HEAD(&ioss_qos_table.qos_rx_pending_table);
@@ -1054,7 +1052,7 @@ static ssize_t store_commit(struct device *dev,
 
 			idev->clear_qos_hw = false;
 			idev->qos_enabled = false;
-			disable_qos_ipa_channels(idev);
+			disable_qos(idev);
 			memset(&idev->curr_qos_config, 0, sizeof(idev->curr_qos_config));
 			ioss_qos_dev_log(idev, "[ioss qos] : qos disabled\n");
 			idev->qos_cached = 0;
@@ -2099,15 +2097,19 @@ int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 	return ret;
 }
 
-void disable_qos_ipa_channels(struct ioss_device *idev)
+void disable_qos(struct ioss_device *idev)
 {
 	struct ioss_interface *iface = &idev->interface;
+	struct ioss_driver *idrv = NULL;
+
+	idrv = to_ioss_driver(idev->dev.driver);
 
 	idev->dev.offline = 1;
 	ioss_iface_queue_refresh(iface, true);
 	ioss_qos_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
 	delete_qos_channels(iface);
+	idrv->qos_ops->clear_qos(idev);
 
 	idev->dev.offline = 0;
 	ioss_iface_queue_refresh(iface, true);
