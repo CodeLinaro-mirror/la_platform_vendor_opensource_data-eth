@@ -670,6 +670,6 @@ static void __exit emac_ctrl_fe_exit(void)
 module_init(emac_ctrl_fe_init);
 module_exit(emac_ctrl_fe_exit);
 
-MODULE_SOFTDEP("post: stmmac");
+MODULE_SOFTDEP("post: emac_thin");
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Emac Virt DMA Ctrl FE Driver");
