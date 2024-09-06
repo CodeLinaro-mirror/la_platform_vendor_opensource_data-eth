@@ -213,7 +213,7 @@ struct ioss_qos_ops {
 	int (*clear_qos)(struct ioss_device *idev);
     ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
 	int (*clear_qos_cache)(struct ioss_device *idev);
-	int (*get_max_tx_tc)(struct ioss_device *idev);
+    int (*validate_tx_tc)(struct ioss_device *idev, struct list_head *qos_tx, struct qos_routing_tx *tx_node);
 };
 
 #define create_qos_sysfs_node(idev, qos_kobj, qos_node, uid, gid, qos_sysfs_err) \

@@ -568,13 +568,12 @@ static ssize_t store_add_tc(struct device *dev,
 	u16 len = 0;
 	size_t i = 0;
 	char *tmp = NULL;
-	u16 node_cnt = 0;
+	int ret = 0;
 	struct device *parent = NULL;
 	struct ioss_device *idev = NULL;
 	struct ioss_driver *idrv = NULL;
 	struct net_device *net_dev = NULL;
 	struct ioss_interface *iface = NULL;
-	int max_tx_tc = 0;
 	bool is_dir_rx = false;
 	bool add_to_list = false;
 	char *dup = kstrdup(user_buf, GFP_KERNEL);
@@ -652,7 +651,6 @@ static ssize_t store_add_tc(struct device *dev,
 		}
 	}
 	else {
-		max_tx_tc = idrv->qos_ops->get_max_tx_tc(idev);
 		if (add_to_list) {
 			if (!ioss_qos_new_nodes.tx_node)
 				goto add_err;
@@ -661,8 +659,14 @@ static ssize_t store_add_tc(struct device *dev,
 				ioss_qos_dev_err(NULL, "[ioss qos] action is mandatory parameter\n");
 				goto add_err;
 			}
-			add_tx_tc_by_priority(ioss_qos_new_nodes.tx_node);
-			ioss_qos_new_nodes.tx_node = NULL;
+			ret = idrv->qos_ops->validate_tx_tc(idev, &ioss_qos_table.qos_tx_pending_table,
+							    ioss_qos_new_nodes.tx_node);
+			if (ret) {
+				goto add_err;
+			} else {
+				add_tx_tc_by_priority(ioss_qos_new_nodes.tx_node);
+				ioss_qos_new_nodes.tx_node = NULL;
+			}
 		}
 		else {
 			// Check if same prio already exists
@@ -670,14 +674,9 @@ static ssize_t store_add_tc(struct device *dev,
 				ioss_qos_dev_err(NULL, "[ioss qos] : tx tc prio already exists");
 				goto add_err;
 			}
-			node_cnt = get_node_count(&ioss_qos_table.qos_tx_pending_table);
-			if (node_cnt < max_tx_tc) {
-				ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
-				ioss_qos_new_nodes.tx_node->tc_prio = prio;
-			} else {
-				ioss_qos_dev_err(NULL, "[ioss qos] : Only %u tx tc's are supported\n", max_tx_tc);
-				return -EINVAL;
-			}
+
+			ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
+			ioss_qos_new_nodes.tx_node->tc_prio = prio;
 		}
 	}
 
