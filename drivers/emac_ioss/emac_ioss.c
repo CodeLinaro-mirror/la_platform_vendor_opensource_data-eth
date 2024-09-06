@@ -1159,6 +1159,35 @@ inline bool stmmac_is_phy_link_up(struct stmmac_priv *priv)
 			priv->dev->phydev->link);
 }
 
+inline int stmmac_get_cbs_avail_bw(struct ioss_device *idev) {
+	int bw_avail;
+	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
+
+	switch (priv->speed) {
+		case SPEED_10000:
+			bw_avail = 9500;
+			break;
+		case SPEED_5000:
+			bw_avail = 4750;
+			break;
+		case SPEED_2500:
+			bw_avail = 2350;
+			break;
+		case SPEED_1000:
+			bw_avail = 950;
+			break;
+		case SPEED_100:
+			bw_avail = 90;
+			break;
+		case SPEED_10:
+			bw_avail = -1;
+			break;
+		default:
+			bw_avail = 0;
+	}
+	return bw_avail;
+}
+
 static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx)
 {
 	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
@@ -1438,39 +1467,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		}
 
 		/*CBS claculation*/
-		// Reserved about 5% bandwidth for speed >= 1Gbps and 10M for 100Mbps
-		switch (priv->speed) {
-			case SPEED_10000:
-				bw_avail = 9500;
-				break;
-			case SPEED_5000:
-				bw_avail = 4750;
-				break;
-			case SPEED_2500:
-				bw_avail = 2350;
-				break;
-			case SPEED_1000:
-				bw_avail = 950;
-				break;
-			case SPEED_100:
-				bw_avail = 90;
-				break;
-			case SPEED_10:
-			default:
-				map_info.qos_response_status = QOS_COMMIT_FAIL;
-				ioss_qos_dev_err(idev, "Invalid Speed for QOS\n");
-				goto err_inval_speed;
+		bw_avail = stmmac_get_cbs_avail_bw(idev);
+		if (bw_avail < 0 ) {
+			map_info.qos_response_status = QOS_COMMIT_FAIL;
+			ioss_qos_dev_err(idev, "Invalid Speed for QOS\n");
+			goto err_inval_speed;
 		}
-
-		// Check if minimum bw requirement can be sufficed for all TC
-		list_for_each_entry_safe(temp_tx, temp_tx_next, qos_tx, node) {
-			bw_total_min += temp_tx->cbs_bw.low_bw;
-			if (bw_total_min > bw_avail) {
-				list_del(&temp_tx->node);
-				min_bw_exceed = true;
-			}
-		}
-
 		qos_adjust_txq_cbs_bw(qos_tx, bw_avail);
 		list_for_each_entry(temp_tx, qos_tx, node) {
 			if (temp_tx->bw_allocated < temp_tx->cbs_bw.low_bw) {
@@ -2208,12 +2210,43 @@ static int stmmac_clear_qos_cache(struct ioss_device *idev)
 	return 0;
 }
 
-static int stmmac_get_max_tx_tc(struct ioss_device *idev)
+static int stmmac_validate_tx_tc(struct ioss_device *idev, struct list_head *qos_tx, struct qos_routing_tx *tx_node)
 {
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	int tx_tc_cnt;
+	int max_tx_tc_cnt = priv->plat->tx_qos_queues_to_use - 2;
+	int tc_cnt = 0;
+	u16 aggr_min_bw = 0;
+	struct qos_routing_tx *temp;
+	int bw_avail = stmmac_get_cbs_avail_bw(idev);
 
-	return (priv->plat->tx_qos_queues_to_use - 2);
+	/* iterate over qos_tx pending table to find number of existing tc's
+	 * If number of TCs are 4 return -EINVAL
+	 */
+	tx_tc_cnt = stmmac_get_tx_tc_count(qos_tx, SW_HW_PATH);
+	if (tx_tc_cnt >= max_tx_tc_cnt)
+		return -EINVAL;
+
+	if (bw_avail < 0) {
+		ioss_qos_dev_err(idev, "Cannot add tc as invalid speed\n");
+		return -EINVAL;
+	} else if (bw_avail == 0) {
+		ioss_qos_dev_err(idev, "Adding DL TC when link is down\n");
+		return 0;
+	}
+
+	/* Iterate over qos_tx table and find the aggregated min bw
+	 * If bw_avail - aggr min bw < cur tc min bw, return failure
+	 */
+	list_for_each_entry(temp, qos_tx, node) {
+		aggr_min_bw += temp->cbs_bw.low_bw;
+	}
+
+	if (bw_avail - aggr_min_bw < tx_node->cbs_bw.low_bw)
+		return -EINVAL;
+
+	return 0;
 }
 
 static void find_tc_queue_channel(struct qos_struct *qos_table, u8 tc_prio, u8 *queue, u8 *channel, bool dir_rx)
@@ -2717,7 +2750,7 @@ static struct ioss_qos_ops stmmac_qos_ops = {
 	.show_qos = stmmac_show_qos,
 	.clear_qos_cache = stmmac_clear_qos_cache,
 	.get_qos_info = stmmac_get_qos_info,
-	.get_max_tx_tc = stmmac_get_max_tx_tc,
+	.validate_tx_tc = stmmac_validate_tx_tc,
 };
 
 static struct ioss_driver_ops stmmac_ioss_ops = {
