@@ -1187,6 +1187,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	bool flt_appd = false;
 	u8 tx_hw_qos_ch_available = 0;
 	u8 old_tx_queue_pcp_map[MTL_MAX_TX_QUEUES];
+	ssize_t intf_width;
 
         if (!priv->plat->qos_supported) {
                 map_info.qos_response_status  = QOS_COMMIT_FAIL;
@@ -1513,34 +1514,22 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			return map_info;
 		}
 
+		intf_width = stmmac_intf_width(priv);
+		if (intf_width < 0) {
+			ioss_qos_dev_err(idev, "Unable to determine MAC-PCS interface width. Interface: %d, Speed: %d\n",
+					 priv->plat->interface, priv->speed);
+			map_info.qos_response_status = QOS_COMMIT_FAIL;
+			goto err_inval_interface;
+		}
+
 		for (i = priv->plat->tx_queues_to_use - 1; i > 1; i--) {
 			if (qos_tables.tx_routing_info[i].mode_to_use == MTL_QUEUE_AVB) {
-				switch (priv->plat->interface) {
-					case PHY_INTERFACE_MODE_RGMII:
-					case PHY_INTERFACE_MODE_RGMII_ID:
-					case PHY_INTERFACE_MODE_RGMII_RXID:
-					case PHY_INTERFACE_MODE_RGMII_TXID:
-					case PHY_INTERFACE_MODE_SGMII:
-						qos_tables.tx_routing_info[i].idle_slope = SGMII_INTERFACE_BIT*1024*qos_tables.tx_routing_info[i].acc_bw/priv->speed;
-						qos_tables.tx_routing_info[i].send_slope = (priv->speed - qos_tables.tx_routing_info[i].acc_bw)*SGMII_INTERFACE_BIT*1024/priv->speed;
-						qos_tables.tx_routing_info[i].hi_credit = MAX_INTERFERENCE_SIZE*8*1024;
-						qos_tables.tx_routing_info[i].low_credit = (-1)*MAX_FRAME_SIZE*8*1024;
-						break;
-					case PHY_INTERFACE_MODE_2500BASEX:
-					case PHY_INTERFACE_MODE_USXGMII:
-						qos_tables.tx_routing_info[i].idle_slope = SGMII_2500X_BIT*1024*qos_tables.tx_routing_info[i].acc_bw/priv->speed;
-						qos_tables.tx_routing_info[i].send_slope = (priv->speed - qos_tables.tx_routing_info[i].acc_bw)*SGMII_2500X_BIT*1024/priv->speed;
-						qos_tables.tx_routing_info[i].hi_credit = MAX_INTERFERENCE_SIZE*8*1024;
-						qos_tables.tx_routing_info[i].low_credit = (-1)*MAX_FRAME_SIZE*8*1024;
-						break;
-					default:
-					ioss_qos_dev_err(idev, "Invalid interface\n");
-						map_info.qos_response_status = QOS_COMMIT_FAIL;
-						goto err_inval_interface;
-						break;
-					}
-				}
+				qos_tables.tx_routing_info[i].idle_slope = intf_width*1024*qos_tables.tx_routing_info[i].acc_bw/priv->speed;
+				qos_tables.tx_routing_info[i].send_slope = (priv->speed - qos_tables.tx_routing_info[i].acc_bw)*intf_width*1024/priv->speed;
+				qos_tables.tx_routing_info[i].hi_credit = MAX_INTERFERENCE_SIZE*8*1024;
+				qos_tables.tx_routing_info[i].low_credit = (-1)*MAX_FRAME_SIZE*8*1024;
 			}
+		}
 		/*end tx allocation*/
 
 		ioss_qos_dev_log(idev, "[iemac qos]: send_slope %d idle_slope = %d hi_credit = %d low_credit = %d\n",

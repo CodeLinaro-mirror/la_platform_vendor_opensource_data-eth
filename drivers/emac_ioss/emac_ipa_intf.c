@@ -1663,6 +1663,47 @@ int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 ind
 }
 EXPORT_SYMBOL_GPL(set_mac_addr);
 
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
+ssize_t stmmac_intf_width(struct stmmac_priv *priv)
+{
+	int intf_width = -EOPNOTSUPP;
+
+	switch (priv->speed) {
+	case SPEED_10000:
+		intf_width = 32;
+		break;
+	case SPEED_5000:
+		intf_width = 32;
+		break;
+	case SPEED_2500:
+		/* sgmii+ supports GMII interface(width 8)
+		while USXGMII and 2500 basex use xgmii interface (width 32)*/
+		if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII)
+			intf_width = 8;
+		else
+			intf_width = 32;
+		break;
+	case SPEED_1000:
+		intf_width = 8;
+		break;
+	case SPEED_100:
+		intf_width = 4;
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
+	return intf_width;
+}
+EXPORT_SYMBOL_GPL(stmmac_intf_width);
+#else
+ssize_t stmmac_intf_width(struct stmmac_priv *priv)
+{
+    return -EOPNOTSUPP;
+}
+#endif
+
 void stmmac_config_qos_cbs(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
 {
 	int i = 0;
