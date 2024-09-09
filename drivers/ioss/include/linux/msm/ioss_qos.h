@@ -227,6 +227,7 @@ struct ioss_qos_ops {
 
 int ioss_qos_create_sysfs(struct device *dev);
 void ioss_qos_remove_sysfs(struct device *dev);
+void ioss_qos_init(struct ioss_device *idev);
 
 static inline int getbitpos(int n)
 {

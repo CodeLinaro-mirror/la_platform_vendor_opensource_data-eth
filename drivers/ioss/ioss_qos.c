@@ -1917,12 +1917,6 @@ int ioss_qos_create_sysfs(struct device *dev)
 	struct kobject *qos_kobj = NULL;
 	struct kobject *tc_param_kobj = NULL;
 
-	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_pending_table);
-	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_committed_table);
-	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_pending_table);
-	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_committed_table);
-	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
-
 	qos_kobj = kobject_create_and_add("qos", &idev->net_dev->dev.kobj);
 	if (!qos_kobj) {
 		ioss_qos_dev_err(idev, "Unable to create qos kobject");
@@ -1967,6 +1961,15 @@ err_qos_sysfs:
 err_qos_kobj:
 	kobject_put(qos_kobj);
 	return -EINVAL;
+}
+
+void ioss_qos_init(struct ioss_device *idev)
+{
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_pending_table);
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_committed_table);
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_pending_table);
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_committed_table);
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
 }
 
 

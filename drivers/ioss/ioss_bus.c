@@ -543,6 +543,8 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	idev->dev.bus = &ioss_bus;
 	idev->dev.type = &ioss_idev_type;
 
+	ioss_qos_init(idev);
+
 	return idev;
 }
 
