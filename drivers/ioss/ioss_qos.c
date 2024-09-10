@@ -1171,16 +1171,15 @@ static ssize_t store_commit(struct device *dev,
 		ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
 		return -EINVAL;
 	}
-	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
-		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
-		return -EINVAL;
-	}
 	else if (res.qos_response_status == QOS_COMMIT_LINK_DOWN) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit  : Ethernet Link down \n");
 	}
 	else if (res.qos_response_status == QOS_COMMIT_BW_EXHAUST) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
 		return -EINVAL;
+	}
+	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
+		ioss_qos_dev_err(idev, "[ioss qos] : commit ignored : trying to perform empty commit\n");
 	}
 
 	list_for_each(ptr, &idev->ioss_qos_table.qos_rx_pending_table) {
