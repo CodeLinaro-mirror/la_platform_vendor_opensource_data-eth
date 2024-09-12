@@ -1482,8 +1482,7 @@ EXPORT_SYMBOL_GPL(stmmac_restore_qos_queue_cfg);
 void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
 {
 	u8 prio = 0;
-	u32 queue = 0, rxmode = 0, thresh_rx_mode = 0, queue_cnt = 0;
-	int rxfifosz = priv->plat->rx_fifo_size - priv->plat->rx_queues_cfg[0].fifo_sz_bytes;
+	u32 queue = 0;
 	u32 read_value = 0;
 	int i = 0;
 
@@ -1492,24 +1491,19 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 	if (priv->plat->enable_pfc)
 		stmmac_mac_config_pfc(priv);
 
-	for (queue = 1; queue < priv->plat->rx_qos_queues_to_use; queue++) {
-		/* Check number of queues used */
-		if (qos_table_info->queue_to_pcp_map[queue])
-			queue_cnt++;
-	}
-	/* divide fifo size equally  among remaining queues*/
-	if (queue_cnt) {
-		rxfifosz = rxfifosz/queue_cnt;
-		ioss_qos_dev_log(NULL, " [iemac qos] queue cnt = %d rxfifosz available = %d",
-				 queue_cnt, rxfifosz);
-	}
-
 	/*pcp routing*/
 	for (queue = 0; queue < priv->plat->rx_qos_queues_to_use; queue++) {
-		rxmode = priv->plat->rx_queues_cfg[queue].mode_to_use;
-		thresh_rx_mode = priv->plat->rx_queues_cfg[queue].threshold_byte;
+		if (queue == 0) {
+			if (priv->unique_filter_new != PCP) {
+				/*enable dynamic mapping for queue0*/
+				read_value = (u32)readl_relaxed(priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
+				read_value |= XGMAC_QDDMACH;
+				writel(read_value, priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
+			}
+			continue;
+		}
 
-		if (queue && (qos_table_info->queue_to_pcp_map[queue] != priv->queue_pcp_map[queue])) {
+		if (qos_table_info->queue_to_pcp_map[queue] != priv->queue_pcp_map[queue]) {
 			stmmac_rx_queue_prio(priv, priv->hw, qos_table_info->queue_to_pcp_map[queue], queue);
 			for (i = 0; i <= PCP_MAX_VALUE; i++) {
 				if (qos_table_info->queue_to_pcp_map[queue] & BIT(i)) {
@@ -1521,36 +1515,8 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 			priv->queue_pcp_map[queue] = qos_table_info->queue_to_pcp_map[queue];
 			ioss_qos_dev_log(NULL, "[iemac qos]: Install pcp routing pcp = %d, queue = %d\n",
 							getbitpos(qos_table_info->queue_to_pcp_map[queue]), queue);
-			ioss_qos_dev_log(NULL, "[iemac qos]: rxmode = %d, rxfifosz = %d thresh_rx_mode = %d\n",
-					 rxmode, rxfifosz, thresh_rx_mode);
-		}
-		if (queue && !qos_table_info->queue_to_pcp_map[queue]) {
-			/* Disable queues which aren't used */
-			if (!priv->queue_dis[queue]) {
-				stmmac_rx_queue_disable(priv, priv->hw, queue);
-				priv->queue_dis[queue] = true;
-			}
-			continue;
-		} else if (queue && qos_table_info->queue_to_pcp_map[queue]) {
-			/* Enable the queues which are needed */
-			if (priv->queue_dis[queue]) {
-				ioss_qos_dev_log(NULL, "[iemac qos]QOS queue enabled = %d", queue);
-				stmmac_rx_queue_enable(priv, priv->hw, rxmode, queue);
-				priv->queue_dis[queue] = false;
-			}
 		}
 
-		if (queue != 0)
-			stmmac_dma_rx_mode(priv, priv->ioaddr, thresh_rx_mode, queue, rxfifosz, rxmode);
-
-		if (priv->unique_filter_new != PCP && queue == 0) {
-			/*enable dynamic mapping for queue0*/
-			read_value = (u32)readl_relaxed(priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
-			read_value |= XGMAC_QDDMACH;
-			writel(read_value, priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
-		}
-
-		if (queue)
 			stmmac_map_mtl_to_dma(priv, priv->hw, queue, qos_table_info->queue_to_ch_map[queue]);
 	}
 }
