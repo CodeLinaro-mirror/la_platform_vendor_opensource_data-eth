@@ -7111,7 +7111,6 @@ static int tc956xmac_open(struct net_device *dev)
 #ifndef TC956X_SRIOV_VF
 	struct phy_device *phydev = NULL;
 	int addr = priv->plat->phy_addr;
-	char wol_dev_name[15];
 
 	KPRINT_INFO("---> light weight = %d %s : Port %d interface %s", priv->link_down_rst, __func__, priv->port_num, dev->name);
 #ifndef TC956X_WITHOUT_MDIO_WITHOUT_PHY
@@ -7390,9 +7389,8 @@ static int tc956xmac_open(struct net_device *dev)
 		if (priv->tc956x_port_pm_suspend == false) {
 			/* Request the Wake IRQ in case of another line is used for WoL */
 			if (priv->wol_irq != dev->irq) {
-				snprintf(wol_dev_name, sizeof(wol_dev_name), "%s_wol", dev->name);
 				ret = request_irq(priv->wol_irq, tc956xmac_wol_interrupt,
-						  IRQF_NO_SUSPEND, wol_dev_name, dev);
+						  IRQF_NO_SUSPEND, WOL_IRQ_DEV_NAME(priv->port_num), dev);
 				if (unlikely(ret < 0)) {
 					netdev_err(priv->dev,
 						   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
