@@ -135,15 +135,15 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 	idev->dev.offline = input;
 
 	if (!input && idev->qos_enabled) {
-		ret = ioss_reconfigure_qos(idev);
+		ret = ioss_qos_reconfigure(idev);
 		if (ret)
-			ioss_dev_err(idev, "reconfigure_qos failed on resume");
+			ioss_dev_err(idev, "ioss_qos_reconfigure failed on resume");
 	}
 
 	ioss_iface_queue_refresh(iface, true);
 
 	if (!input && idev->qos_enabled) {
-		ret = ioss_enable_qos(idev);
+		ret = ioss_qos_enable(idev);
 		if (ret)
 			ioss_dev_err(idev, "enable_qos failed on resume");
 	}
@@ -542,6 +542,8 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	idev->dev.parent = dev;
 	idev->dev.bus = &ioss_bus;
 	idev->dev.type = &ioss_idev_type;
+
+	ioss_qos_init(idev);
 
 	return idev;
 }

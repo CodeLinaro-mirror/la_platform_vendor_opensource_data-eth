@@ -447,10 +447,7 @@ void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
 
 	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
 		ioss_dev_log(ioss_iface_dev(iface), "Ch : %d, id : %d, dir : %d, traffic : %d, tc_mapping : %d",
-						ch->channel_num, ch->id, ch->direction, ch->traffic_type, ch->tc_mapping);
-		if (ch->traffic_type == IOSS_TRAFFIC_QOS && ch->tc_mapping != 0)
-			continue; // Don't invalidate QOS non-BE Channels
-		else
+			     ch->channel_num, ch->id, ch->direction, ch->traffic_type, ch->tc_mapping);
 		list_move(&ch->node, &iface->invalid_channels);
 	}
 }

@@ -736,6 +736,8 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		stmmac_map_mtl_to_dma(priv, priv->hw, queue_num, channel->channel_num);
 		if ((queue_num == EASYMESH_QUEUE_RX_TX_BE) && (channel->ezmesh_enabled))
 			enable_ezmesh_vlan_filtering(priv);
+		if ((queue_num == QOS_RX_PCP0_QUEUE) && (channel->qos_enabled) && (priv->unique_filter_new != PCP))
+			stmmac_enable_queue_dynamic_dma_ch_selection(priv, priv->hw, QOS_RX_PCP0_QUEUE);
 	}
 
 	return channel;
@@ -2087,6 +2089,13 @@ void stmmac_configure_tx_queue(struct stmmac_priv *priv, u8 queue, u8 txmode)
 	stmmac_dma_tx_mode(priv, priv->ioaddr, SF_DMA_MODE, queue, txfifosz, txmode);
 }
 EXPORT_SYMBOL_GPL(stmmac_configure_tx_queue);
+
+bool stmmac_is_skprio_routing (struct net_device *ndev)
+{
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	return priv->plat->is_skprio_routing(priv);
+}
+EXPORT_SYMBOL_GPL(stmmac_is_skprio_routing);
 
 int config_rx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw)
 {

@@ -163,10 +163,8 @@ static void ioss_net_event_generic(struct ioss_interface *iface,
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	ioss_dev_log(idev, "Generic event for %s", net_dev->name);
-	if(idev->qos_cached)
-		ioss_recommit_qos(idev);
-	else
-		ioss_iface_queue_refresh(iface, false);
+
+	ioss_iface_queue_refresh(iface, false);
 }
 
 static void ioss_net_event_up(struct ioss_interface *iface,
@@ -186,13 +184,20 @@ static void ioss_net_event_up(struct ioss_interface *iface,
 			idev->wol_activated = true;
 	}
 
-	if (idev->qos_enabled)
-		ioss_reconfigure_qos(idev);
+	ioss_iface_queue_refresh(iface, false);
+}
+
+static void ioss_net_event_going_down(struct ioss_interface *iface,
+		unsigned long event, void *ptr)
+{
+	struct net_device *net_dev = netdev_notifier_info_to_dev(ptr);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	ioss_dev_log(idev, "GOING_DOWN event for %s", net_dev->name);
+
+	ioss_qos_clear_cache(idev);
 
 	ioss_iface_queue_refresh(iface, false);
-
-	if (idev->qos_enabled)
-		ioss_enable_qos(idev);
 }
 
 typedef void (*ioss_net_event_handler)(struct ioss_interface *iface,
@@ -204,7 +209,7 @@ static ioss_net_event_handler
 	[NETDEV_REGISTER] = ioss_net_event_register,
 	[NETDEV_UNREGISTER] = ioss_net_event_unregister,
 	[NETDEV_UP] = ioss_net_event_up,
-	[NETDEV_GOING_DOWN] = ioss_net_event_generic,
+	[NETDEV_GOING_DOWN] = ioss_net_event_going_down,
 	[NETDEV_CHANGE] = ioss_net_event_generic,
 };
 
@@ -600,6 +605,8 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		goto err_validate_channels;
 	}
 
+	ioss_qos_refresh(idev);
+
 	rc = ioss_net_alloc_channels(iface);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to allocate channels");
@@ -632,6 +639,8 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		}
 	}
 	iface->state = IOSS_IF_ST_ONLINE;
+
+	ioss_qos_enable(idev);
 
 	return;
 err_disable_pc:
@@ -699,6 +708,8 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 	}
 
 	ioss_ipa_invalidate_channels(iface);
+
+	ioss_qos_remove_channels(iface);
 }
 
 static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)

@@ -1171,10 +1171,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	u8 sw_queue = 0, hw_queue = 0;
 	u8 channel = 0;
 	struct qos_routing_rx *temp_rx;
-	struct qos_routing_tx *temp_tx;
+	struct qos_routing_tx *temp_tx, *temp_tx_next;
 	int qos_rx_queues = priv->plat->rx_qos_queues_to_use;
 	int qos_tx_queues = priv->plat->tx_qos_queues_to_use;
-	u8 pcp_mask = 0, pcp_mask_old = 0;;
+	u8 pcp_mask = 0, pcp_mask_old = 0;
+	bool min_bw_exceed = false;
+	int bw_total_min = 0;
 	int bw_avail = 1000;
 	int aggr_bw = 0;
 	struct response map_info;
@@ -1184,12 +1186,13 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	bool pcp_not_unique = false;
 	bool flt_appd = false;
 	u8 tx_hw_qos_ch_available = 0;
+	u8 old_tx_queue_pcp_map[MTL_MAX_TX_QUEUES];
 
-	if(!stmmac_is_phy_link_up(priv)) {
-		ioss_qos_dev_err(idev, "Link is down \n");
-		map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
-		return map_info;
-	}
+        if (!priv->plat->qos_supported) {
+                map_info.qos_response_status  = QOS_COMMIT_FAIL;
+                ioss_qos_dev_err(idev, "EMAC QOS not enabled");
+                return map_info;
+        }
 
 	/* Cleanup the used tables */
 	if (priv->plat->qos_active) {
@@ -1223,6 +1226,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		}
 
 		for (i = 0; i < priv->plat->tx_qos_queues_to_use; i++) {
+		old_tx_queue_pcp_map[i] = priv->tx_queue_pcp_map[i];
 			if (i == 0) {
 				priv->is_tx_sw[i] = 0;
 				qos_tables.tx_channel_info[i] = 2;
@@ -1403,7 +1407,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			return map_info;
 		}
 
-		/*start tx aggr*/
+		/*start tx allocation*/
 		qos_tables.ipa_qos_tx_ch = idev->qos_tx_channels;
 		tx_hw_qos_ch_available = qos_tables.ipa_qos_tx_ch;
 
@@ -1414,89 +1418,72 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		num_tx_hw_tc = stmmac_get_tx_tc_count(qos_tx, HW_PATH);
 		ioss_qos_dev_log(idev, "num_tx_hw_tc = %d\n", num_tx_hw_tc);
 
-		sw_ch = 0;
-		hw_ch = 0;
 		tx_avail = qos_tx_queues - 1;
 
+		if(!stmmac_is_phy_link_up(priv)) {
+			ioss_qos_dev_log(idev, "Link is down : CBS Params can't be calculated \n");
+			map_info.qos_response_status = QOS_COMMIT_LINK_DOWN;
+			return map_info;
+		}
+
 		/*CBS claculation*/
+		// Reserved about 5% bandwidth for speed >= 1Gbps and 10M for 100Mbps
 		switch (priv->speed) {
 			case SPEED_10000:
-				bw_avail = 10000;
-				break;
-			case SPEED_2500:
-				bw_avail = 2500;
+				bw_avail = 9500;
 				break;
 			case SPEED_5000:
-				bw_avail = 5000;
+				bw_avail = 4750;
+				break;
+			case SPEED_2500:
+				bw_avail = 2350;
 				break;
 			case SPEED_1000:
-				bw_avail = 1000;
+				bw_avail = 950;
 				break;
 			case SPEED_100:
-				bw_avail = 100;
+				bw_avail = 90;
 				break;
 			case SPEED_10:
-				bw_avail = 10;
-				break;
 			default:
 				map_info.qos_response_status = QOS_COMMIT_FAIL;
-				ioss_qos_dev_err(idev, "Invalid Speed\n");
+				ioss_qos_dev_err(idev, "Invalid Speed for QOS\n");
 				goto err_inval_speed;
+		}
+
+		// Check if minimum bw requirement can be sufficed for all TC
+		list_for_each_entry_safe(temp_tx, temp_tx_next, qos_tx, node) {
+			bw_total_min += temp_tx->cbs_bw.low_bw;
+			if (bw_total_min > bw_avail) {
+				list_del(&temp_tx->node);
+				min_bw_exceed = true;
+			}
 		}
 
 		qos_adjust_txq_cbs_bw(qos_tx, bw_avail);
 		list_for_each_entry(temp_tx, qos_tx, node) {
-
-			/* Skip HW TC if IPA pipes are unavailable */
-			if (!qos_tables.ipa_qos_tx_ch && temp_tx->action == IOSS_QOS_HW_PATH) {
-				ioss_qos_dev_log(idev, "TX TC = %d skipped <IPA HW QOS Channel unavailable>\n", temp_tx->tc_prio);
-				continue;
+			if (temp_tx->bw_allocated < temp_tx->cbs_bw.low_bw) {
+				map_info.qos_response_status = QOS_COMMIT_BW_EXHAUST;
+				ioss_qos_dev_err(idev, "BW EXHAUSTED for TX TC %d\n",temp_tx->tc_prio);
+				return map_info;
 			}
 
-			if (tx_avail == 2) {
-				if (num_tx_sw_tc && sw_ch == 0 && temp_tx->action == IOSS_QOS_HW_PATH
-				    && qos_tables.ipa_qos_tx_ch) {
-					sw_ch = 2;
-					tx_avail--;
-				} else if (num_tx_hw_tc && hw_ch == 0 && temp_tx->action == IOSS_QOS_SW_PATH) {
-					if (tx_hw_qos_ch_available > 0) {
-						hw_ch = tx_avail;
-						tx_avail--;
-						tx_hw_qos_ch_available--;
-					}
-					else if (tx_hw_qos_ch_available == 0) {
-						channel = hw_ch;
-					}
-				}
+			if ((tx_hw_qos_ch_available <= 0) && (temp_tx->action == IOSS_QOS_HW_PATH)) {
+				ioss_qos_dev_err(idev, "Not enough HW pipes, skipping TC %d\n",temp_tx->tc_prio);
+				map_info.qos_response_status = QOS_COMMIT_FAIL;
+				goto err_queue_exhaust;
 			}
+
 			if (tx_avail > 1) {
+				if (temp_tx->action == IOSS_QOS_HW_PATH)
+					tx_hw_qos_ch_available--;
 				channel = tx_avail;
-				if (temp_tx->action == IOSS_QOS_SW_PATH)
-				{
-					sw_ch = tx_avail;
-					tx_avail--;
-				}
-				else if (temp_tx->action == IOSS_QOS_HW_PATH
-					 && qos_tables.ipa_qos_tx_ch)
-				{
-					if (tx_hw_qos_ch_available > 0) {
-						hw_ch = tx_avail;
-						tx_avail--;
-						tx_hw_qos_ch_available--;
-					}
-					else if (tx_hw_qos_ch_available == 0) {
-						channel = hw_ch;
-					}
-				}
-			} else {
-				if (temp_tx->action == IOSS_QOS_SW_PATH)
-					channel = sw_ch;
-				else if (temp_tx->action == IOSS_QOS_HW_PATH && qos_tables.ipa_qos_tx_ch)
-					channel = hw_ch;
+				tx_avail--;
 			}
 
-			qos_tables.pipe_map.pipe_to_tc_mapping_tx[channel] |= (1 << temp_tx->tc_prio);
-			qos_tables.tx_routing_info[channel].acc_bw += temp_tx->bw_allocated;
+			ioss_qos_dev_log(idev, "allocated bw for tc = %d, ch %d = %d\n", temp_tx->tc_prio, channel, temp_tx->bw_allocated);
+			qos_tables.pipe_map.pipe_to_tc_mapping_tx[channel] = 1 << temp_tx->tc_prio;
+			qos_tables.tx_routing_info[channel].acc_bw = temp_tx->bw_allocated;
 			/* As qos_tables is global and we are memsetting to 0 after clear, default mode to use should be MTL_QUEUE_AVB*/
 			if (qos_tables.tx_routing_info[channel].acc_bw &&
 			    (qos_tables.tx_routing_info[channel].mode_to_use != MTL_QUEUE_DCB))
@@ -1511,21 +1498,22 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
                                   	ioss_qos_dev_log(idev, "tx queue = %d, pcp = %d\n",
                                                          channel, priv->tx_queue_pcp_map[channel]);
 				}
+
+				if (priv->tx_queue_pcp_map[channel] != old_tx_queue_pcp_map[channel]) {
+					map_info.qos_response_status = QOS_COMMIT_SUCCESS;
+					ioss_qos_dev_log(idev, "Response TC TX ch SW PCP change = %d\n", map_info.qos_response_status);
+				}
+
 			}
 		}
 
+		if (min_bw_exceed) {
+			map_info.qos_response_status = QOS_COMMIT_BW_EXHAUST;
+			ioss_qos_dev_err(idev, "BW EXHAUSTED. Cannot suffice minimun bw requirement");
+			return map_info;
+		}
+
 		for (i = priv->plat->tx_queues_to_use - 1; i > 1; i--) {
-			if (qos_tables.tx_routing_info[i].acc_bw > bw_avail) {
-				qos_tables.tx_routing_info[i].acc_bw = bw_avail;
-				qos_tables.tx_routing_info[i].mode_to_use = MTL_QUEUE_DCB;
-			}
-
-			ioss_qos_dev_log(idev, "acc_bw for ch %d = %d\n", i, qos_tables.tx_routing_info[i].acc_bw);
-			aggr_bw += qos_tables.tx_routing_info[i].acc_bw;
-			if (aggr_bw > bw_avail)
-				ioss_qos_dev_log(idev, "ATTENTION!!! Peak Bw allowed = %d. ch %d exceeds the bw supported by %d",
-								 bw_avail, i, (aggr_bw - bw_avail));
-
 			if (qos_tables.tx_routing_info[i].mode_to_use == MTL_QUEUE_AVB) {
 				switch (priv->plat->interface) {
 					case PHY_INTERFACE_MODE_RGMII:
@@ -1553,7 +1541,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 					}
 				}
 			}
-		/*end tx aggr*/
+		/*end tx allocation*/
 
 		ioss_qos_dev_log(idev, "[iemac qos]: send_slope %d idle_slope = %d hi_credit = %d low_credit = %d\n",
 			         		 qos_tables.tx_routing_info[i].send_slope,
@@ -1629,12 +1617,12 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			ioss_qos_dev_log(idev, "Response TC change TX = %d\n", map_info.qos_response_status);
 			break;
 		}
-		if (qos_tables.tx_routing_info[i].mode_to_use != priv->plat->tx_queues_cfg->mode_to_use) {
+		if (qos_tables.tx_routing_info[i].mode_to_use != priv->plat->tx_queues_cfg[i].mode_to_use) {
 			map_info.qos_response_status = QOS_COMMIT_SUCCESS;
 			ioss_qos_dev_log(idev, "Response TC TX ch mode change for queue = %d\n", i);
-            		ioss_qos_dev_log(idev, "queue = %d cur mode to use = %d, old mode to use = %d,",i,
+			ioss_qos_dev_log(idev, "queue = %d cur mode to use = %d, old mode to use = %d,",i,
 					 qos_tables.tx_routing_info[i].mode_to_use,
-					 priv->plat->tx_queues_cfg->mode_to_use);
+					 priv->plat->tx_queues_cfg[i].mode_to_use);
 			break;
 		} else {
 			if (qos_tables.tx_routing_info[i].acc_bw != priv->tx_ch_bw[i]) {
@@ -1926,7 +1914,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 						} else {
 							if (temp_filter_node->ip_dest.ipv4_dst_addr == priv->app_filters[i].ip_dest.ipv4_dst_addr &&
 							    temp_filter_node->dma_ch == priv->app_filters[i].dma_ch) {
-								break;
+								flt_appd = true;
 							} else {
 								/* The applied filter is not needed, clear it*/
 								if (list_is_last(&temp_filter_node->node, &qos_tables.dma_filter_table))
@@ -2042,6 +2030,11 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	return map_info;
 
 	/* check for any other memory leaks*/
+err_queue_exhaust:
+	if (priv->unique_filter_new != PCP && priv->unique_filter_new != INVALID_FILTER)
+			delete_filter_table(&qos_tables.dma_filter_table);
+	delete_route_table(&qos_tables.pcp_route_table);
+	delete_filter_table(&qos_tables.flt_to_app);
 err_inval_speed:
 err_inval_interface:
 	return map_info;
@@ -2203,6 +2196,14 @@ static int stmmac_clear_qos_cache(struct ioss_device *idev)
 		priv->unique_filter_old = INVALID_FILTER;
 	}
 	return 0;
+}
+
+static int stmmac_get_max_tx_tc(struct ioss_device *idev)
+{
+	struct net_device *ndev = idev->net_dev;
+	struct stmmac_priv *priv = netdev_priv(ndev);
+
+	return (priv->plat->tx_qos_queues_to_use - 2);
 }
 
 static void find_tc_queue_channel(struct qos_struct *qos_table, u8 tc_prio, u8 *queue, u8 *channel, bool dir_rx)
@@ -2677,17 +2678,25 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 	return snprintf(buf, TABLE_BUFFER, "%s\n", table);
 }
 
-static ssize_t stmmac_get_qos_info(struct ioss_device *idev, char* buf)
+static ssize_t stmmac_get_qos_info(struct ioss_device *idev, char* buf, ssize_t buf_size)
 {
-	const int ROW_BUFFER   =   60;
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	char *row = kzalloc(sizeof(char) * ROW_BUFFER, GFP_KERNEL);
+	int bytes_written = 0;
 
-	if (priv->plat->rx_qos_queues_to_use && priv->plat->tx_queues_to_use)
-		return scnprintf(buf, ROW_BUFFER, "qos enabled \n", row);
-	else
-		return scnprintf(buf, ROW_BUFFER, "qos disabled \n", row);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_qos_supported: %d\n", priv->plat->qos_supported);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_qos_config: %s\n", priv->plat->qoscfg);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_rx_queues: %d\n", priv->plat->rx_qos_queues_to_use);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_tx_queues: %d\n", priv->plat->tx_qos_queues_to_use);
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "emac_dl_queue_sel: %s\n", stmmac_is_skprio_routing(ndev)
+				  ? "skprio": "pcp");
+
+	return bytes_written;
 }
 
 static struct ioss_qos_ops stmmac_qos_ops = {
@@ -2697,7 +2706,8 @@ static struct ioss_qos_ops stmmac_qos_ops = {
 	.clear_qos = stmmac_clear_qos,
 	.show_qos = stmmac_show_qos,
 	.clear_qos_cache = stmmac_clear_qos_cache,
-	.show_qos_info = stmmac_get_qos_info,
+	.get_qos_info = stmmac_get_qos_info,
+	.get_max_tx_tc = stmmac_get_max_tx_tc,
 };
 
 static struct ioss_driver_ops stmmac_ioss_ops = {
