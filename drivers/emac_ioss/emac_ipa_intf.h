@@ -562,3 +562,9 @@ int config_rx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
  */
 int config_tx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
 
+/* MAC-PCS Interface width
+ * param[in] priv : stmmac priv data structure
+ */
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
+ssize_t stmmac_intf_width(struct stmmac_priv *priv);
+#endif
