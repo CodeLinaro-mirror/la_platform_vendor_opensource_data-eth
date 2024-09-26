@@ -467,6 +467,19 @@ static void delete_tx_table(struct list_head *table)
 	}
 }
 
+static int get_used_bw(struct list_head *table)
+{
+	struct qos_routing_tx *tx_node;
+	int bw_alloc = 0;
+
+	list_for_each_entry(tx_node, table, node){
+		if(tx_node->disabled)
+			continue;
+		bw_alloc += tx_node->bw_allocated;
+	}
+	return bw_alloc;
+}
+
 static u16 get_node_count(struct list_head *table)
 {
 	u16 count = 0;
@@ -1255,6 +1268,8 @@ static ssize_t show_qos_info(struct device *dev,
 	bytes_written += idrv->qos_ops->get_qos_info(idev, user_buf, BUF_SIZE);
 
 	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "used_bw: %d\n", get_used_bw(&idev->ioss_qos_table.qos_tx_pending_table));
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
 				  "ioss_ipa_config: %s\n", iface->ipa_config);
 	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
 				  "ioss_ipa_rx_pipes: %d\n", idev->qos_rx_channels + 1);
@@ -1264,7 +1279,8 @@ static ssize_t show_qos_info(struct device *dev,
 				  "committed: %s\n", idev->qos_enabled ? "yes" :"no");
 	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
 				  "pending: %s\n", has_qos_table_changed(idev) ? "yes": "no");
-
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "max_supported_speed: %d\n", idev->qos_hw_cap.max_link_speed);
 	return bytes_written;
 }
 
