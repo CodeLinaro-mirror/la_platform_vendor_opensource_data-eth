@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2021, The Linux Foundation. All rights reserved.
+// Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
 
 #include <linux/kernel.h>
 #include <linux/device.h>
@@ -173,7 +174,7 @@ err_power_on:
 err_pinctrl_select_state:
 err_assert_phy_rst:
 err_parse_properties:
-	kzfree(qpriv);
+	kfree(qpriv);
 	priv->plat_priv = NULL;
 	return -EINVAL;
 }
@@ -192,7 +193,7 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 	devm_regulator_put(qpriv->phy_supply);
 
 	devm_pinctrl_put(qpriv->pinctrl);
-	kzfree(priv->plat_priv);
+	kfree(priv->plat_priv);
 	priv->plat_priv = NULL;
 
 	return ret;
