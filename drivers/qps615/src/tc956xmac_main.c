@@ -11619,6 +11619,8 @@ static const struct net_device_ops tc956xmac_netdev_ops = {
 #ifdef TC956X_UNSUPPORTED_UNTESTED
 static void tc956xmac_reset_subtask(struct tc956xmac_priv *priv)
 {
+	u32 tx_cnt = priv->plat->tx_queues_to_use;
+
 	if (!test_and_clear_bit(TC956XMAC_RESET_REQUESTED, &priv->state))
 		return;
 	if (test_bit(TC956XMAC_DOWN, &priv->state))
@@ -11632,6 +11634,7 @@ static void tc956xmac_reset_subtask(struct tc956xmac_priv *priv)
 		usleep_range(1000, 2000);
 
 	set_bit(TC956XMAC_DOWN, &priv->state);
+	tc956xmac_flow_ctrl(priv, priv->hw, 0, 0, priv->pause, tx_cnt);
 	dev_close(priv->dev);
 	dev_open(priv->dev, NULL);
 	clear_bit(TC956XMAC_DOWN, &priv->state);
