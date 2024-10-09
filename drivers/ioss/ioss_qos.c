@@ -510,8 +510,8 @@ void ioss_qos_remove_channels(struct ioss_interface *iface)
 {
 	struct ioss_channel *ch, *tmp_ch;
 	struct ioss_device *idev = ioss_iface_dev(iface);
-	/* Free QOS channels */
 
+	/* Free QOS channels */
 	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
 		if (ch->tc_mapping != 0) {
 			ioss_dev_log(idev, "Moved %d to invalid channels", ch->channel_num);
@@ -523,6 +523,8 @@ void ioss_qos_remove_channels(struct ioss_interface *iface)
 
 	idev->qos_rx_channels = 0;
 	idev->qos_tx_channels = 0;
+
+	ioss_qos_clear_cache(idev);
 }
 
 static void convert_flows_to_tc(struct ioss_device *idev, struct list_head *qos_rx)
