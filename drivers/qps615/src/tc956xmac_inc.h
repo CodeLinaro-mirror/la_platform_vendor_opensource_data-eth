@@ -76,6 +76,9 @@
 /* By default macro is defined and code coverage this macro to be disabled */
 #define TC956X_UNSUPPORTED_UNTESTED_FEATURE
 
+/* Code pieces that this Macro enables are untested and it is being enabled just for experiment purposes*/
+#define TC956X_UNSUPPORTED_UNTESTED
+
 //#define EEPROM_MAC_ADDR
 
 #define MTL_MAX_RX_QUEUES	8
