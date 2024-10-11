@@ -78,7 +78,7 @@ static void ioss_ipa_notify_cb(void *priv,
 
 	ioss_dev_op(idev, update_skb, ch, skb);
 
-	if (netif_rx_ni(skb) == NET_RX_DROP)
+	if (netif_rx(skb) == NET_RX_DROP)
 		iface->exception_stats.rx_drops++;
 }
 

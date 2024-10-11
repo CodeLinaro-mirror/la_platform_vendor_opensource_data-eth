@@ -53,7 +53,7 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 
 	ch->ioss_priv = kzalloc(sizeof(struct ioss_ch_priv), GFP_KERNEL);
 	if (!ch->ioss_priv) {
-		kfree_sensitive(ch);
+		kvfree_sensitive(ch,ksize(ch));
 		return -ENOMEM;
 	}
 
@@ -138,8 +138,8 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 	return 0;
 
 err:
-	kfree_sensitive(ch->ioss_priv);
-	kfree_sensitive(ch);
+	kvfree_sensitive(ch->ioss_priv,ksize(ch->ioss_priv));
+	kvfree_sensitive(ch,ksize(ch));
 
 	return -EINVAL;
 }
@@ -201,12 +201,12 @@ err:
 		list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
 			list_del(&ch->node);
 			kfree(ch->ipa_configs);
-			kfree_sensitive(ch->ioss_priv);
-			kfree_sensitive(ch);
+			kvfree_sensitive(ch->ioss_priv,ksize(ch->ioss_priv));
+			kvfree_sensitive(ch,ksize(ch));
 		}
 	}
 
-	kfree_sensitive(iface->ioss_priv);
+	kvfree_sensitive(iface->ioss_priv,ksize(iface->ioss_priv));
 
 	return -EINVAL;
 }

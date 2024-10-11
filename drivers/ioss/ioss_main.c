@@ -120,8 +120,8 @@ err:
 	if (ioss->wq)
 		destroy_workqueue(ioss->wq);
 
-	kfree_sensitive(ioss->ioss_priv);
-	kfree_sensitive(ioss);
+	kvfree_sensitive(ioss->ioss_priv, ksize(ioss->ioss_priv));
+	kvfree_sensitive(ioss, ksize(ioss));
 
 	platform_set_drvdata(pdev, NULL);
 	np->data = NULL;
@@ -146,8 +146,8 @@ static int ioss_remove(struct platform_device *pdev)
 	ioss_log_msg(NULL, "Done IOSS Platform stop");
 	destroy_workqueue(ioss->wq);
 
-	kfree_sensitive(ioss->ioss_priv);
-	kfree_sensitive(ioss);
+	kvfree_sensitive(ioss->ioss_priv, ksize(ioss->ioss_priv));
+	kvfree_sensitive(ioss,  ksize(ioss));
 
 	platform_set_drvdata(pdev, NULL);
 	np->data = NULL;
