@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -13,7 +13,7 @@
 #include <ipa_eth.h>
 #include <linux/panic_notifier.h>
 
-#if IPA_ETH_API_VER < 2
+#if IPA_ETH_API_VER < 4
 #error Unsupported IPA interface IPA_ETH_API_VER
 #endif
 
@@ -40,17 +40,13 @@ struct ioss_priv_data {
 
 struct ioss_ch_priv {
 	struct ipa_eth_client_pipe_info ipa_pi;
-#if IPA_ETH_API_VER > 2
 	const struct ipa_eth_dma_ch_config *ipa_ch_config;
-#endif
 };
 
 struct ioss_iface_priv {
 	struct ipa_eth_client ipa_ec;
 	struct ipa_eth_intf_info ipa_ii;
-#if IPA_ETH_API_VER > 2
 	struct ipa_eth_config ipa_config;
-#endif
 };
 
 extern struct ioss_mem_allocator ioss_default_alctr;
