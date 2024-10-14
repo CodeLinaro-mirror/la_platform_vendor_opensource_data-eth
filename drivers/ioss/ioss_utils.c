@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -116,31 +116,33 @@ void ioss_log_deinit(void)
 
 static int __ioss_list_iter_action_recurse(
 	struct list_head *node, struct list_head *head,
-	int (*action)(struct list_head *node),
-	void (*revert)(struct list_head *node))
+	int (*action)(struct list_head *node, void *arg),
+	void (*revert)(struct list_head *node, void *arg),
+	void *arg)
 {
 	int rc;
 
 	if (node == head)
 		return 0;
 
-	rc = action(node);
+	rc = action(node, arg);
 	if (rc)
 		return rc;
 
-	rc = __ioss_list_iter_action_recurse(node->next, head, action, revert);
+	rc = __ioss_list_iter_action_recurse(node->next, head, action, revert, arg);
 	if (rc && revert)
-		revert(node);
+		revert(node, arg);
 
 	return rc;
 }
 
 int ioss_list_iter_action(struct list_head *head,
-	int (*action)(struct list_head *node),
-	void (*revert)(struct list_head *node))
+	int (*action)(struct list_head *node, void *arg),
+	void (*revert)(struct list_head *node, void *arg),
+	void *arg)
 {
 	return __ioss_list_iter_action_recurse(
-			head->next, head, action, revert);
+			head->next, head, action, revert, arg);
 }
 
 /* Enum string conversions */
