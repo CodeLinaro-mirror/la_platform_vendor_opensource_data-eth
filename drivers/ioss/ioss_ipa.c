@@ -169,6 +169,38 @@ static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 	return 0;
 }
 
+#if IPA_ETH_API_VER > 4
+int ioss_ipa_enable_pipes(struct ioss_interface *iface)
+{
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_client *ec = &ifp->ipa_ec;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	if (ipa_eth_client_enable_pipes(ec)) {
+		ioss_dev_err(idev, "Failed to enable pipes");
+		return -EINVAL;
+	}
+	ioss_dev_dbg(idev, "Enabled IPA pipes");
+
+	return 0;
+}
+
+int ioss_ipa_disable_pipes(struct ioss_interface *iface)
+{
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_client *ec = &ifp->ipa_ec;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	if (ipa_eth_client_disable_pipes(ec)) {
+		ioss_dev_err(idev, "Failed to disable pipes");
+		return -EINVAL;
+	}
+	ioss_dev_dbg(idev, "Disabled IPA pipes");
+
+	return 0;
+}
+#endif
+
 int ioss_ipa_register(struct ioss_interface *iface)
 {
 	int i;

@@ -79,6 +79,20 @@ int ioss_ipa_unregister(struct ioss_interface *iface);
 int ioss_ipa_validate_channels(struct ioss_interface *iface);
 void ioss_ipa_invalidate_channels(struct ioss_interface *iface);
 
+#if IPA_ETH_API_VER > 4
+int ioss_ipa_enable_pipes(struct ioss_interface *iface);
+int ioss_ipa_disable_pipes(struct ioss_interface *iface);
+#else
+static inline int ioss_ipa_enable_pipes(struct ioss_interface *iface)
+{
+	return 0;
+}
+static inline int ioss_ipa_disable_pipes(struct ioss_interface *iface)
+{
+	return 0;
+}
+#endif
+
 enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_device *idev);
 int ioss_ipa_hal_fill_si(struct ioss_channel *ch);
 
@@ -113,8 +127,9 @@ static inline void ioss_log_deinit(void)
 #endif
 
 int ioss_list_iter_action(struct list_head *head,
-	int (*action)(struct list_head *node),
-	void (*revert)(struct list_head *node));
+	int (*action)(struct list_head *node, void *arg),
+	void (*revert)(struct list_head *node, void *arg),
+	void *arg);
 
 const char *ioss_if_state_name(enum ioss_interface_state state);
 const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
