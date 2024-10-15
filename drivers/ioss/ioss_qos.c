@@ -960,7 +960,7 @@ static ssize_t store_del_tc(struct device *dev,
 			tx_node = to_qos_routing_tx(ptr);
 			if (tx_node->tc_prio == prio) {
 				list_del(ptr);
-				kfree(rx_node);
+				kfree(tx_node);
 			}
 		}
 	}
