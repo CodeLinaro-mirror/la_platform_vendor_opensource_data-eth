@@ -220,7 +220,7 @@ static unsigned int dwmac_qcom_get_plat_tx_coal_frames(struct sk_buff *skb)
 
 static const struct of_device_id qcom_ethqos_match[] = {
 	{ .compatible = "qcom,stmmac-ethqos-emac0", },
-	{ .compatible = "qcom,emac-smmu-embedded", },
+	{ .compatible = "qcom,emac-thin-smmu-embedded", },
 	{ }
 };
 
@@ -467,7 +467,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 			return ret;
 		}
 	}
-	if (of_device_is_compatible(np, "qcom,emac-smmu-embedded"))
+	if (of_device_is_compatible(np, "qcom,emac-thin-smmu-embedded"))
 		return emac_emb_smmu_cb_probe(pdev);
 
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
@@ -592,7 +592,7 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 	int ret;
 
 	if (of_device_is_compatible(pdev->dev.of_node,
-				    "qcom,emac-smmu-embedded")) {
+				    "qcom,emac-thin-smmu-embedded")) {
 		of_platform_depopulate(&pdev->dev);
 		return 0;
 	}
@@ -636,7 +636,7 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct stmmac_priv *priv = NULL;
 	int ret;
 
-	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded")) {
+	if (of_device_is_compatible(dev->of_node, "qcom,emac-thin-smmu-embedded")) {
 		ETHQOSDBG("smmu return\n");
 		return 0;
 	}
@@ -674,7 +674,7 @@ static int qcom_ethqos_resume(struct device *dev)
 	int ret;
 
 	ETHQOSDBG("Resume Enter\n");
-	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded"))
+	if (of_device_is_compatible(dev->of_node, "qcom,emac-thin-smmu-embedded"))
 		return 0;
 
 	ethqos = get_stmmac_bsp_priv(dev);
