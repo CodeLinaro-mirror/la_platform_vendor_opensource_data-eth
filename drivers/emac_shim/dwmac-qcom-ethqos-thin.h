@@ -8,7 +8,7 @@
 #include <linux/ipc_logging.h>
 #include "../include/linux/emac_ctrl_fe_api.h"
 
-extern void *ipc_emac_log_ctxt;
+extern void *ipc_emac_thin_log_ctxt;
 
 #define IPCLOG_STATE_PAGES 50
 #define __FILENAME__ (strrchr(__FILE__, '/') ? \
@@ -18,8 +18,8 @@ extern void *ipc_emac_log_ctxt;
 #define ETHQOSDBG(fmt, args...) \
 do {\
 	pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
-	if (ipc_emac_log_ctxt) { \
-		ipc_log_string(ipc_emac_log_ctxt, \
+	if (ipc_emac_thin_log_ctxt) { \
+		ipc_log_string(ipc_emac_thin_log_ctxt, \
 		"%s: %s[%u]:[stmmac] DEBUG:" fmt, __FILENAME__,\
 		__func__, __LINE__, ## args); \
 	} \
@@ -27,8 +27,8 @@ do {\
 #define ETHQOSERR(fmt, args...) \
 do {\
 	pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
-	if (ipc_emac_log_ctxt) { \
-		ipc_log_string(ipc_emac_log_ctxt, \
+	if (ipc_emac_thin_log_ctxt) { \
+		ipc_log_string(ipc_emac_thin_log_ctxt, \
 		"%s: %s[%u]:[emac] ERROR:" fmt, __FILENAME__,\
 		__func__, __LINE__, ## args); \
 	} \
@@ -36,8 +36,8 @@ do {\
 #define ETHQOSINFO(fmt, args...) \
 do {\
 	pr_info(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
-	if (ipc_emac_log_ctxt) { \
-		ipc_log_string(ipc_emac_log_ctxt, \
+	if (ipc_emac_thin_log_ctxt) { \
+		ipc_log_string(ipc_emac_thin_log_ctxt, \
 		"%s: %s[%u]:[stmmac] INFO:" fmt, __FILENAME__,\
 		__func__, __LINE__, ## args); \
 	} \
@@ -60,7 +60,7 @@ struct qcom_ethqos {
 	struct notifier_block emac_nb;
 };
 
-void *qcom_ethqos_get_priv(struct qcom_ethqos *ethqos);
+void *qcom_ethqos_thin_get_priv(struct qcom_ethqos *ethqos);
 
 #define QTAG_VLAN_ETH_TYPE_OFFSET 16
 #define QTAG_UCP_FIELD_OFFSET 14
