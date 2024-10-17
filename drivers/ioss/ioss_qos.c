@@ -993,7 +993,7 @@ static ssize_t store_tx_handle(struct device *dev,
 		struct device_attribute *attr, const char *user_buf, size_t size)
 {
 	struct ioss_device *idev = NULL;
-	struct kobject *kobj = real_kobj_from_dev(dev, 2);
+	struct kobject *kobj = real_kobj_from_dev(dev, 1);
 
 	u32 input = 0;
 
