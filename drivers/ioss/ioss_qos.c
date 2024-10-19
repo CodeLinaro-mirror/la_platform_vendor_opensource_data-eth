@@ -347,6 +347,7 @@ static void copy_tx_node(struct qos_routing_tx *src, struct qos_routing_tx *dest
 
 	dest->tc_prio = src->tc_prio;
 	dest->committed = src->committed;
+	dest->disabled = src->disabled;
 	dest->action = src->action;
 	dest->cbs_bw.low_bw = src->cbs_bw.low_bw;
 	dest->cbs_bw.high_bw = src->cbs_bw.high_bw;
@@ -466,6 +467,19 @@ static void delete_tx_table(struct list_head *table)
 	}
 }
 
+static int get_used_bw(struct list_head *table)
+{
+	struct qos_routing_tx *tx_node;
+	int bw_alloc = 0;
+
+	list_for_each_entry(tx_node, table, node){
+		if(tx_node->disabled)
+			continue;
+		bw_alloc += tx_node->bw_allocated;
+	}
+	return bw_alloc;
+}
+
 static u16 get_node_count(struct list_head *table)
 {
 	u16 count = 0;
@@ -510,8 +524,8 @@ void ioss_qos_remove_channels(struct ioss_interface *iface)
 {
 	struct ioss_channel *ch, *tmp_ch;
 	struct ioss_device *idev = ioss_iface_dev(iface);
-	/* Free QOS channels */
 
+	/* Free QOS channels */
 	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
 		if (ch->tc_mapping != 0) {
 			ioss_dev_log(idev, "Moved %d to invalid channels", ch->channel_num);
@@ -523,6 +537,8 @@ void ioss_qos_remove_channels(struct ioss_interface *iface)
 
 	idev->qos_rx_channels = 0;
 	idev->qos_tx_channels = 0;
+
+	ioss_qos_clear_cache(idev);
 }
 
 static void convert_flows_to_tc(struct ioss_device *idev, struct list_head *qos_rx)
@@ -634,14 +650,13 @@ static ssize_t store_add_tc(struct device *dev,
 	u16 len = 0;
 	size_t i = 0;
 	char *tmp = NULL;
-	u16 node_cnt = 0;
+	int ret = 0;
+	struct ioss_device *idev = NULL;
 	struct ioss_driver *idrv = NULL;
-	int max_tx_tc = 0;
 	bool is_dir_rx = false;
 	bool add_to_list = false;
 	char *dup = kstrdup(user_buf, GFP_KERNEL);
 	char *buf = kstrdup(user_buf, GFP_KERNEL);
-	struct ioss_device *idev = NULL;
 	struct kobject *kobj = real_kobj_from_dev(dev, 1);
 
 	idev = ioss_dev_from_kobj(kobj);
@@ -705,7 +720,6 @@ static ssize_t store_add_tc(struct device *dev,
 		}
 	}
 	else {
-		max_tx_tc = idrv->qos_ops->get_max_tx_tc(idev);
 		if (add_to_list) {
 			if (!idev->ioss_qos_new_nodes.tx_node)
 				goto add_err;
@@ -714,8 +728,14 @@ static ssize_t store_add_tc(struct device *dev,
 				ioss_qos_dev_err(NULL, "[ioss qos] action is mandatory parameter\n");
 				goto add_err;
 			}
-			add_tx_tc_by_priority(idev, idev->ioss_qos_new_nodes.tx_node);
-			idev->ioss_qos_new_nodes.tx_node = NULL;
+			ret = idrv->qos_ops->validate_tx_tc(idev, &idev->ioss_qos_table.qos_tx_pending_table,
+							    idev->ioss_qos_new_nodes.tx_node);
+			if (ret) {
+				goto add_err;
+			} else {
+				add_tx_tc_by_priority(idev, idev->ioss_qos_new_nodes.tx_node);
+				idev->ioss_qos_new_nodes.tx_node = NULL;
+			}
 		}
 		else {
 			// Check if same prio already exists
@@ -723,14 +743,9 @@ static ssize_t store_add_tc(struct device *dev,
 				ioss_qos_dev_err(NULL, "[ioss qos] : tx tc prio already exists");
 				goto add_err;
 			}
-			node_cnt = get_node_count(&idev->ioss_qos_table.qos_tx_pending_table);
-			if (node_cnt < max_tx_tc) {
-				idev->ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
-				idev->ioss_qos_new_nodes.tx_node->tc_prio = prio;
-			} else {
-				ioss_qos_dev_err(NULL, "[ioss qos] : Only %u tx tc's are supported\n", max_tx_tc);
-				return -EINVAL;
-			}
+
+			idev->ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
+			idev->ioss_qos_new_nodes.tx_node->tc_prio = prio;
 		}
 	}
 
@@ -1172,16 +1187,14 @@ static ssize_t store_commit(struct device *dev,
 		ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
 		return -EINVAL;
 	}
-	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
-		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
-		return -EINVAL;
-	}
 	else if (res.qos_response_status == QOS_COMMIT_LINK_DOWN) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit  : Ethernet Link down \n");
 	}
 	else if (res.qos_response_status == QOS_COMMIT_BW_EXHAUST) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
-		return -EINVAL;
+	}
+	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
+		ioss_qos_dev_err(idev, "[ioss qos] : commit ignored : trying to perform empty commit\n");
 	}
 
 	list_for_each(ptr, &idev->ioss_qos_table.qos_rx_pending_table) {
@@ -1257,6 +1270,8 @@ static ssize_t show_qos_info(struct device *dev,
 	bytes_written += idrv->qos_ops->get_qos_info(idev, user_buf, BUF_SIZE);
 
 	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "used_bw: %d\n", get_used_bw(&idev->ioss_qos_table.qos_tx_pending_table));
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
 				  "ioss_ipa_config: %s\n", iface->ipa_config);
 	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
 				  "ioss_ipa_rx_pipes: %d\n", idev->qos_rx_channels + 1);
@@ -1266,7 +1281,8 @@ static ssize_t show_qos_info(struct device *dev,
 				  "committed: %s\n", idev->qos_enabled ? "yes" :"no");
 	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
 				  "pending: %s\n", has_qos_table_changed(idev) ? "yes": "no");
-
+	bytes_written += snprintf(user_buf + bytes_written, BUF_SIZE - bytes_written,
+				  "max_supported_speed: %d\n", idev->qos_hw_cap.max_link_speed);
 	return bytes_written;
 }
 
@@ -1383,7 +1399,11 @@ static ssize_t store_bw(struct device *dev,
 	char *tmp = NULL;
 	char *dup = kstrdup(user_buf, GFP_KERNEL);
 	char *buf = kstrdup(user_buf, GFP_KERNEL);
+	int max_usable_bw;
+	int bw_total_min = 0;
 	struct ioss_device *idev = NULL;
+	struct qos_routing_tx *temp_tx;
+
 	struct kobject *kobj = real_kobj_from_dev(dev, 2);
 
 	idev = ioss_dev_from_kobj(kobj);
@@ -1415,13 +1435,20 @@ static ssize_t store_bw(struct device *dev,
 
 	kfree(tmp);
 
+	max_usable_bw = idev->qos_hw_cap.max_usable_bw;
+
 	if (!is_valid_bw(idev->ioss_qos_new_nodes.tx_node->cbs_bw.low_bw)) {
 		ioss_qos_dev_err(NULL, "[ioss qos] Low BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
 		goto bw_err;
 	}
 
-	if (!is_valid_bw(idev->ioss_qos_new_nodes.tx_node->cbs_bw.high_bw)) {
-		ioss_qos_dev_err(NULL, "[ioss qos] High BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
+	bw_total_min = idev->ioss_qos_new_nodes.tx_node->cbs_bw.low_bw;
+	list_for_each_entry(temp_tx, &idev->ioss_qos_table.qos_tx_pending_table, node) {
+		bw_total_min += temp_tx->cbs_bw.low_bw;
+	}
+
+	if (bw_total_min > max_usable_bw) {
+		ioss_qos_dev_err(NULL, "[ioss qos] Exceeding MAX allowed BW [%d, %d]\n", BW_LOWER_LIMIT, max_usable_bw);
 		goto bw_err;
 	}
 
@@ -1973,6 +2000,47 @@ void ioss_qos_remove_sysfs(struct device *dev)
 	kobject_put(idev->qos_tc_params_kobj);
 	kobject_del(idev->qos_kobj);
 	kobject_put(idev->qos_kobj);
+}
+
+int ioss_qos_add_idev(struct ioss_device *idev)
+{
+	struct ioss_driver *idrv = to_ioss_driver(idev->dev.driver);
+
+	if (!idrv->qos_ops)
+		return 0;
+
+	// Check if any of the required QoS operations are null
+	if (!idrv->qos_ops->prepare_qos ||
+	    !idrv->qos_ops->request_qos ||
+	    !idrv->qos_ops->enable_qos ||
+	    !idrv->qos_ops->clear_qos ||
+	    !idrv->qos_ops->show_qos ||
+	    !idrv->qos_ops->clear_qos_cache ||
+	    !idrv->qos_ops->get_qos_info ||
+	    !idrv->qos_ops->validate_tx_tc ||
+	    !idrv->qos_ops->get_hw_caps){
+		ioss_qos_dev_err(idev, "Missing Required QoS Operations");
+		return -EINVAL;
+	}
+
+	idrv->qos_ops->get_hw_caps(idev, &idev->qos_hw_cap);
+
+	return ioss_qos_create_sysfs(&idev->dev);
+}
+
+void ioss_qos_remove_idev(struct ioss_device *idev)
+{
+	struct ioss_driver *idrv = to_ioss_driver(idev->dev.driver);
+
+	if (!idrv->qos_ops)
+		return;
+
+	if (idev->qos_enabled) {
+		idrv->qos_ops->clear_qos(idev);
+		idev->qos_enabled = false;
+	}
+
+	ioss_qos_remove_sysfs(&idev->dev);
 }
 
 static int ioss_parse_qos_channel(struct ioss_device *idev,

@@ -37,11 +37,15 @@ static void qos_adjust_txq_cbs_bw(struct list_head *qos_tx, u16 available_bw)
 	u16 min_bw, max_bw;
 
 	list_for_each_entry(temp_tx, qos_tx, node) {
+	if (temp_tx->disabled)
+		continue;
         total_min_bw += temp_tx->cbs_bw.low_bw;
     }
 
     ioss_qos_dev_log(NULL, "[ioss qos] aggr min bw = %d",total_min_bw);
     list_for_each_entry(temp_tx, qos_tx, node) {
+		if (temp_tx->disabled)
+			continue;
 		min_bw = temp_tx->cbs_bw.low_bw;
 		max_bw = temp_tx->cbs_bw.high_bw;
 		total_min_bw -= temp_tx->cbs_bw.low_bw;
@@ -1159,6 +1163,35 @@ inline bool stmmac_is_phy_link_up(struct stmmac_priv *priv)
 			priv->dev->phydev->link);
 }
 
+static int stmmac_get_cbs_avail_bw(int speed)
+{
+	int bw_avail;
+
+	switch (speed) {
+	case SPEED_10000:
+		bw_avail = 9500;
+		break;
+	case SPEED_5000:
+		bw_avail = 4750;
+		break;
+	case SPEED_2500:
+		bw_avail = 2350;
+		break;
+	case SPEED_1000:
+		bw_avail = 950;
+		break;
+	case SPEED_100:
+		bw_avail = 90;
+		break;
+	case SPEED_10:
+		bw_avail = -1;
+		break;
+	default:
+		bw_avail = 0;
+	}
+	return bw_avail;
+}
+
 static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx)
 {
 	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
@@ -1437,61 +1470,49 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 			goto err_inval_speed;
 		}
 
-		/*CBS claculation*/
-		// Reserved about 5% bandwidth for speed >= 1Gbps and 10M for 100Mbps
-		switch (priv->speed) {
-			case SPEED_10000:
-				bw_avail = 9500;
-				break;
-			case SPEED_5000:
-				bw_avail = 4750;
-				break;
-			case SPEED_2500:
-				bw_avail = 2350;
-				break;
-			case SPEED_1000:
-				bw_avail = 950;
-				break;
-			case SPEED_100:
-				bw_avail = 90;
-				break;
-			case SPEED_10:
-			default:
+		list_for_each_entry(temp_tx, qos_tx, node) {
+			if ((tx_hw_qos_ch_available <= 0) && (temp_tx->action == IOSS_QOS_HW_PATH)) {
+				ioss_qos_dev_err(idev, "Not enough HW pipes, skipping TC %d\n",temp_tx->tc_prio);
 				map_info.qos_response_status = QOS_COMMIT_FAIL;
-				ioss_qos_dev_err(idev, "Invalid Speed for QOS\n");
-				goto err_inval_speed;
+				goto err_queue_exhaust;
+			}
+			if (temp_tx->action == IOSS_QOS_HW_PATH)
+				tx_hw_qos_ch_available--;
+		}
+
+		/*CBS claculation*/
+		bw_avail = stmmac_get_cbs_avail_bw(priv->speed);
+		if (bw_avail < 0 ) {
+			map_info.qos_response_status = QOS_COMMIT_FAIL;
+			ioss_qos_dev_err(idev, "Invalid Speed for QOS\n");
+			goto err_inval_speed;
 		}
 
 		// Check if minimum bw requirement can be sufficed for all TC
 		list_for_each_entry_safe(temp_tx, temp_tx_next, qos_tx, node) {
 			bw_total_min += temp_tx->cbs_bw.low_bw;
 			if (bw_total_min > bw_avail) {
-				list_del(&temp_tx->node);
 				min_bw_exceed = true;
+				temp_tx->disabled = true;
+			} else {
+				temp_tx->disabled = false;
 			}
 		}
 
 		qos_adjust_txq_cbs_bw(qos_tx, bw_avail);
 		list_for_each_entry(temp_tx, qos_tx, node) {
+			if(temp_tx->disabled)
+				continue;
 			if (temp_tx->bw_allocated < temp_tx->cbs_bw.low_bw) {
 				map_info.qos_response_status = QOS_COMMIT_BW_EXHAUST;
 				ioss_qos_dev_err(idev, "BW EXHAUSTED for TX TC %d\n",temp_tx->tc_prio);
 				goto err_bw_exhaust;
 			}
 
-			if ((tx_hw_qos_ch_available <= 0) && (temp_tx->action == IOSS_QOS_HW_PATH)) {
-				ioss_qos_dev_err(idev, "Not enough HW pipes, skipping TC %d\n",temp_tx->tc_prio);
-				map_info.qos_response_status = QOS_COMMIT_FAIL;
-				goto err_queue_exhaust;
-			}
-
 			if (tx_avail > 1) {
-				if (temp_tx->action == IOSS_QOS_HW_PATH)
-					tx_hw_qos_ch_available--;
 				channel = tx_avail;
 				tx_avail--;
 			}
-
 			ioss_qos_dev_log(idev, "allocated bw for tc = %d, ch %d = %d\n", temp_tx->tc_prio, channel, temp_tx->bw_allocated);
 			qos_tables.pipe_map.pipe_to_tc_mapping_tx[channel] = 1 << temp_tx->tc_prio;
 			qos_tables.tx_routing_info[channel].acc_bw = temp_tx->bw_allocated;
@@ -1521,7 +1542,6 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		if (min_bw_exceed) {
 			map_info.qos_response_status = QOS_COMMIT_BW_EXHAUST;
 			ioss_qos_dev_err(idev, "BW EXHAUSTED. Cannot suffice minimun bw requirement");
-			goto err_bw_exhaust;
 		}
 
 		intf_width = stmmac_intf_width(priv);
@@ -2208,12 +2228,22 @@ static int stmmac_clear_qos_cache(struct ioss_device *idev)
 	return 0;
 }
 
-static int stmmac_get_max_tx_tc(struct ioss_device *idev)
+static int stmmac_validate_tx_tc(struct ioss_device *idev, struct list_head *qos_tx, struct qos_routing_tx *tx_node)
 {
 	struct net_device *ndev = idev->net_dev;
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	int tx_tc_cnt;
+	int max_tx_tc_cnt = priv->plat->tx_qos_queues_to_use - 2;
+	int tc_cnt = 0;
 
-	return (priv->plat->tx_qos_queues_to_use - 2);
+	/* iterate over qos_tx pending table to find number of existing tc's
+	 * If number of TCs are more than number of qos queues return -EINVAL
+	 */
+	tx_tc_cnt = stmmac_get_tx_tc_count(qos_tx, SW_HW_PATH);
+	if (tx_tc_cnt >= max_tx_tc_cnt)
+		return -EINVAL;
+
+	return 0;
 }
 
 static void find_tc_queue_channel(struct qos_struct *qos_table, u8 tc_prio, u8 *queue, u8 *channel, bool dir_rx)
@@ -2458,6 +2488,9 @@ static bool is_filter_applied(struct stmmac_priv *priv, enum qos_filter_type fil
 #define TC_SKIP_PREFIX(tc_node, hw_channels)\
 	(tc_node->action == IOSS_QOS_HW_PATH && !hw_channels? "# " : "  ")
 
+#define TX_TC_SKIP_PREFIX(tc_node, hw_channels)\
+	((tc_node->action == IOSS_QOS_HW_PATH && !hw_channels) || tc_node->disabled ? "# " : "  ")
+
 static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_head *qos_rx, struct list_head *qos_tx)
 {
 	size_t i;
@@ -2627,14 +2660,14 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 	strlcat(table, row, TABLE_BUFFER);
 	list_for_each(ptr, qos_tx) {
 		tx_node = to_qos_routing_tx(ptr);
-		scnprintf(row, ROW_BUFFER,"%s- %u:\n", TC_SKIP_PREFIX(tx_node, hw_txch), tx_node->tc_prio);
+		scnprintf(row, ROW_BUFFER,"%s- %u:\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch), tx_node->tc_prio);
 		strlcat(table, row, TABLE_BUFFER);
 
-		scnprintf(row, ROW_BUFFER, "  %saction: %s\n", TC_SKIP_PREFIX(tx_node, hw_txch),
+		scnprintf(row, ROW_BUFFER, "  %saction: %s\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch),
 			  (tx_node->action == IOSS_QOS_HW_PATH)? "HW" : "SW");
 		strlcat(table, row, TABLE_BUFFER);
 
-		scnprintf(row, ROW_BUFFER, "  %sbw: %u:%u\n", TC_SKIP_PREFIX(tx_node, hw_txch),
+		scnprintf(row, ROW_BUFFER, "  %sbw: %u:%u\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch),
 			  tx_node->cbs_bw.low_bw, tx_node->cbs_bw.high_bw);
 		strlcat(table, row, TABLE_BUFFER);
 
@@ -2655,7 +2688,7 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
                 }
 		find_tc_queue_channel(&qos_tables, tx_node->tc_prio, &tc_queue, &tc_channel, false);
 		scnprintf(row, ROW_BUFFER, "  %squeue: %u\n  %schannel: %u\n",
-			  TC_SKIP_PREFIX(tx_node, hw_txch), tc_queue, TC_SKIP_PREFIX(tx_node, hw_txch), tc_channel);
+			  TX_TC_SKIP_PREFIX(tx_node, hw_txch), tc_queue, TX_TC_SKIP_PREFIX(tx_node, hw_txch), tc_channel);
 		strlcat(table, row, TABLE_BUFFER);
 	}
 
@@ -2705,8 +2738,17 @@ static ssize_t stmmac_get_qos_info(struct ioss_device *idev, char* buf, ssize_t 
 	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
 				  "emac_dl_queue_sel: %s\n", stmmac_is_skprio_routing(ndev)
 				  ? "skprio": "pcp");
-
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "usable_bw: %d\n", stmmac_get_cbs_avail_bw(priv->speed));
 	return bytes_written;
+}
+
+static void stmmac_get_hw_cap(struct ioss_device *idev, struct ioss_qos_hw_caps *hw_cap) {
+	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
+
+	hw_cap->tx_qos_queues = (priv->plat->tx_qos_queues_to_use - 2);
+	hw_cap->max_link_speed = priv->plat->max_supported_speed;
+	hw_cap->max_usable_bw = stmmac_get_cbs_avail_bw(priv->plat->max_supported_speed);
 }
 
 static struct ioss_qos_ops stmmac_qos_ops = {
@@ -2717,7 +2759,8 @@ static struct ioss_qos_ops stmmac_qos_ops = {
 	.show_qos = stmmac_show_qos,
 	.clear_qos_cache = stmmac_clear_qos_cache,
 	.get_qos_info = stmmac_get_qos_info,
-	.get_max_tx_tc = stmmac_get_max_tx_tc,
+	.validate_tx_tc = stmmac_validate_tx_tc,
+	.get_hw_caps = stmmac_get_hw_cap,
 };
 
 static struct ioss_driver_ops stmmac_ioss_ops = {
