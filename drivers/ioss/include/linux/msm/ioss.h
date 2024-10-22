@@ -375,11 +375,11 @@ struct ioss_device {
 	} pm_stats;
 
 	bool qos_enabled;
-	bool qos_cached;
 	bool clear_qos_hw;
 	u8 qos_rx_channels;
 	u8 qos_tx_channels;
 	struct qos_pipe_mapping curr_qos_config;
+	struct ioss_qos_hw_caps qos_hw_cap;
 	struct kobject *qos_kobj;
 	struct kobject *qos_tc_params_kobj;
 	struct IOSS_QOS_TABLE ioss_qos_table;

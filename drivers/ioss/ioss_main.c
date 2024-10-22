@@ -182,10 +182,8 @@ static int __init ioss_module_init(void)
 	int rc;
 
 	rc = ioss_log_init();
-	if (rc) {
+	if (rc)
 		pr_err("Failed to initialize IOSS logging\n");
-		return rc;
-	}
 
 	rc = bus_register(&ioss_bus);
 	if (rc) {

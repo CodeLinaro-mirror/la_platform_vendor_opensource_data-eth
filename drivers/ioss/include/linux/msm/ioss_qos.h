@@ -173,7 +173,7 @@ struct qos_routing_rx {
 
 struct qos_routing_tx {
     u8 tc_prio;
-
+    bool disabled;
     bool committed;
     enum action action;
     u32 handle;
@@ -192,7 +192,8 @@ enum ioss_qos_response {
     QOS_COMMIT_SUCCESS = 0,
     QOS_COMMIT_FAIL = 1,
     QOS_COMMIT_EMPTY = 2,
-    QOS_COMMIT_LINK_DOWN = 3
+    QOS_COMMIT_LINK_DOWN = 3,
+    QOS_COMMIT_BW_EXHAUST = 4
 };
 
 struct qos_pipe_mapping {
@@ -210,6 +211,12 @@ struct response {
     struct qos_pipe_mapping qos_pipe_mapping;
 };
 
+struct ioss_qos_hw_caps {
+    int tx_qos_queues;
+    int max_link_speed;
+    int max_usable_bw;
+};
+
 struct ioss_qos_ops {
 	struct response (*prepare_qos)(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx);
 	int (*request_qos)(struct ioss_device *idev);
@@ -217,14 +224,13 @@ struct ioss_qos_ops {
 	int (*clear_qos)(struct ioss_device *idev);
 	ssize_t (*show_qos)(struct ioss_device *idev, char *buf, struct list_head *qos_rx, struct list_head *qos_tx);
 	int (*clear_qos_cache)(struct ioss_device *idev);
-	ssize_t (*show_qos_info)(struct ioss_device *idev, char *buf);
+	ssize_t (*get_qos_info)(struct ioss_device *idev, char *buf, ssize_t buf_size);
+	int (*validate_tx_tc)(struct ioss_device *idev, struct list_head *qos_tx, struct qos_routing_tx *tx_node);
+	void (*get_hw_caps)(struct ioss_device *idev, struct ioss_qos_hw_caps *hw_cap);
 };
 
 #define QOS_TABLE_ROW_BUFFER 16
 #define QOS_TABLE_BUFFER 2048
-
-int ioss_qos_create_sysfs(struct device *dev);
-void ioss_qos_remove_sysfs(struct device *dev);
 
 static inline int getbitpos(int n)
 {

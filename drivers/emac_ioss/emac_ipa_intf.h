@@ -65,6 +65,9 @@
 #define TSN_CHANNEL_TX_DEFAULT	IPA_MUL_CHANNEL_BE0
 #define TSN_CHANNEL_TX_LL	IPA_MUL_CHANNEL_BE3
 
+/* QOS Config */
+#define QOS_RX_PCP0_QUEUE	0
+
 enum channel_dir {
 	CH_DIR_RX,
 	CH_DIR_TX,
@@ -275,6 +278,8 @@ struct dma_filter_table {
     struct list_head node;
 };
 #define to_dma_filter_table(ptr) list_entry(ptr, struct dma_filter_table, node)
+
+#define PCP_MAX_VALUE	7
 
 /*CBS params*/
 #define SGMII_INTERFACE_BIT	8
@@ -540,6 +545,11 @@ void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_in
  */
 void stmmac_configure_tx_queue(struct stmmac_priv *priv, u8 queue, u8 txmode);
 
+/* stmmac qos tx routing strategy
+ * param[in] ndev : stmmac netdev data structure
+ */
+bool stmmac_is_skprio_routing (struct net_device *ndev);
+
 /* Configure RX queue path in SW/HW
  * param[in] ndev : stmmac netdev data structure
  * param[in] queue number
@@ -554,3 +564,9 @@ int config_rx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
  */
 int config_tx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
 
+/* MAC-PCS Interface width
+ * param[in] priv : stmmac priv data structure
+ */
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
+ssize_t stmmac_intf_width(struct stmmac_priv *priv);
+#endif
