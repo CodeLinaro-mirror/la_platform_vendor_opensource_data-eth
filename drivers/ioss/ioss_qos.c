@@ -2332,6 +2332,10 @@ static bool ioss_ipa_reconnect_required(struct ioss_device *idev, struct respons
 		ioss_qos_dev_log(idev, "ch_rx = %d, is_sw = %d -> %d, bmap = %u -> %u \n",
 			i, idev->curr_qos_config.is_rx_tc_sw[i], resp->qos_pipe_mapping.is_rx_tc_sw[i],
 			idev->curr_qos_config.pipe_to_tc_mapping_rx[i], resp->qos_pipe_mapping.pipe_to_tc_mapping_rx[i]);
+
+		/* Special Case: HW channel becomes a SW channel and vice-versa */
+		if (resp->qos_pipe_mapping.is_rx_tc_sw[i] != idev->curr_qos_config.is_rx_tc_sw[i])
+			return true;
 		if (resp->qos_pipe_mapping.is_rx_tc_sw[i])
 			continue;
 		if (resp->qos_pipe_mapping.pipe_to_tc_mapping_rx[i] != idev->curr_qos_config.pipe_to_tc_mapping_rx[i])
