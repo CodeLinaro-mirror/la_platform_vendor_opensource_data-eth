@@ -407,6 +407,7 @@
 #define ENABLE_RGMII_INTERFACE		2
 #define ENABLE_SGMII_INTERFACE		3
 #define ENABLE_2500BASE_X_INTERFACE	4
+#define ENABLE_RGMII_ID_INTERFACE	5
 #define MTL_FPE_AFSZ_64		0
 #define MTL_FPE_AFSZ_128	1
 #define MTL_FPE_AFSZ_192	2
@@ -472,6 +473,10 @@ struct tc956xmac_resources {
 	unsigned int tx_lpi_timer; /* Parameter to store kernel module parameter for LPI Auto Entry Timer */
 #endif
 	uint16_t pci_bd; /* PCI bus and device ID of self */
+
+	unsigned int mdc_clk;
+	unsigned int c45_state;
+	unsigned int link_down_macrst;
 };
 
 struct tc956xmac_tx_info {
@@ -1253,11 +1258,13 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resource
 int tc956x_platform_remove(struct tc956xmac_priv *priv);
 int tc956x_platform_suspend(struct tc956xmac_priv *priv);
 int tc956x_platform_resume(struct tc956xmac_priv *priv);
+int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res);
 #else
 int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resources *res);
 static inline int tc956x_platform_remove(struct tc956xmac_priv *priv) { return 0; }
 static inline int tc956x_platform_suspend(struct tc956xmac_priv *priv) { return 0; }
 int tc956x_platform_resume(struct tc956xmac_priv *priv);
+static inline int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res) { return 0; }
 #endif
 
 int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 out_value);

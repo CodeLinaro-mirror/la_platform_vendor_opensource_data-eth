@@ -1068,7 +1068,8 @@ static void xgmac_default_data(struct plat_tc956xmacenet_data *plat)
 	   (plat->port_interface == ENABLE_XFI_INTERFACE))
 		plat->mac_port_sel_speed = 10000;
 
-	if (plat->port_interface == ENABLE_RGMII_INTERFACE)
+	if ((plat->port_interface == ENABLE_RGMII_INTERFACE) ||
+	   (plat->port_interface == ENABLE_RGMII_ID_INTERFACE))
 		plat->mac_port_sel_speed = 1000;
 
 	if ((plat->port_interface == ENABLE_SGMII_INTERFACE) ||
@@ -1193,6 +1194,10 @@ static int tc956xmac_xgmac3_default_data(struct pci_dev *pdev,
 	}
 	if (plat->port_interface == ENABLE_RGMII_INTERFACE) {
 		plat->interface = PHY_INTERFACE_MODE_RGMII;
+		plat->max_speed = 1000;
+	}
+	if (plat->port_interface == ENABLE_RGMII_ID_INTERFACE) {
+		plat->interface = PHY_INTERFACE_MODE_RGMII_ID;
 		plat->max_speed = 1000;
 	}
 	if ((plat->port_interface == ENABLE_SGMII_INTERFACE) ||
@@ -2566,6 +2571,7 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 #endif
 #endif
 	int ret;
+	int overlay;
 	char version_str[32];
 #if defined(TC956X_PCIE_DSP_CUT_THROUGH) && defined(TC956X_SRIOV_PF)
 	u32 pcie_mode; /* Read Setting A/B */
@@ -2976,6 +2982,19 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		res.port_interface = mac1_interface;
 	}
 
+	overlay = tc956x_platform_port_interface_overlay(&pdev->dev, &res);
+	if (overlay) {
+		plat->mdc_clk = res.mdc_clk;
+		plat->c45_needed = res.c45_state;
+
+		if (res.port_num == RM_PF0_ID) {
+			mac0_link_down_macrst = res.link_down_macrst == 1 ? ENABLE : DISABLE;
+		}
+		if (res.port_num == RM_PF1_ID) {
+			mac1_link_down_macrst = res.link_down_macrst == 1 ? ENABLE : DISABLE;
+		}
+	}
+
 	plat->port_interface = res.port_interface;
 
 	if (res.port_num == RM_PF0_ID) {
@@ -3203,7 +3222,8 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		/* Interface configuration for port1*/
 		ret = readl(res.addr + NEMAC1CTL_OFFSET);
 		ret &= ~(NEMACCTL_SP_SEL_MASK | NEMACCTL_PHY_INF_SEL_MASK);
-		if (res.port_interface == ENABLE_RGMII_INTERFACE)
+		if ((res.port_interface == ENABLE_RGMII_INTERFACE) ||
+			(res.port_interface == ENABLE_RGMII_ID_INTERFACE))
 			ret |= NEMACCTL_SP_SEL_RGMII_1000M;
 		else if ((res.port_interface == ENABLE_SGMII_INTERFACE) ||
 			(res.port_interface == ENABLE_2500BASE_X_INTERFACE))
@@ -3260,7 +3280,8 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 
 #ifndef TC956X_SRIOV_VF
 #ifdef TC956X
-	if ((res.port_num == RM_PF1_ID) && (res.port_interface == ENABLE_RGMII_INTERFACE)) {
+	if ((res.port_num == RM_PF1_ID) && ((res.port_interface == ENABLE_RGMII_INTERFACE) ||
+	(res.port_interface == ENABLE_RGMII_ID_INTERFACE))) {
 		writel(0x00000000, res.addr + 0x1050);
 		writel(0xF300F300, res.addr + 0x107C);
 	}
@@ -3799,7 +3820,8 @@ static int tc956x_pcie_resume_config(struct pci_dev *pdev)
 		/* Interface configuration for port1*/
 		ret = readl(priv->tc956x_SFR_pci_base_addr + NEMAC1CTL_OFFSET);
 		ret &= ~(NEMACCTL_SP_SEL_MASK | NEMACCTL_PHY_INF_SEL_MASK);
-		if (priv->port_interface == ENABLE_RGMII_INTERFACE)
+		if ((priv->port_interface == ENABLE_RGMII_INTERFACE) ||
+			(priv->port_interface == ENABLE_RGMII_ID_INTERFACE))
 			ret |= NEMACCTL_SP_SEL_RGMII_1000M;
 		else if ((priv->port_interface == ENABLE_SGMII_INTERFACE) ||
 			(priv->port_interface == ENABLE_2500BASE_X_INTERFACE))
@@ -3990,7 +4012,8 @@ static int tc956x_pcie_resume(struct device *dev)
 	/* Call tc956xmac_resume() */
 #ifdef TC956X_SRIOV_PF
 	tc956xmac_resume(&pdev->dev);
-	if ((priv->port_num == RM_PF1_ID) && (priv->port_interface == ENABLE_RGMII_INTERFACE)) {
+	if ((priv->port_num == RM_PF1_ID) && ((priv->port_interface == ENABLE_RGMII_INTERFACE) ||
+		(priv->port_interface == ENABLE_RGMII_ID_INTERFACE))) {
 		writel(NEMACTXCDLY_DEFAULT, priv->ioaddr + TC9563_CFG_NEMACTXCDLY);
 		writel(NEMACIOCTL_DEFAULT, priv->ioaddr + TC9563_CFG_NEMACIOCTL);
 	}
