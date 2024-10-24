@@ -257,7 +257,7 @@ static void add_tx_tc_by_priority(struct ioss_device *idev, struct qos_routing_t
 	list_add_tail(&tx_node->node, &idev->ioss_qos_table.qos_tx_pending_table);
 }
 
-static void copy_rx_hdl_node(struct qos_routing_rx_hdl *src, struct qos_routing_rx_hdl *dest)
+static int copy_rx_hdl_node(struct qos_routing_rx_hdl *src, struct qos_routing_rx_hdl *dest)
 {
 	size_t i = 0;
 	size_t j = 0;
@@ -267,17 +267,26 @@ static void copy_rx_hdl_node(struct qos_routing_rx_hdl *src, struct qos_routing_
 
 	dest->pcp.len = src->pcp.len;
 	dest->pcp.arr = kzalloc(sizeof(u8) * dest->pcp.len, GFP_KERNEL);
+	if (!dest->pcp.arr)
+		goto pcp_alloc_err;
+
 	for (i = 0; i < src->pcp.len; i++) {
 		dest->pcp.arr[i] = src->pcp.arr[i];
 	}
 
 	dest->vlan_ids.len = src->vlan_ids.len;
 	dest->vlan_ids.arr = kzalloc(sizeof(u16) * dest->vlan_ids.len, GFP_KERNEL);
+	if (!dest->vlan_ids.arr)
+		goto vlan_alloc_err;
+
 	for (i = 0; i < src->vlan_ids.len; i++)
 		dest->vlan_ids.arr[i] = src->vlan_ids.arr[i];
 
 	dest->src.len = src->src.len;
 	dest->src.arr = kzalloc(sizeof(struct qos_filters) * dest->src.len, GFP_KERNEL);
+	if (!dest->src.arr)
+		goto src_alloc_err;
+
 	for (i = 0; i < src->src.len; i++) {
 		memcpy(&dest->src.arr[i].address, &src->src.arr[i].address, sizeof(dest->src.arr[i].address));
 		dest->src.arr[i].mask_length = src->src.arr[i].mask_length;
@@ -288,6 +297,9 @@ static void copy_rx_hdl_node(struct qos_routing_rx_hdl *src, struct qos_routing_
 
 	dest->dst.len = src->dst.len;
 	dest->dst.arr = kzalloc(sizeof(struct qos_filters) * dest->dst.len, GFP_KERNEL);
+	if (!dest->dst.arr)
+		goto dest_alloc_err;
+
 	for (i = 0; i < src->dst.len; i++) {
 		memcpy(&dest->dst.arr[i].address, &src->dst.arr[i].address, sizeof(dest->dst.arr[i].address));
 		dest->dst.arr[i].mask_length = src->dst.arr[i].mask_length;
@@ -298,6 +310,9 @@ static void copy_rx_hdl_node(struct qos_routing_rx_hdl *src, struct qos_routing_
 
 	dest->smac.len = src->smac.len;
 	dest->smac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * dest->smac.len, GFP_KERNEL);
+	if (!dest->smac.arr)
+		goto smac_alloc_err;
+
 	for (i = 0; i < src->smac.len; i++) {
 		for (j = 0; j < ETH_ALEN; j++)
 			dest->smac.arr[i][j] = src->smac.arr[i][j];
@@ -305,16 +320,35 @@ static void copy_rx_hdl_node(struct qos_routing_rx_hdl *src, struct qos_routing_
 
 	dest->dmac.len = src->dmac.len;
 	dest->dmac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * dest->dmac.len, GFP_KERNEL);
+	if (!dest->dmac.arr)
+		goto dmac_alloc_err;
+
 	for (i = 0; i < src->dmac.len; i++) {
 		for (j = 0; j < ETH_ALEN; j++)
 			dest->dmac.arr[i][j] = src->dmac.arr[i][j];
 	}
+
+	return 0;
+
+dmac_alloc_err:
+	kfree(dest->smac.arr);
+smac_alloc_err:
+	kfree(dest->dst.arr);
+dest_alloc_err:
+	kfree(dest->src.arr);
+src_alloc_err:
+	kfree(dest->vlan_ids.arr);
+vlan_alloc_err:
+	kfree(dest->pcp.arr);
+pcp_alloc_err:
+	ioss_qos_dev_err(NULL, "Memory allocation failed for copy rx node\n");
+	return -ENOMEM;
 }
 
 
-static void copy_rx_node(struct qos_rx_tc *src, struct qos_rx_tc *dest)
+static int copy_rx_node(struct qos_rx_tc *src, struct qos_rx_tc *dest)
 {
-	struct qos_routing_rx_hdl *new_node;
+	struct qos_routing_rx_hdl *new_node, *tmp;
 	struct list_head *ptr;
 
 	dest->tc_prio = src->tc_prio;
@@ -324,24 +358,50 @@ static void copy_rx_node(struct qos_rx_tc *src, struct qos_rx_tc *dest)
 
 	list_for_each(ptr, &src->hdl_node) {
 		new_node = kzalloc(sizeof(struct qos_routing_rx_hdl), GFP_KERNEL);
-		copy_rx_hdl_node(to_qos_routing_rx_hdl(ptr), new_node);
+		if (!new_node)
+			goto alloc_err;
+		if (copy_rx_hdl_node(to_qos_routing_rx_hdl(ptr), new_node) < 0)
+			goto alloc_err;
 		list_add_tail(&new_node->node, &dest->hdl_node);
 	}
+
+	return 0;
+
+alloc_err:
+	list_for_each_entry_safe(new_node, tmp, &dest->hdl_node, node) {
+		list_del(&new_node->node);
+		kfree(new_node);
+	}
+	ioss_qos_dev_err(NULL, "Memory allocation failed for copy rx node\n");
+	return -ENOMEM;
 }
 
-static void copy_rx_table(struct list_head *src, struct list_head *dest)
+static int copy_rx_table(struct list_head *src, struct list_head *dest)
 {
 	struct list_head *ptr;
-	struct qos_rx_tc *new_node;
+	struct qos_rx_tc *new_node, *tmp;
 
 	list_for_each(ptr, src) {
 		new_node = kzalloc(sizeof(struct qos_rx_tc), GFP_KERNEL);
-		copy_rx_node(to_qos_rx_tc(ptr), new_node);
+		if (!new_node)
+			goto alloc_err;
+		if (copy_rx_node(to_qos_rx_tc(ptr), new_node) < 0)
+			goto alloc_err;
 		list_add_tail(&new_node->node, dest);
 	}
+
+	return 0;
+
+alloc_err:
+	list_for_each_entry_safe(new_node, tmp, dest, node) {
+		list_del(&new_node->node);
+		kfree(new_node);
+	}
+	ioss_qos_dev_err(NULL, "Memory allocation failed for copy rx table\n");
+	return -ENOMEM;
 }
 
-static void copy_tx_node(struct qos_routing_tx *src, struct qos_routing_tx *dest)
+static int copy_tx_node(struct qos_routing_tx *src, struct qos_routing_tx *dest)
 {
 	int i = 0;
 
@@ -355,21 +415,41 @@ static void copy_tx_node(struct qos_routing_tx *src, struct qos_routing_tx *dest
 	dest->pcp.len = src->pcp.len;
 	if (src->pcp.len) {
 		dest->pcp.arr = kzalloc(sizeof(u8) * dest->pcp.len, GFP_KERNEL);
+		if (!dest->pcp.arr)
+			goto alloc_err;
+
 		for (i = 0; i < src->pcp.len; i++)
 			dest->pcp.arr[i] = src->pcp.arr[i];
 	}
+	return 0;
+
+alloc_err:
+	ioss_qos_dev_err(NULL,"Memory allocation failed for pcp arr\n");
+	return -ENOMEM;
 }
 
-static void copy_tx_table(struct list_head *src, struct list_head *dest)
+static int copy_tx_table(struct list_head *src, struct list_head *dest)
 {
 	struct list_head *ptr;
-	struct qos_routing_tx *new_node;
+	struct qos_routing_tx *new_node,*tmp;
 
 	list_for_each(ptr, src) {
 		new_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
+		if (!new_node)
+			goto alloc_err;
+
 		copy_tx_node(to_qos_routing_tx(ptr), new_node);
 		list_add_tail(&new_node->node, dest);
 	}
+	return 0;
+
+alloc_err:
+	list_for_each_entry_safe(new_node, tmp, dest, node) {
+		list_del(&new_node->node);
+		kfree(new_node);
+	}
+	ioss_qos_dev_err(NULL, "Memory allocation failed for copy tx table\n");
+	return -ENOMEM;
 }
 
 static void clean_rx_hdl_node(struct qos_routing_rx_hdl *ptr)
@@ -541,9 +621,9 @@ void ioss_qos_remove_channels(struct ioss_interface *iface)
 	ioss_qos_clear_cache(idev);
 }
 
-static void convert_flows_to_tc(struct ioss_device *idev, struct list_head *qos_rx)
+static int convert_flows_to_tc(struct ioss_device *idev, struct list_head *qos_rx)
 {
-	struct qos_routing_rx *qos_rx_tc_tbl;
+	struct qos_routing_rx *qos_rx_tc_tbl, *tmp;
 	struct qos_rx_tc *temp_rx;
 	struct qos_routing_rx_hdl *temp_rx_hdl, *temp_rx_hdl2;
 	struct list_head *qos_rx_hdl;
@@ -553,6 +633,10 @@ static void convert_flows_to_tc(struct ioss_device *idev, struct list_head *qos_
 	/* Iterate over each flow nodes to find the size required for TC table */
 	list_for_each_entry(temp_rx, qos_rx, node) {
 		qos_rx_tc_tbl = kzalloc(sizeof(struct qos_routing_rx), GFP_KERNEL);
+		if (!qos_rx_tc_tbl) {
+			goto rx_tc_tbl_err;
+		}
+
 		qos_rx_tc_tbl->tc_prio = temp_rx->tc_prio;
 		qos_rx_tc_tbl->action = temp_rx->action;
 		qos_rx_tc_tbl->committed = temp_rx->committed;
@@ -568,11 +652,28 @@ static void convert_flows_to_tc(struct ioss_device *idev, struct list_head *qos_
 		}
 
 		qos_rx_tc_tbl->dmac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * qos_rx_tc_tbl->dmac.len, GFP_KERNEL);
+		if (!qos_rx_tc_tbl->dmac.arr)
+			goto dmac_alloc_err;
+
 		qos_rx_tc_tbl->smac.arr = kzalloc(sizeof(u8[ETH_ALEN]) * qos_rx_tc_tbl->smac.len, GFP_KERNEL);
+		if (!qos_rx_tc_tbl->smac.arr)
+			goto smac_alloc_err;
+
 		qos_rx_tc_tbl->pcp.arr = kzalloc(sizeof(u8) * qos_rx_tc_tbl->pcp.len, GFP_KERNEL);
+		if (!qos_rx_tc_tbl->pcp.arr)
+			goto pcp_alloc_err;
+
 		qos_rx_tc_tbl->vlan_ids.arr = kzalloc(sizeof(u16) * qos_rx_tc_tbl->vlan_ids.len, GFP_KERNEL);
+		if (!qos_rx_tc_tbl->vlan_ids.arr)
+			goto vlan_alloc_err;
+
 		qos_rx_tc_tbl->src.arr = kzalloc(sizeof(struct qos_filters) * qos_rx_tc_tbl->src.len, GFP_KERNEL);
+		if (!qos_rx_tc_tbl->src.arr)
+			goto src_alloc_err;
+
 		qos_rx_tc_tbl->dst.arr = kzalloc(sizeof(struct qos_filters) * qos_rx_tc_tbl->dst.len, GFP_KERNEL);
+		if (!qos_rx_tc_tbl->dst.arr)
+			goto dest_alloc_err;
 
 		dmac_clen = 0;
 		smac_clen = 0;
@@ -625,6 +726,27 @@ static void convert_flows_to_tc(struct ioss_device *idev, struct list_head *qos_
 		INIT_LIST_HEAD(&qos_rx_tc_tbl->node);
 		list_add_tail(&qos_rx_tc_tbl->node, &idev->ioss_qos_table.qos_rx_tc_table);
 	}
+
+	return 0;
+
+dest_alloc_err:
+	kfree(qos_rx_tc_tbl->src.arr);
+src_alloc_err:
+	kfree(qos_rx_tc_tbl->vlan_ids.arr);
+vlan_alloc_err:
+	kfree(qos_rx_tc_tbl->pcp.arr);
+pcp_alloc_err:
+	kfree(qos_rx_tc_tbl->smac.arr);
+smac_alloc_err:
+	kfree(qos_rx_tc_tbl->dmac.arr);
+dmac_alloc_err:
+rx_tc_tbl_err:
+	list_for_each_entry_safe(qos_rx_tc_tbl, tmp, &idev->ioss_qos_table.qos_rx_tc_table, node) {
+		list_del(&qos_rx_tc_tbl->node);
+		kfree(qos_rx_tc_tbl);
+	}
+	ioss_qos_dev_err(NULL, "Memory allocation failed for qos_rx_tc_tbl\n");
+	return -ENOMEM;
 }
 /* Utils End */
 
@@ -715,6 +837,11 @@ static ssize_t store_add_tc(struct device *dev,
 				goto add_err;
 			}
 			idev->ioss_qos_new_nodes.rx_node = kzalloc(sizeof(struct qos_rx_tc), GFP_KERNEL);
+			if (!idev->ioss_qos_new_nodes.rx_node) {
+				kfree(tmp);
+				ioss_qos_dev_err(NULL, "Memory allocation failed for rx node\n");
+				return -ENOMEM;
+			}
 			idev->ioss_qos_new_nodes.rx_node->tc_prio = prio;
 			INIT_LIST_HEAD(&idev->ioss_qos_new_nodes.rx_node->hdl_node);
 		}
@@ -745,6 +872,11 @@ static ssize_t store_add_tc(struct device *dev,
 			}
 
 			idev->ioss_qos_new_nodes.tx_node = kzalloc(sizeof(struct qos_routing_tx), GFP_KERNEL);
+			if (!idev->ioss_qos_new_nodes.tx_node) {
+				kfree(tmp);
+				ioss_qos_dev_err(NULL, "Memory allocation failed for tx node\n");
+				return -ENOMEM;
+			}
 			idev->ioss_qos_new_nodes.tx_node->tc_prio = prio;
 		}
 	}
@@ -827,6 +959,11 @@ static ssize_t store_add_handle(struct device *dev,
 			}
 			*/
 			idev->ioss_qos_new_nodes.rx_hdl_node = kzalloc(sizeof(struct qos_routing_rx_hdl), GFP_KERNEL);
+			if (!idev->ioss_qos_new_nodes.rx_hdl_node) {
+				kfree(tmp);
+				ioss_qos_dev_err(NULL, "Memory allocation failed for rx_hdl_node\n");
+				return -ENOMEM;
+			}
 			idev->ioss_qos_new_nodes.rx_hdl_node->hdl = handle;
 		}
 	}
@@ -856,7 +993,7 @@ static ssize_t store_tx_handle(struct device *dev,
 		struct device_attribute *attr, const char *user_buf, size_t size)
 {
 	struct ioss_device *idev = NULL;
-	struct kobject *kobj = real_kobj_from_dev(dev, 2);
+	struct kobject *kobj = real_kobj_from_dev(dev, 1);
 
 	u32 input = 0;
 
@@ -905,11 +1042,13 @@ static ssize_t store_qos_table(struct device *dev,
 	if (sysfs_streq(user_buf, "clear-pending")) {
 		delete_rx_table(&idev->ioss_qos_table.qos_rx_pending_table);
 		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_pending_table);
-		copy_rx_table(&idev->ioss_qos_table.qos_rx_committed_table, &idev->ioss_qos_table.qos_rx_pending_table);
+		if (copy_rx_table(&idev->ioss_qos_table.qos_rx_committed_table, &idev->ioss_qos_table.qos_rx_pending_table) < 0)
+			return -ENOMEM;
 
 		delete_tx_table(&idev->ioss_qos_table.qos_tx_pending_table);
 		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_pending_table);
-		copy_tx_table(&idev->ioss_qos_table.qos_tx_committed_table, &idev->ioss_qos_table.qos_tx_pending_table);
+		if (copy_tx_table(&idev->ioss_qos_table.qos_tx_committed_table, &idev->ioss_qos_table.qos_tx_pending_table) < 0)
+			return -ENOMEM;
 
 		ioss_qos_dev_log(NULL, "[ioss qos] : cleared pending nodes\n");
 
@@ -918,11 +1057,13 @@ static ssize_t store_qos_table(struct device *dev,
 	else if (sysfs_streq(user_buf, "clear")) {
 		delete_rx_table(&idev->ioss_qos_table.qos_rx_pending_table);
 		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_pending_table);
-		copy_rx_table(&idev->ioss_qos_table.qos_rx_committed_table, &idev->ioss_qos_table.qos_rx_pending_table);
+		if (copy_rx_table(&idev->ioss_qos_table.qos_rx_committed_table, &idev->ioss_qos_table.qos_rx_pending_table) < 0)
+			return -ENOMEM;
 
 		delete_tx_table(&idev->ioss_qos_table.qos_tx_pending_table);
 		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_pending_table);
-		copy_tx_table(&idev->ioss_qos_table.qos_tx_committed_table, &idev->ioss_qos_table.qos_tx_pending_table);
+		if (copy_tx_table(&idev->ioss_qos_table.qos_tx_committed_table, &idev->ioss_qos_table.qos_tx_pending_table) < 0)
+			return -ENOMEM;
 
 		ioss_qos_dev_log(NULL, "[ioss qos] : cleared pending nodes and set clear HW flag\n");
 
@@ -1021,7 +1162,7 @@ static ssize_t store_del_tc(struct device *dev,
 			tx_node = to_qos_routing_tx(ptr);
 			if (tx_node->tc_prio == prio) {
 				list_del(ptr);
-				kfree(rx_node);
+				kfree(tx_node);
 			}
 		}
 	}
@@ -1171,7 +1312,9 @@ static ssize_t store_commit(struct device *dev,
 			 idev->qos_rx_channels, idev->qos_tx_channels);
 
 	// idev ops
-	convert_flows_to_tc(idev, &idev->ioss_qos_table.qos_rx_pending_table);
+	if (convert_flows_to_tc(idev, &idev->ioss_qos_table.qos_rx_pending_table) < 0)
+		return -ENOMEM;
+
 	if (idrv->qos_ops->prepare_qos) {
 		res = idrv->qos_ops->prepare_qos(idev, &idev->ioss_qos_table.qos_rx_tc_table, &idev->ioss_qos_table.qos_tx_pending_table);
 		ioss_dev_log(idev, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
@@ -1210,13 +1353,15 @@ static ssize_t store_commit(struct device *dev,
 		delete_rx_table(&idev->ioss_qos_table.qos_rx_committed_table);
 		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_committed_table);
 	}
-	copy_rx_table(&idev->ioss_qos_table.qos_rx_pending_table, &idev->ioss_qos_table.qos_rx_committed_table);
+	if (copy_rx_table(&idev->ioss_qos_table.qos_rx_pending_table, &idev->ioss_qos_table.qos_rx_committed_table) < 0)
+		return -ENOMEM;
 
 	if (!list_empty(&idev->ioss_qos_table.qos_tx_committed_table)) {
 		delete_tx_table(&idev->ioss_qos_table.qos_tx_committed_table);
 		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_committed_table);
 	}
-	copy_tx_table(&idev->ioss_qos_table.qos_tx_pending_table, &idev->ioss_qos_table.qos_tx_committed_table);
+	if (copy_tx_table(&idev->ioss_qos_table.qos_tx_pending_table, &idev->ioss_qos_table.qos_tx_committed_table) < 0)
+		return -ENOMEM;
 
 	if (res.qos_response_status == QOS_COMMIT_SUCCESS)
 		ret = enable_qos_ipa_channels(idev, res);
@@ -2046,7 +2191,7 @@ void ioss_qos_remove_idev(struct ioss_device *idev)
 static int ioss_parse_qos_channel(struct ioss_device *idev,
 		struct device_node *np, u32 tc_mapping, int ch_num)
 {
-	const char *key;
+	const char *key = NULL;
 	struct ioss_channel *ch = NULL;
 	struct ioss_interface *iface = &idev->interface;
 
@@ -2106,6 +2251,7 @@ static int ioss_parse_qos_channel(struct ioss_device *idev,
 		ioss_qos_dev_err(idev, "Failed to parse key %s", key);
 		goto err;
 	}
+	kfree(key);
 
 	key = kstrdup("qcom,mod-usecs-max", GFP_KERNEL);
 	if (of_property_read_u32(np, key, &ch->event.mod_usecs_max)) {
