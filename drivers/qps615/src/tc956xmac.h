@@ -1274,5 +1274,36 @@ int tc956x_vf_rsc_mng_get_fn_id(struct tc956xmac_priv *priv, void __iomem *reg_p
 #endif
 int tc956x_set_pci_speed(struct pci_dev *pdev, u32 speed);
 void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT_LINK_CHANGE_STATE state);
+/*TC956X_Host_Driver-industrial_limited_tested_20241022_V_04-00-01-QPSSW-210.patch*/
+uint16_t tc956x_get_shared_mem_offset(struct pci_dev *pdev, uint16_t pci_bd);
+
+#ifdef TC956X_SRIOV_PF
+#ifdef CONFIG_DEBUG_FS
+int tc956xmac_create_debugfs(struct net_device *net_device);
+int tc956xmac_cleanup_debugfs(struct net_device *net_device);
+#endif
+#endif
+
+#ifndef TC956X_SRIOV_VF
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+int genphy_c45_read_eee_adv_local(struct phy_device *phydev, unsigned long *adv);
+int genphy_c45_eee_is_active_local(struct phy_device *phydev, unsigned long *adv,
+			     unsigned long *lp, bool *is_enabled);
+int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
+			       struct ethtool_eee *data);
+int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *data);
+int phylink_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *eee);
+#endif
+
+#ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
+extern int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data);
+#endif
+#endif
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 5, 0)
+struct timespec64 tc956x_calc_basetime(ktime_t old_base_time,
+					   ktime_t current_time,
+					   u64 cycle_time);
+#endif
 
 #endif /* __TC956XMAC_H__ */
