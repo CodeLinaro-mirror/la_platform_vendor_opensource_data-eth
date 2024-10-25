@@ -75,6 +75,8 @@ endif
 ifeq ($(TC956XMAC_SELFTESTS), 1)
 	tc956x_pcie_eth-y += tc956xmac_selftests.o
 endif
+#TC956X_Host_Driver-industrial_limited_tested_20241022_V_04-00-01-QPSSW-210.patch
+ccflags-y := -Wmissing-prototypes
 
 endif
 
