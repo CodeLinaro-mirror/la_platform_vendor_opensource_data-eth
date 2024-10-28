@@ -259,6 +259,9 @@ static bool stmmac_thin_check_reg_access(struct stmmac_resources *stmmac_res)
 	u32 prev_val, curr_val;
 
 	prev_val = readl_relaxed(stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	if (prev_val & BIT(16)) {
+		return true;
+	}
 	curr_val = prev_val | BIT(16);
 	writel_relaxed(curr_val, stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
 	curr_val = readl_relaxed(stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
