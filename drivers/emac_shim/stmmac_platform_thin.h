@@ -11,12 +11,12 @@
 #include "stmmac_thin.h"
 
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch);
+stmmac_thin_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch);
 
-int stmmac_get_platform_resources(struct platform_device *pdev,
+int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 				  struct stmmac_resources *stmmac_res);
 
-int stmmac_pltfr_remove(struct platform_device *pdev);
+int stmmac_thin_pltfr_remove(struct platform_device *pdev);
 
 static inline void *get_stmmac_bsp_priv(struct device *dev)
 {

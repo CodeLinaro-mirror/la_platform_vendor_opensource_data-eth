@@ -257,10 +257,10 @@ struct stmmac_ops {
 
 struct stmmac_priv;
 
-int stmmac_hwif_init(struct stmmac_priv *priv);
+int stmmac_thin_hwif_init(struct stmmac_priv *priv);
 
-extern const struct stmmac_ops dwmac4_ops;
-extern const struct stmmac_dma_ops dwmac4_dma_ops;
-extern const struct stmmac_desc_ops dwmac4_desc_ops;
+extern const struct stmmac_ops dwmac4_thin_ops;
+extern const struct stmmac_dma_ops dwmac4_thin_dma_ops;
+extern const struct stmmac_desc_ops dwmac4_thin_desc_ops;
 
 #endif /* __STMMAC_HWIF_H__ */

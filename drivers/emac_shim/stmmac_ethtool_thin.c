@@ -236,7 +236,7 @@ static const struct ethtool_ops stmmac_ethtool_ops = {
 	.get_rxnfc = stmmac_get_rxnfc,
 };
 
-void stmmac_set_ethtool_ops(struct net_device *netdev)
+void stmmac_thin_set_ethtool_ops(struct net_device *netdev)
 {
 	netdev->ethtool_ops = &stmmac_ethtool_ops;
 }
