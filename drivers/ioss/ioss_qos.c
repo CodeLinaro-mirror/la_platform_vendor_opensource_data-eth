@@ -5,8 +5,8 @@
 #include <linux/inet.h>
 #include <linux/of.h>
 
-#include "include/linux/msm/ioss.h"
-#include "include/linux/msm/ioss_qos.h"
+#include "ioss.h"
+#include "ioss_qos.h"
 
 #include "ioss_i.h"
 

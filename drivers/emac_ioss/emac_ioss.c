@@ -16,8 +16,7 @@
 #include <linux/debugfs.h>
 #include <linux/minmax.h>
 #include "stmmac.h"
-#include "ioss/include/linux/msm/ioss_qos.h"
-#include "ioss/include/linux/msm/ioss.h"
+#include "ioss.h"
 #include "emac_ipa_intf.h"
 #include "dwmac-qcom-ethqos.h"
 #include "common.h"

@@ -4,7 +4,7 @@
  */
 
 #include "ioss_i.h"
-#include "include/linux/msm/ioss_qos.h"
+#include "ioss_qos.h"
 #include <linux/cdev.h>
 
 /* Wake lock duration to allow the device to settle after a resume */
