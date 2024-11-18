@@ -2805,8 +2805,8 @@ int stmmac_thin_dvr_probe(struct device *device,
 	struct stmmac_channel *ch;
 
 	/* Set tx used queue to 4 so NW stack can trigger tx queue selection */
-	ndev = devm_alloc_etherdev_mqs(device, sizeof(struct stmmac_priv),
-				       4, 1);
+	ndev = alloc_netdev_mqs(sizeof(struct stmmac_priv), "eth1", NET_NAME_ENUM,ether_setup, 4, 1);
+
 	if (!ndev)
 		return -ENOMEM;
 
