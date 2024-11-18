@@ -117,13 +117,21 @@ int tc956x_xpcs_init(struct tc956xmac_priv *priv, void __iomem *xpcsaddr)
 			}
 		}
 		if ((priv->plat->interface == PHY_INTERFACE_MODE_USXGMII) ||
-			(priv->plat->interface == PHY_INTERFACE_MODE_10GKR)) {
+			(priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
+			|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
+#endif
+			) {
 			reg_value = tc956x_xpcs_read(xpcsaddr, XGMAC_SR_XS_PCS_CTRL2);
 			reg_value &= XGMAC_PCS_TYPE_SEL;/*PCS_TYPE_SEL as 10GBASE-R PCS */
 			tc956x_xpcs_write(xpcsaddr, XGMAC_SR_XS_PCS_CTRL2, reg_value);
 
 			reg_value = tc956x_xpcs_read(xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1);
-			if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR) {
+			if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
+				|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
+#endif
+				) {
 				reg_value &= (~XGMAC_USXG_EN); /*Disable USXG_EN*/
 			} else {
 				reg_value |= XGMAC_USXG_EN; /*set USXG_EN*/

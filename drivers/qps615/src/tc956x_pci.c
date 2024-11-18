@@ -1188,7 +1188,11 @@ static int tc956xmac_xgmac3_default_data(struct pci_dev *pdev,
 		plat->max_speed = 10000;
 	}
 	if (plat->port_interface == ENABLE_XFI_INTERFACE) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
+		plat->interface = PHY_INTERFACE_MODE_10GBASER;
+#else
 		plat->interface = PHY_INTERFACE_MODE_10GKR;
+#endif
 		plat->max_speed = 10000;
 	}
 	if (plat->port_interface == ENABLE_RGMII_INTERFACE) {
