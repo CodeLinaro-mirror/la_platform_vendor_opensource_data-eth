@@ -7317,7 +7317,14 @@ static int tc956xmac_open(struct net_device *dev)
 		goto init_error;
 	}
 
-	ret = tc956xmac_hw_setup(dev, true);
+	if(priv->tc956x_port_pm_suspend == false){
+		DBGPR_FUNC(priv->device,"Suspend flag false - Initialise PTP\n");
+		ret = tc956xmac_hw_setup(dev, true);
+	} else { /* During resume, donot initialise PTP */
+		DBGPR_FUNC(priv->device,"Suspend flag True - Donot initialise PTP\n");
+		ret = tc956xmac_hw_setup(dev, false);
+	}
+
 	if (ret < 0) {
 		netdev_err(priv->dev, "%s: Hw setup failed\n", __func__);
 		/*goto init_error;*/
@@ -7738,7 +7745,8 @@ static int tc956xmac_release(struct net_device *dev)
 		netif_carrier_off(dev);
 	NMSGPR_INFO(priv->device, "PHY Link : DOWN\n");
 
-	tc956xmac_release_ptp(priv);
+	if(priv->tc956x_port_pm_suspend == false) /*During Suspend, Skip unregistering PTP*/
+		tc956xmac_release_ptp(priv);
 
 	/* mutex_lock(&priv->port_ld_release_lock);*/
 	/* Checking whether all offload Tx channels released or not*/
