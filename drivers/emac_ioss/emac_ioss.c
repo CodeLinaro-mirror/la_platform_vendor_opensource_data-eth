@@ -828,6 +828,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 					} else if (tmp_proto == IOSS_IPPROTO_TCP_UDP) {
 						/* Add filter for TCP */
 						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						if (!filter_node)
+							goto alloc_err;
+
 						filter_node->dst_port.port_num = temp->dst.arr[i].port_num;
 						filter_node->dst_port.proto = IOSS_IPPROTO_TCP;
 						filter_node->dma_ch = filter_map->channel;
@@ -836,6 +839,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
 						/* Add filter for UDP */
 						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						if (!filter_node)
+							goto alloc_err;
+
 						filter_node->dst_port.port_num = temp->dst.arr[i].port_num;
 						filter_node->dst_port.proto = IOSS_IPPROTO_UDP;
 						filter_node->dma_ch = filter_map->channel;
@@ -844,6 +850,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
 					} else {
 						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						if (!filter_node)
+							goto alloc_err;
+
 						filter_node->dst_port.port_num = temp->dst.arr[i].port_num;
 						filter_node->dst_port.proto = tmp_proto;
 
@@ -911,6 +920,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 					} else if (tmp_proto == IOSS_IPPROTO_TCP_UDP) {
 						/* Add filter for TCP */
 						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						if (!filter_node)
+							goto alloc_err;
+
 						filter_node->src_port.port_num = temp->src.arr[i].port_num;
 						filter_node->src_port.proto = IOSS_IPPROTO_TCP;
 						filter_node->dma_ch = filter_map->channel;
@@ -919,6 +931,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
 						/* Add filter for UDP */
 						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						if (!filter_node)
+							goto alloc_err;
+
 						filter_node->src_port.port_num = temp->src.arr[i].port_num;
 						filter_node->src_port.proto = IOSS_IPPROTO_UDP;
 						filter_node->dma_ch = filter_map->channel;
@@ -927,6 +942,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 						list_add_tail(&filter_node->node, &qos_tables.dma_filter_table);
 					} else {
 						filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+						if (!filter_node)
+							goto alloc_err;
+
 						filter_node->src_port.port_num = temp->src.arr[i].port_num;
 						filter_node->src_port.proto = tmp_proto;
 
@@ -983,6 +1001,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 			for (i = 0; i< temp->vlan_ids.len; i++) {
 				if (temp->vlan_ids.arr[i]) {
 					filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+					if(!filter_node)
+						goto alloc_err;
+
 					filter_node->vlan_id = temp->vlan_ids.arr[i];
 					filter_map = (struct filter_map_info *)(temp->filter_info);
 					filter_node->dma_ch = filter_map->channel;
@@ -1029,6 +1050,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 				cnt++;
 				if (temp->dst.arr[i].address.ss_family) {
 					filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+					if (!filter_node)
+						goto alloc_err;
+
 					convert_ip_addr_to_str(&(temp->dst.arr[i].address), &ipv4_addr, ipv6_addr);
 					filter_node->ip_dest.dst_mask_length = temp->dst.arr[i].mask_length;
 					if (temp->dst.arr[i].address.ss_family == AF_INET6) {
@@ -1094,6 +1118,9 @@ static enum qos_filter_type find_filter(struct list_head *qos_rx)
 				cnt++;
 				if (temp->src.arr[i].address.ss_family) {
 					filter_node = kzalloc(sizeof(struct dma_filter_table), GFP_KERNEL);
+					if (!filter_node)
+						goto alloc_err;
+
 					convert_ip_addr_to_str(&(temp->src.arr[i].address), &ipv4_addr, ipv6_addr);
 					filter_node->ip_src.src_mask_length = temp->src.arr[i].mask_length;
 					if (temp->src.arr[i].address.ss_family == AF_INET6) {
@@ -1152,6 +1179,12 @@ filter_found:
 	ioss_qos_dev_log(NULL, "[ioss qos] No. of filters to be installed = %d\n\n", qos_tables.filter_cnt);
 	kfree(filter_map);
 	return filter;
+
+alloc_err:
+	ioss_qos_dev_err(NULL, "Filter node allocation failed");
+	delete_filter_table(&qos_tables.dma_filter_table);
+	kfree(filter_map);
+	return INVALID_FILTER;
 }
 
 inline bool stmmac_is_phy_link_up(struct stmmac_priv *priv)
@@ -2316,9 +2349,9 @@ static bool is_src_ip_filter_applied(struct stmmac_priv *priv, void *filter_valu
 		equal = true;
 		if (priv->app_filters[i].ip_src.ipv6_src != filter_node.ipv6_src)
 			equal = false;
-		if (priv->app_filters[i].ip_src.src_mask_length != filter_node.src_mask_length)
+		else if (priv->app_filters[i].ip_src.src_mask_length != filter_node.src_mask_length)
 			equal = false;
-		if (priv->app_filters[i].ip_src.ipv6_src) {
+		else if (priv->app_filters[i].ip_src.ipv6_src) {
 			for (j = 0; j < ARRAY_SIZE(filter_node.ipv6_src_addr); j++) {
 				if (priv->app_filters[i].ip_src.ipv6_src_addr[j] != filter_node.ipv6_src_addr[j])
 					equal = false;
@@ -2362,9 +2395,9 @@ static bool is_dest_ip_filter_applied(struct stmmac_priv *priv, void *filter_val
 		equal = true;
 		if (priv->app_filters[i].ip_dest.ipv6_dst != filter_node.ipv6_dst)
 			equal = false;
-		if (priv->app_filters[i].ip_dest.dst_mask_length != filter_node.dst_mask_length)
+		else if (priv->app_filters[i].ip_dest.dst_mask_length != filter_node.dst_mask_length)
 			equal = false;
-		if (priv->app_filters[i].ip_dest.ipv6_dst) {
+		else if (priv->app_filters[i].ip_dest.ipv6_dst) {
 			for (j = 0; j < ARRAY_SIZE(filter_node.ipv6_dst_addr); j++) {
 				if (priv->app_filters[i].ip_dest.ipv6_dst_addr[j] != filter_node.ipv6_dst_addr[j])
 					equal = false;
@@ -2510,7 +2543,11 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 	struct stmmac_priv *priv = netdev_priv(ndev);
 
 	char *row = kzalloc(sizeof(char) * ROW_BUFFER, GFP_KERNEL);
+	if(!row)
+		goto row_alloc_err;
 	char *table = kzalloc(sizeof(char) * TABLE_BUFFER, GFP_KERNEL);
+	if(!table)
+		goto table_alloc_err;
 
 	ioss_qos_dev_log(idev, "Enter");
 
@@ -2719,6 +2756,14 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 	kfree(table);
 
 	return snprintf(buf, TABLE_BUFFER, "%s\n", table);
+
+table_alloc_err:
+	ioss_qos_dev_err(NULL, "Table buffer allocation failed");
+	kfree(row);
+row_alloc_err:
+	ioss_qos_dev_err(NULL, "Row buffer allocation failed");
+	return -ENOMEM;
+
 }
 
 static ssize_t stmmac_get_qos_info(struct ioss_device *idev, char* buf, ssize_t buf_size)
