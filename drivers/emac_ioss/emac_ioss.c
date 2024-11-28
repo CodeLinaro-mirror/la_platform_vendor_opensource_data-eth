@@ -1317,7 +1317,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 					/*PCP exists, check if its non-zero*/
 					pcp_mask_old = pcp_mask;
 					for (i = 0; i < temp_rx->pcp.len; i++) {
-						if (temp_rx->pcp.arr[i]) {
+						if (temp_rx->pcp.arr[i] > 1) {
 							if (pcp_mask & (1 << temp_rx->pcp.arr[i])) {
 								ioss_qos_dev_log(idev, "pcp %d for TC %d already used by other high priority TC\n",
 									    		 temp_rx->pcp.arr[i], temp_rx->tc_prio);
