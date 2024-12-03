@@ -803,6 +803,7 @@ struct tc956xmac_priv {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dbgfs_dir;
 #endif
+	char int_name_wol[IFNAMSIZ + 9]; /*TC956X_Host_Driver-industrial_limited_tested_20241114_V_04-00-01-QPSSW-218.patch*/
 #endif /* TC956X_SRIOV_PF */
 
 	unsigned long state;
