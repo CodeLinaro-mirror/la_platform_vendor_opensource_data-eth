@@ -2359,6 +2359,61 @@ static bool ioss_ipa_reconnect_required(struct ioss_device *idev, struct respons
 	return false;
 }
 
+#define QOS_UEVENT_TS_STATUS "QOS_ACTION=ts-status"
+#define QOS_UEVENT_TS_OK "QOS_TS_OK="
+#define QOS_UEVENT_TS_FAIL "QOS_TS_FAIL="
+
+static void ioss_qos_send_ts_status(struct ioss_device *idev)
+{
+	int ret;
+	struct qos_routing_tx *n;
+	char action[] = QOS_UEVENT_TS_STATUS;
+	char ok[120] = QOS_UEVENT_TS_OK;
+	size_t ok_count = sizeof(QOS_UEVENT_TS_OK) - 1;
+	char fail[120] = QOS_UEVENT_TS_FAIL;
+	size_t fail_count = sizeof(QOS_UEVENT_TS_FAIL) - 1;
+	char *envp[] = {action, ok, fail, NULL};
+
+	list_for_each_entry(n, &idev->ioss_qos_table.qos_tx_committed_table, node) {
+		if (n->disabled)
+			fail_count += snprintf(fail + fail_count, sizeof(fail) - fail_count,
+					       "%u,", n->tc_prio);
+		else
+			ok_count += snprintf(ok + ok_count, sizeof(ok) - ok_count, "%u,",
+					     n->tc_prio);
+	}
+
+	if(ok[ok_count - 1] == ',')
+		ok[ok_count - 1] = '\0';
+
+	if(fail[fail_count - 1] == ',')
+		fail[fail_count - 1] = '\0';
+
+	ret = kobject_uevent_env(&idev->dev.kobj, KOBJ_CHANGE, envp);
+	if (ret)
+		ioss_qos_dev_err(idev, "Failed to send uevent: %d", ret);
+}
+
+static int __ioss_qos_enable(struct ioss_device *idev)
+{
+	int ret;
+	struct ioss_driver *idrv;
+
+	idrv = to_ioss_driver(idev->dev.driver);
+	if (!idrv)
+		return -EINVAL;
+
+	if (!idrv->qos_ops || !idrv->qos_ops->enable_qos)
+		return -EINVAL;
+
+	ret = idrv->qos_ops->enable_qos(idev);
+
+	if (!ret)
+		ioss_qos_send_ts_status(idev);
+
+	return ret;
+}
+
 int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 {
 	int ret = 0;
@@ -2387,7 +2442,7 @@ int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 	}
 	else {
 		ret = idrv->qos_ops->request_qos(idev);
-		ret = idrv->qos_ops->enable_qos(idev);
+		ret = __ioss_qos_enable(idev);
 	}
 
 	return ret;
@@ -2458,7 +2513,7 @@ int ioss_qos_enable(struct ioss_device *idev)
 		return -EINVAL;
 
 	if (idev->qos_enabled)
-		ret = idrv->qos_ops->enable_qos(idev);
+		ret = __ioss_qos_enable(idev);
 
 	return ret;
 }
