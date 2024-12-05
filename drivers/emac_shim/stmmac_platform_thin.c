@@ -14,6 +14,7 @@
 #include <linux/of_net.h>
 #include <linux/of_device.h>
 
+#include "dwmac4_thin.h"
 #include "stmmac_thin.h"
 #include "stmmac_platform_thin.h"
 
@@ -253,6 +254,24 @@ stmmac_thin_probe_config_dt(struct platform_device *pdev, const char **mac)
 #endif /* CONFIG_OF */
 EXPORT_SYMBOL_GPL(stmmac_thin_probe_config_dt);
 
+static bool stmmac_thin_check_reg_access(struct stmmac_resources *stmmac_res)
+{
+	u32 prev_val, curr_val;
+
+	prev_val = readl_relaxed(stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	if (prev_val & BIT(16)) {
+		return true;
+	}
+	curr_val = prev_val | BIT(16);
+	writel_relaxed(curr_val, stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	curr_val = readl_relaxed(stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	writel_relaxed(prev_val, stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	if (curr_val == prev_val) {
+		return false;
+	}
+	return true;
+}
+
 int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 				  struct stmmac_resources *stmmac_res)
 {
@@ -310,6 +329,12 @@ int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 		dev_warn(&pdev->dev, "queue is not in dtsi\n");
 		stmmac_res->ch = VM_TRAFFIC_CHANNEL;
 	}
+
+	/* Check if the driver has reg access or not */
+	if (!stmmac_thin_check_reg_access(stmmac_res)) {
+		return -EACCES;
+	}
+
 	return PTR_ERR_OR_ZERO(stmmac_res->addr);
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_get_platform_resources);
