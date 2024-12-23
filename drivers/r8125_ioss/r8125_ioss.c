@@ -9,9 +9,9 @@
 #include <linux/pm_wakeup.h>
 #include <net/rtnetlink.h>
 
-#include "ioss/ioss_i.h"
-#include "ioss/ioss_version.h"
-#include "ioss/include/linux/msm/ioss.h"
+#include "ioss_i.h"
+#include "ioss_version.h"
+#include "ioss.h"
 
 #include "r8125.h"
 #include "r8125_lib.h"

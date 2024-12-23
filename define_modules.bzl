@@ -92,6 +92,24 @@ def define_modules(target, variant):
     )
     mod_list.append("{}-defconfig_r8125".format(kernel_build_variant))
 
+    ddk_module(
+        name = "{}-defconfig_r8125_ioss".format(kernel_build_variant),
+        out = "r8125_ioss.ko",
+        srcs = [
+            "drivers/r8125_ioss/r8125_ioss.c",
+        ],
+        kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
+        deps = [
+            ":rtl8125_headers",
+            ":ioss_headers",
+            "//msm-kernel:all_headers",
+            "//build_dir/target-aarch64_cortex-a53_musl/linux-sdx85/dataipa-1.0:include_headers",
+            ":{}-defconfig_r8125".format(kernel_build_variant),
+            ":{}-defconfig_ioss".format(kernel_build_variant),
+        ],
+    )
+    mod_list.append("{}-defconfig_r8125_ioss".format(kernel_build_variant))
+
     copy_to_dist_dir(
         name = "{}-defconfig_dataeth_dist".format(kernel_build_variant),
         data = mod_list,
