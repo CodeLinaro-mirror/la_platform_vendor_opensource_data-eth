@@ -24,3 +24,22 @@ ddk_headers(
         "drivers/ioss/include/linux/msm",
     ],
 )
+
+ddk_headers(
+    name = "rtl8125_headers",
+    hdrs = glob([
+        "drivers/rtl8125/src/r8125_firmware.h",
+        "drivers/rtl8125/src/r8125_dash.h",
+        "drivers/rtl8125/src/r8125_ptp.h",
+        "drivers/rtl8125/src/r8125.h",
+        "drivers/rtl8125/src/r8125_lib.h",
+        "drivers/rtl8125/src/r8125_realwow.h",
+        "drivers/rtl8125/src/r8125_rss.h",
+        "drivers/rtl8125/src/rtl_eeprom.h",
+        "drivers/rtl8125/src/rtltool.h",
+    ]),
+    includes = [
+        "drivers/rtl8125",
+        "drivers/rtl8125/src",
+    ],
+)

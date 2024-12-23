@@ -59,6 +59,39 @@ def define_modules(target, variant):
     )
     mod_list.append("{}-defconfig_emac_ioss".format(kernel_build_variant))
 
+    ddk_module(
+        name = "{}-defconfig_r8125".format(kernel_build_variant),
+        out = "r8125.ko",
+        srcs = [
+            "drivers/rtl8125/src/r8125_firmware.c",
+            "drivers/rtl8125/src/r8125_lib.c",
+            "drivers/rtl8125/src/r8125_n.c",
+            "drivers/rtl8125/src/r8125_rss.c",
+            "drivers/rtl8125/src/rtl_eeprom.c",
+            "drivers/rtl8125/src/rtltool.c",
+        ],
+        kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
+        deps = [
+            ":rtl8125_headers",
+            "//msm-kernel:all_headers",
+        ],
+        copts = [
+            "-Wno-error",
+            "-DENABLE_USE_FIRMWARE_FILE",
+            "-DCONFIG_ASPM",
+            "-DENABLE_S5WOL",
+            "-DENABLE_EEE",
+            "-DENABLE_TX_NO_CLOSE",
+            "-DCONFIG_R8125_NAPI",
+            "-DCONFIG_R8125_VLAN",
+            "-DENABLE_DOUBLE_VLAN",
+            "-DENABLE_MULTIPLE_TX_QUEUE",
+            "-DENABLE_RSS_SUPPORT",
+            "-DENABLE_LIB_SUPPORT",
+        ],
+    )
+    mod_list.append("{}-defconfig_r8125".format(kernel_build_variant))
+
     copy_to_dist_dir(
         name = "{}-defconfig_dataeth_dist".format(kernel_build_variant),
         data = mod_list,
