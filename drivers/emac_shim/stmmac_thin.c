@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
 /*******************************************************************************
  * This is the driver for the ST MAC 10/100/1000 on-chip Ethernet controllers.
  * ST Ethernet IPs are built around a Synopsys IP Core.
@@ -1218,7 +1219,8 @@ static int stmmac_hw_setup(struct net_device *dev)
 	int ret;
 
 	dev_info(priv->device, "%s: ch = %u\n", __func__, chan);
-	priv->mac_addr(dev);
+	if(!priv->is_gy_en)
+		priv->mac_addr(dev);
 
 	/* DMA initialization and SW reset */
 	ret = stmmac_init_dma_engine(priv);
@@ -1286,6 +1288,9 @@ static int stmmac_open(struct net_device *dev)
 	priv->rx_copybreak = STMMAC_RX_COPYBREAK;
 	priv->dev_opened = true;
 	priv->dev_inited = false;
+
+	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST )
+		priv->ethqos_client_connect(priv->plat->bsp_priv,false);
 
 	if (priv->emac_state > EMAC_INIT_ST)
 		ret = stmmac_dvr_init(dev);
@@ -2202,7 +2207,7 @@ static void stmmac_set_rx_mode(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
-	if (priv->emac_state > EMAC_INIT_ST) {
+	if (!priv->is_gy_en && priv->emac_state > EMAC_INIT_ST) {
 		if (!netdev_mc_empty(dev)) {
 			priv->filter_type = MULTICAST_TYPE;
 			priv->add_filter(dev);
@@ -2302,7 +2307,7 @@ static int stmmac_set_mac_address(struct net_device *ndev, void *addr)
 	if (ret)
 		return ret;
 
-	if (priv->emac_state > EMAC_INIT_ST)
+	if (!priv->is_gy_en && priv->emac_state > EMAC_INIT_ST)
 		ret = priv->mac_addr(ndev);
 
 	return ret;
@@ -2325,6 +2330,9 @@ static int stmmac_vlan_rx_add_vid(struct net_device *ndev,
 {
 	struct stmmac_priv *priv = netdev_priv(ndev);
 
+	if(priv->is_gy_en)
+		return 0;
+
 	if (vid == 0 || vid > 4095) {
 		dev_info(priv->device, "Invalid vlan id %u\n", vid);
 		return 0;
@@ -2341,6 +2349,9 @@ static int stmmac_vlan_rx_kill_vid(struct net_device *ndev,
 				   __be16 proto, u16 vid)
 {
 	struct stmmac_priv *priv = netdev_priv(ndev);
+
+	if(priv->is_gy_en)
+		return 0;
 
 	if (vid == 0 || vid > 4095) {
 		dev_info(priv->device, "Invalid vlan id %u\n", vid);
@@ -2805,7 +2816,12 @@ int stmmac_thin_dvr_probe(struct device *device,
 	struct stmmac_channel *ch;
 
 	/* Set tx used queue to 4 so NW stack can trigger tx queue selection */
+#if IS_ENABLED(CONFIG_EMAC_SHIM_GY)
+		ndev = devm_alloc_etherdev_mqs(device, sizeof(struct stmmac_priv), 4, 1);
+#else
 	ndev = alloc_netdev_mqs(sizeof(struct stmmac_priv), "eth1", NET_NAME_ENUM,ether_setup, 4, 1);
+#endif
+
 
 	if (!ndev)
 		return -ENOMEM;

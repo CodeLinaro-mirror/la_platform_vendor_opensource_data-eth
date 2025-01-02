@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+/* Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved. */
 /*******************************************************************************
  * Copyright (C) 2007-2009  STMicroelectronics Ltd
  *
@@ -106,11 +107,13 @@ struct stmmac_priv {
 	unsigned int rx_copybreak;
 	u32 rx_riwt;
 	int hwts_rx_en;
+	bool is_gy_en;
 
 	void __iomem *ioaddr;
 	struct net_device *dev;
 	struct device *device;
 	struct mac_device_info *hw;
+	int (*ethqos_client_connect)(void *prv, bool is_resume);
 	int (*hwif_quirks)(struct stmmac_priv *priv);
 	int (*add_filter)(struct net_device *ndev);
 	int (*del_filter)(struct net_device *ndev);
