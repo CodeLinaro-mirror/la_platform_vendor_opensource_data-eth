@@ -1,5 +1,5 @@
-//SPDX-License-Identifier: GPL-2.0-only
-//Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+//Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+//SPDX-License-Identifier: BSD-3-Clause-Clear
 
 #include <stdbool.h>
 

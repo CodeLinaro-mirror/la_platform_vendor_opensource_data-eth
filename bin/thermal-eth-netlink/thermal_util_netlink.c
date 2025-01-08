@@ -1,5 +1,5 @@
-//SPDX-License-Identifier: GPL-2.0-only
-//Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+//Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+//SPDX-License-Identifier: BSD-3-Clause-Clear
 
 #include <errno.h>
 #include <stdio.h>
@@ -15,7 +15,6 @@
 #include <netlink/netlink.h>
 #include <dirent.h>
 #include "thermal_netlink.h"
-#include "ds_util.h"
 
 #define MAX_LENGTH		256
 #define MAX_PATH		256
@@ -25,8 +24,17 @@
 #define CDEV_DIR_FMT		"cooling_device%d"
 #define CDEV_TYPE_NAME		"ethernet-usxgmii"
 
+#define SUSPEND_ON	1
+#define SUSPEND_OFF	0
+#define PHY_IF_DOWN	1
+#define PHY_IF_UP	0
+#define IF_LOWER_SPEED	1
+#define IF_U10G		0
+
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
 struct cdevData {
-//	Mitigation data;
 	int cdevn;
 };
 
@@ -58,9 +66,14 @@ static struct thermal_nl_socket nl_socket = {
 	.head_ptr = NULL,
 };
 
+typedef enum {
+	USXGMII_10G,
+	LOWER_SPEED
+} Eth_Interface;
+
 static bool stop;
 static pthread_t thermal_sensor_event_thread;
-static int old_state;
+Eth_Interface old_state;
 static int get_cid;
 static int thermal_nl_parse_family(struct nl_msg *msg, void *data)
 {
@@ -163,8 +176,10 @@ static int thermal_nl_event_cb(struct nl_msg *n, void *data)
 	struct nlmsghdr *nl_hdr = nlmsg_hdr(n);
 	struct genlmsghdr *genlhdr = genlmsg_hdr(nl_hdr);
 	struct nlattr *attrs[THERMAL_GENL_ATTR_MAX + 1];
-	int cdev_id = -1, cur_state = -1;
+	int cdev_id = -1;
+	Eth_Interface cur_state;
 
+	printf("CB %s  genlhdr->cmd: %d\n", __func__, genlhdr->cmd);
 	genlmsg_parse(nl_hdr, 0, attrs, THERMAL_GENL_ATTR_MAX, NULL);
 
 	switch (genlhdr->cmd) {
@@ -176,35 +191,36 @@ static int thermal_nl_event_cb(struct nl_msg *n, void *data)
 				return 0;
 			}
 		}
-	
+
 		if (attrs[THERMAL_GENL_ATTR_CDEV_CUR_STATE])
 			cur_state = nla_get_u32(
-						attrs[THERMAL_GENL_ATTR_CDEV_CUR_STATE]);
+					attrs[THERMAL_GENL_ATTR_CDEV_CUR_STATE]);
 
-		if ((old_state == 0) && (cur_state == 1)) {
-			if (system("echo 1 > /sys/class/net/eth1/suspend_ipa_offload") == -1)
+		if ((old_state != cur_state) && (cur_state == USXGMII_10G || cur_state == LOWER_SPEED)) {
+			if (system("echo " TOSTRING(SUSPEND_ON) " > /sys/class/net/eth0/suspend_ipa_offload") == -1)
 				return -1;
-			if (system("echo 1 > /sys/class/net/eth1/thermal_netlink") == -1)
-				return -1;
-			if (system("echo 1 > /sys/class/net/eth1/change_if") == -1)
-				return -1;
-			if (system("echo 0 > /sys/class/net/eth1/thermal_netlink") == -1)
-				return -1;
-			if (system("echo 0 > /sys/class/net/eth1/suspend_ipa_offload") == -1)
+			if (system("echo " TOSTRING(PHY_IF_DOWN) " > /sys/class/net/eth0/thermal_netlink") == -1)
 				return -1;
 
-		} else if ((old_state == 1) && (cur_state == 0)) {
-			if (system("echo 1 > /sys/class/net/eth1/suspend_ipa_offload") == -1)
+			switch(cur_state) {
+				case USXGMII_10G:
+					if (system("echo " TOSTRING(IF_U10G) " > /sys/class/net/eth0/change_if") == -1)
+						return -1;
+					break;
+				case LOWER_SPEED:
+					if (system("echo " TOSTRING(IF_LOWER_SPEED) " > /sys/class/net/eth0/change_if") == -1)
+						return -1;
+					break;
+				default:
+					printf("Invalid state\n");
+					break;
+			}
+			if (system("echo " TOSTRING(PHY_IF_UP) " > /sys/class/net/eth0/thermal_netlink") == -1)
 				return -1;
-			if (system("echo 1 > /sys/class/net/eth1/thermal_netlink") == -1)
-				return -1;
-			if (system("echo 2 > /sys/class/net/eth1/change_if") == -1)
-				return -1;
-			if (system("echo 0 > /sys/class/net/eth1/thermal_netlink") == -1)
-				return -1;
-			if (system("echo 0 > /sys/class/net/eth1/suspend_ipa_offload") == -1)
+			if (system("echo " TOSTRING(SUSPEND_OFF) " > /sys/class/net/eth0/suspend_ipa_offload") == -1)
 				return -1;
 		}
+
 		old_state = cur_state;
 		notify_event_cb(soc_data, cdev_id, cur_state);
 		break;
@@ -215,14 +231,17 @@ static int thermal_nl_event_cb(struct nl_msg *n, void *data)
 
 static void *thermal_sensor_netlink(void *data)
 {
+	int ret = 0;
+
 	if (nl_socket.grp_id == -1)
 		return NULL;
 
 	nl_socket_disable_seq_check(nl_socket.soc);
 	nl_socket_modify_cb(nl_socket.soc, NL_CB_VALID, NL_CB_CUSTOM,
 			    thermal_nl_event_cb, &nl_socket);
-	while (!stop)
-		nl_recvmsgs_default(nl_socket.soc);
+	while (!stop) {
+		(void)nl_recvmsgs_default(nl_socket.soc);
+	}
 
 	return NULL;
 }
@@ -311,6 +330,25 @@ int thermal_nl_register_trip(nl_trip_cb cb, void *data)
 	return thermal_nl_add_cb(&nl_socket, local_cb, data, THERMAL_NL_TRIP);
 }
 
+int strlcpy(char *dst, const char *src, int n)
+{
+	int i = 0;
+
+	if (!dst)
+		return 0;
+
+	if (!src) {
+		*dst = 0;
+		return 0;
+	}
+
+	while (*src && i++ < n-1)
+		*dst++ = *src++;
+
+	*dst = 0;
+	return i;
+}
+
 int readLineFromFile(char *path, char out[MAX_PATH][MAX_PATH], int l_var)
 {
 	char *fgets_ret;
@@ -368,7 +406,6 @@ int initCdev(void)
 		if (get_cid >= 0)
 			break;
 	}
-	printf("cid = %d\n", get_cid);
 	closedir(tdir);
 	/* Restore current working dir */
 	chdir(cwd);
