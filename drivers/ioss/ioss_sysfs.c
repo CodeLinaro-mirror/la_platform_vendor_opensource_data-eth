@@ -333,7 +333,7 @@ DEVICE_ATTR(channels, 0644, sysfs_read_idev_channels,  NULL);
 
 static ssize_t sysfs_read_ch_statistics(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
-	char *buf, *dir;
+	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
 	struct ioss_channel_stats ch_stats;
@@ -344,12 +344,8 @@ static ssize_t sysfs_read_ch_statistics(struct device *dev, struct device_attrib
 	struct net_device *netdev=NULL;
 	struct ioss_device *idev = NULL;
 	struct ioss_interface *iface = NULL;
+	char *dir = strsep(&ch_name, "-");
 	int id= 0;
-
-	if (!ch_name)
-		return -ENOMEM;
-
-	dir = strsep(&ch_name, "-");
 
 	netdev = to_net_dev(parent);
 	if (!netdev) {
@@ -407,7 +403,7 @@ DEVICE_ATTR(ch_statistics, 0644, sysfs_read_ch_statistics,  NULL);
 
 static ssize_t sysfs_read_ch_stats(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
-	char *buf, *dir;
+	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
 	struct ioss_channel_stats ch_stats;
@@ -418,12 +414,8 @@ static ssize_t sysfs_read_ch_stats(struct device *dev, struct device_attribute *
 	struct net_device *netdev=NULL;
 	struct ioss_device *idev = NULL;
 	struct ioss_interface *iface = NULL;
+	char *dir = strsep(&ch_name, "-");
 	int id= 0;
-
-	if (!ch_name)
-		return -ENOMEM;
-
-	dir = strsep(&ch_name, "-");
 
 	netdev = to_net_dev(parent);
 	if (!netdev) {
@@ -479,7 +471,7 @@ DEVICE_ATTR(ch_stats, 0644, sysfs_read_ch_stats,  NULL);
 
 static ssize_t sysfs_read_ch_status(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
-	char *buf, *dir;
+	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
 	struct ioss_channel *ch=NULL, *ch_tmp;
@@ -490,12 +482,8 @@ static ssize_t sysfs_read_ch_status(struct device *dev, struct device_attribute 
 	struct ioss_device *idev = NULL;
 	struct ioss_interface *iface = NULL;
 	struct ioss_channel_status ch_status;
+	char *dir = strsep(&ch_name, "-");
 	int id= 0;
-
-	if (!ch_name)
-		return -ENOMEM;
-
-	dir = strsep(&ch_name, "-");
 
 	netdev = to_net_dev(parent);
 	if (!netdev) {
@@ -554,7 +542,7 @@ DEVICE_ATTR(ch_status, 0644, sysfs_read_ch_status,  NULL);
 
 static ssize_t sysfs_read_ch_stat(struct device *dev, struct device_attribute *attr, char *user_buf)
 {
-	char *buf, *dir;
+	char *buf;
 	size_t len = 0;
 	const size_t BUF_LEN = 3000;
 	struct ioss_channel_status ch_status;
@@ -565,12 +553,8 @@ static ssize_t sysfs_read_ch_stat(struct device *dev, struct device_attribute *a
 	struct net_device *netdev=NULL;
 	struct ioss_device *idev = NULL;
 	struct ioss_interface *iface = NULL;
+	char *dir = strsep(&ch_name, "-");
 	int id= 0;
-
-	if (!ch_name)
-		return -ENOMEM;
-
-	dir = strsep(&ch_name, "-");
 
 	netdev = to_net_dev(parent);
 	if (!netdev) {

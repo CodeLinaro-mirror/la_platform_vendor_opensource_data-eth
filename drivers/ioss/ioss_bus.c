@@ -205,20 +205,14 @@ static int ioss_bus_probe(struct device *dev)
 	rc = ioss_sysfs_add_idev(idev);
 	if (rc) {
 		ioss_dev_err(idev, "Unable to add idev to sysfs");
-		goto err_add_sysfs;
+		goto err_sysfs;
 	}
 
 	rc = sysfs_create_file(&idev->net_dev->dev.kobj,
 				&dev_attr_suspend_ipa_offload.attr);
 	if (rc) {
 		ioss_dev_err(idev, "unable to create suspend_ipa_offload node");
-		goto err_create_sysfs;
-	}
-
-	rc = ioss_qos_add_idev(idev);
-	if (rc) {
-		ioss_dev_err(idev, "QoS add failed");
-		goto err_qos_add;
+		goto err_sysfs;
 	}
 
 	if (iface->auto_resume_disabled) {
@@ -228,7 +222,7 @@ static int ioss_bus_probe(struct device *dev)
 		if (rc) {
 			ioss_dev_err(idev, "alloc_chrdev_region error for node %s\n",
 				  "emac_ipa");
-			goto err_chrdev;
+			goto err_sysfs;
 		}
 
 		emac_ipa_cdev = cdev_alloc();
@@ -262,6 +256,12 @@ static int ioss_bus_probe(struct device *dev)
 		}
 	}
 
+	rc = ioss_qos_create_sysfs(dev);
+	if (rc) {
+		ioss_dev_err(idev, "unable to create qos sysfs nodes");
+		goto err_sysfs;
+	}
+
 	return 0;
 
 fail_create_emac_ipa_device:
@@ -271,14 +271,7 @@ fail_create_emac_ipa_class:
 emac_ipa_cdev_add_fail:
 fail_alloc_emac_ipa_cdev:
 	unregister_chrdev_region(emac_ipa_dev_num, 1);
-err_chrdev:
-	ioss_qos_remove_idev(idev);
-err_qos_add:
-	sysfs_remove_file(&idev->net_dev->dev.kobj,
-			&dev_attr_suspend_ipa_offload.attr);
-err_create_sysfs:
-	ioss_sysfs_remove_idev(idev);;
-err_add_sysfs:
+err_sysfs:
 	ioss_net_unwatch_device(idev);
 err_watch:
 	ioss_dev_op(idev, close_device, idev);
@@ -295,10 +288,16 @@ static void ioss_bus_remove(struct device *dev)
 	int rc;
 	struct ioss_device *idev = to_ioss_device(dev);
 	struct ioss_interface *iface = &idev->interface;
+	struct ioss_driver *idrv = NULL;
 
 	ioss_dev_log(idev, "De-initializing device");
 
-	ioss_qos_remove_idev(idev);
+	idrv = to_ioss_driver(idev->dev.driver);
+
+	if (idev->qos_enabled)
+		rc = idrv->qos_ops->clear_qos(idev);
+
+	ioss_qos_remove_sysfs(dev);
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
