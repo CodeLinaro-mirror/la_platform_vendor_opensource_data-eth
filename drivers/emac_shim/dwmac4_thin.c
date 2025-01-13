@@ -522,13 +522,13 @@ static void dwmac4_get_reg_info(void __iomem *ioaddr, u32 chan)
 	dwmac4_print_reg(ioaddr, chan, DMA_CHAN_MISS_FRAME_CNT(chan));
 }
 
-const struct stmmac_ops dwmac4_ops = {
+const struct stmmac_ops dwmac4_thin_ops = {
 	.set_mtl_tx_queue_weight = dwmac4_set_mtl_tx_queue_weight,
 	.host_mtl_irq_status = dwmac4_irq_mtl_status,
 	.debug = dwmac4_debug,
 };
 
-const struct stmmac_dma_ops dwmac4_dma_ops = {
+const struct stmmac_dma_ops dwmac4_thin_dma_ops = {
 	.init_chan = dwmac4_dma_init_channel,
 	.init_rx_chan = dwmac4_dma_init_rx_chan,
 	.init_tx_chan = dwmac4_dma_init_tx_chan,
@@ -553,7 +553,7 @@ const struct stmmac_dma_ops dwmac4_dma_ops = {
 	.reg_vals = dwmac4_get_reg_info,
 };
 
-int dwmac4_setup(struct stmmac_priv *priv)
+int dwmac4_thin_setup(struct stmmac_priv *priv)
 {
 	struct mac_device_info *mac = priv->hw;
 
