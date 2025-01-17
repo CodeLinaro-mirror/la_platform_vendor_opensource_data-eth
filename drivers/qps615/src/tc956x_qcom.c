@@ -17,6 +17,8 @@ struct tc956x_qcom_priv {
 	u32 phy_rst_gpio;
 	u32 phy_rst_delay_us;
 	int wol_irq;
+	u32 phy_rst_gpio_flags;
+	bool is_built_in_wol;
 };
 
 #define to_priv(priv) \
@@ -24,12 +26,12 @@ struct tc956x_qcom_priv {
 
 static int tc956x_assert_phy_reset(struct tc956xmac_priv *priv)
 {
-	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 0);
+	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, to_priv(priv)->phy_rst_gpio_flags);
 }
 
 static int tc956x_deassert_phy_reset(struct tc956xmac_priv *priv)
 {
-	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 1);
+	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, !(to_priv(priv)->phy_rst_gpio_flags));
 }
 
 static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
@@ -90,28 +92,39 @@ static int tc956x_platform_of_parse(struct device *dev,
 		return -EINVAL;
 	}
 
-	qpriv->wol_irq = of_irq_get_byname(dev->of_node, "wol_irq");
-	if (qpriv->wol_irq <= 0) {
-		dev_err(dev, "Failed to get 'wol_irq' IRQ with error %d\n", qpriv->wol_irq);
-		return -EINVAL;
-	}
-
 	qpriv->phy_supply = devm_regulator_get(dev, "phy");
 	if (IS_ERR(qpriv->phy_supply)) {
 		dev_err(dev, "Failed to acquire supply 'phy-supply': %ld\n", PTR_ERR(qpriv->phy_supply));
 		return -EINVAL;
 	}
 
-	qpriv->pinctrl = devm_pinctrl_get(dev);
-	if (IS_ERR_OR_NULL(qpriv->pinctrl)) {
-		dev_err(dev, "Failed to get pinctrl handle\n");
-		goto err_pinctrl_get;
+	if (of_property_read_u32(dev->of_node, "qcom,phy-rst-gpio-flags", &qpriv->phy_rst_gpio_flags)) {
+		qpriv->phy_rst_gpio_flags = 0;
 	}
 
-	qpriv->pinctrl_default = pinctrl_lookup_state(qpriv->pinctrl, PINCTRL_STATE_DEFAULT);
-	if (IS_ERR_OR_NULL(qpriv->pinctrl_default)) {
-		dev_err(dev, "Failed to look up '%s' pinctrl state\n", PINCTRL_STATE_DEFAULT);
-		goto err_pinctrl_lookup_state;
+	qpriv->is_built_in_wol = of_property_read_bool(dev->of_node, "qcom,phy-built-in-wol");
+	dev_info(dev, "is_built_in_wol %d\n", qpriv->is_built_in_wol);
+
+	if (!qpriv->is_built_in_wol) {
+		qpriv->wol_irq = of_irq_get_byname(dev->of_node, "wol_irq");
+		if (qpriv->wol_irq <= 0) {
+			dev_err(dev, "Failed to get 'wol_irq' IRQ with error %d\n", qpriv->wol_irq);
+			return -EINVAL;
+		}
+
+		qpriv->pinctrl = devm_pinctrl_get(dev);
+		if (IS_ERR_OR_NULL(qpriv->pinctrl)) {
+			dev_err(dev, "Failed to get pinctrl handle\n");
+			goto err_pinctrl_get;
+		}
+
+		qpriv->pinctrl_default = pinctrl_lookup_state(qpriv->pinctrl, PINCTRL_STATE_DEFAULT);
+		if (IS_ERR_OR_NULL(qpriv->pinctrl_default)) {
+			dev_err(dev, "Failed to look up '%s' pinctrl state\n", PINCTRL_STATE_DEFAULT);
+			goto err_pinctrl_lookup_state;
+		}
+	} else {
+		qpriv->wol_irq = -1;
 	}
 
 	return 0;
@@ -151,10 +164,12 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 		goto err_assert_phy_rst;
 	}
 
-	ret = pinctrl_select_state(qpriv->pinctrl, qpriv->pinctrl_default);
-	if (ret) {
-		dev_err(priv->device, "Failed to select the 'default' pincrl state\n");
-		goto err_pinctrl_select_state;
+	if (!qpriv->is_built_in_wol) {
+		ret = pinctrl_select_state(qpriv->pinctrl, qpriv->pinctrl_default);
+		if (ret) {
+			dev_err(priv->device, "Failed to select the 'default' pincrl state\n");
+			goto err_pinctrl_select_state;
+		}
 	}
 
 	ret = tc956x_phy_power_on(priv);
@@ -163,7 +178,8 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 		goto err_power_on;
 	}
 
-	res->wol_irq = qpriv->wol_irq;
+	if (!qpriv->is_built_in_wol && qpriv->wol_irq > 0)
+		res->wol_irq = qpriv->wol_irq;
 	dev_info(priv->device, "QPS615 platform probing has finished successfully\n");
 
 	return 0;
@@ -191,7 +207,8 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 
 	devm_regulator_put(qpriv->phy_supply);
 
-	devm_pinctrl_put(qpriv->pinctrl);
+	if (!qpriv->is_built_in_wol)
+		devm_pinctrl_put(qpriv->pinctrl);
 	kzfree(priv->plat_priv);
 	priv->plat_priv = NULL;
 
@@ -231,5 +248,49 @@ int tc956x_platform_resume(struct tc956xmac_priv *priv)
 			dev_err(priv->device, "Failed to power on the PHY with error %d\n", ret);
 	}
 
+	return ret;
+}
+
+int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res)
+{
+	int ret = 0;
+	u32 interface;
+	u32 c45_state;
+	u32 link_down_macrst;
+	u32 start_phy_addr;
+
+	if (of_property_read_u32(dev->of_node, "qcom,phy-port-interface", &interface)) {
+		dev_err(dev, "Failed to get phy port interface\n");
+		return ret;
+	} else {
+		dev_err(dev, "phy port interface overlay to %d from %d\n", interface, res->port_interface);
+		res->port_interface = interface;
+
+		if (of_property_read_u32(dev->of_node, "qcom,c45-state", &c45_state)) {
+			dev_err(dev, "Failed to get c45 state\n");
+			return ret;
+		} else {
+			dev_err(dev, "c45 state overlay to %d\n", c45_state);
+			res->c45_state = c45_state;
+		}
+
+		if (of_property_read_u32(dev->of_node, "qcom,link-down-macrst", &link_down_macrst)) {
+			dev_err(dev, "Failed to get link down macrst\n");
+			return ret;
+		} else {
+			dev_err(dev, "link down macrst overlay to %d\n", link_down_macrst);
+			res->link_down_macrst = link_down_macrst;
+		}
+
+		if (of_property_read_u32(dev->of_node, "qcom,start-phy-addr", &start_phy_addr)) {
+			dev_err(dev, "Failed to get start phy addr\n");
+			return ret;
+		} else {
+			dev_err(dev, "start phy addr overlay to %d\n", start_phy_addr);
+			res->start_phy_addr = start_phy_addr;
+		}
+
+		ret = 1;
+	}
 	return ret;
 }

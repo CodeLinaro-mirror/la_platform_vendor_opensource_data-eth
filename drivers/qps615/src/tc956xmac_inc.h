@@ -313,5 +313,6 @@ struct plat_tc956xmacenet_data {
 	u32 port_interface; /* Kernel module parameter variable for interface */
 	bool phy_interrupt_mode; /* For Handling of PHY Operating mode */
 	int forced_speed; /* applicable only in case of fixed phy mode */
+	int start_phy_addr;
 };
 #endif
