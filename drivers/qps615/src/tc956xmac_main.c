@@ -3151,7 +3151,8 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 			tc956x_xpcs_write(priv->xpcsaddr, XGMAC_SR_MII_CTRL, val);
 			config_done = true;
 		}
-	} else if (state->interface == PHY_INTERFACE_MODE_RGMII) {
+	} else if (state->interface == PHY_INTERFACE_MODE_RGMII ||
+			state->interface == PHY_INTERFACE_MODE_RGMII_ID) {
 		switch (state->speed) {
 		case SPEED_1000:
 			ctrl |= priv->hw->link.speed1000;
@@ -3606,7 +3607,8 @@ static void tc956xmac_check_pcs_mode(struct tc956xmac_priv *priv)
 	}
 #ifdef TC956X
 	priv->hw->pcs = 0;
-	if (interface == PHY_INTERFACE_MODE_RGMII) {
+	if (interface == PHY_INTERFACE_MODE_RGMII ||
+		interface == PHY_INTERFACE_MODE_RGMII_ID) {
 		priv->hw->xpcs = 0;
 	} else if (interface == PHY_INTERFACE_MODE_SGMII) {
 		netdev_dbg(priv->dev, "PCS SGMII support enabled\n");

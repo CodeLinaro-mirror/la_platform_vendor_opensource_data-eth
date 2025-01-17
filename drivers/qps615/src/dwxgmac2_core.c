@@ -123,7 +123,8 @@ static void dwxgmac2_core_init(struct tc956xmac_priv *priv,
 		}
 	}
 #ifndef TC956X
-	if (priv->plat->interface == PHY_INTERFACE_MODE_RGMII)
+	if ((priv->plat->interface == PHY_INTERFACE_MODE_RGMII) ||
+		(priv->plat->interface == PHY_INTERFACE_MODE_RGMII_ID))
 		tx |= hw->link.speed1000;
 	else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII)
 		tx |= hw->link.speed2500;

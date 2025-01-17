@@ -463,7 +463,7 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 	struct tc956xmac_mdio_bus_data *mdio_bus_data = priv->plat->mdio_bus_data;
 	struct device_node *mdio_node = priv->plat->mdio_node;
 	struct device *dev = ndev->dev.parent;
-	int addr, found;
+	int addr, found, start_addr;
 
 	if (!mdio_bus_data)
 		return 0;
@@ -522,7 +522,11 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 		goto bus_register_done;
 #endif
 	found = 0;
-	for (addr = 0; addr < PHY_MAX_ADDR; addr++) {
+
+	/* Select the PHY address to be detected as specififed by user */
+	start_addr = priv->plat->start_phy_addr;
+
+	for (addr = start_addr; addr < PHY_MAX_ADDR; addr++) {
 
 #ifdef TC956X
 		int phy_reg_read;
@@ -580,7 +584,7 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 	}
 	/* If C22 PHY is not found, probe for C45 based PHY*/
 	if (!found) {
-		for (addr = 0; addr < PHY_MAX_ADDR; addr++) {
+		for (addr = start_addr; addr < PHY_MAX_ADDR; addr++) {
 
 #ifdef TC956X
 			int phy_reg_read1, phy_reg_read2, phy_id;
