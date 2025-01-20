@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
 /******************************************************************************
  * This contains the functions to handle the platform driver.
  *
@@ -301,18 +302,12 @@ int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 	stmmac_res->rx_irq[7] = platform_get_irq_byname(pdev, "rx_ch7_intr");
 
 	for (i = 0; i < MAX_NUM_CH; i++) {
-		if (stmmac_res->tx_irq[i] < 0) {
-			dev_warn(&pdev->dev,
-				 "tx ch irq [%d] not configured\n", i);
+		if (stmmac_res->tx_irq[i] < 0)
 			stmmac_res->tx_irq[i] = 0;
-		}
 	}
 	for (i = 0; i < MAX_NUM_CH; i++) {
-		if (stmmac_res->rx_irq[i] < 0) {
-			dev_warn(&pdev->dev,
-				 "rx ch irq [%d] not configured\n", i);
+		if (stmmac_res->rx_irq[i] < 0)
 			stmmac_res->rx_irq[i] = 0;
-		}
 	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
