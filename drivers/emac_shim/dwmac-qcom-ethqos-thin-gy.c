@@ -77,12 +77,14 @@ static void emac_fe_ev_wq(struct work_struct *work)
 
 	ETHQOSINFO("Enter - cur state [%u]\n", priv->emac_state);
 	do {
-		mutex_lock(&ethqos->lock);
+		unsigned long flags;
+
+		spin_lock_irqsave(&ethqos->lock, flags);
 		emac_ev = list_first_entry_or_null(&ethqos->emac_fe_ev_q,
 						   struct emac_fe_ev, list);
 		if (emac_ev)
 			list_del(&emac_ev->list);
-		mutex_unlock(&ethqos->lock);
+		spin_unlock_irqrestore(&ethqos->lock, flags);
 
 		if (!emac_ev)
 			break;
@@ -142,11 +144,13 @@ static void emac_fe_ev_wq(struct work_struct *work)
 		kfree(emac_ev);
 	} while (1);
 
+
 	ETHQOSINFO("End - cur state [%u]\n", priv->emac_state);
 }
 
 static int qcom_ethqos_data_ready_notify(struct qcom_ethqos *ethqos, int ev) {
 	struct emac_fe_ev *emac_ev;
+	unsigned long flags;
 
 	ETHQOSINFO("event [%d]\n", ev);
 	if (ev == EMAC_DMA_INT_STS_AVAIL)
@@ -158,9 +162,9 @@ static int qcom_ethqos_data_ready_notify(struct qcom_ethqos *ethqos, int ev) {
 		return -ENOMEM;
 	}
 	emac_ev->ev = ev;
-	mutex_lock(&ethqos->lock);
+	spin_lock_irqsave(&ethqos->lock, flags);
 	list_add_tail(&emac_ev->list, &ethqos->emac_fe_ev_q);
-	mutex_unlock(&ethqos->lock);
+	spin_unlock_irqrestore(&ethqos->lock, flags);
 
 	queue_work(ethqos->wq, &ethqos->emac_fe_work);
 	return 0;
@@ -548,7 +552,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		goto err_smmu;
 	}
 
-	mutex_init(&ethqos->lock);
+	spin_lock_init(&ethqos->lock);
 	INIT_WORK((struct work_struct *)&ethqos->emac_fe_work, emac_fe_ev_wq);
 	INIT_LIST_HEAD(&ethqos->emac_fe_ev_q);
 
@@ -573,7 +577,6 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 err_reg:
 	destroy_workqueue(ethqos->wq);
-	mutex_destroy(&ethqos->lock);
 err_smmu:
 	of_platform_depopulate(&pdev->dev);
 	return ret;
@@ -597,7 +600,6 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 	ETHQOSINFO("Enter\n");
 	qcom_ethqos_client_sock_cleanup();
 	destroy_workqueue(ethqos->wq);
-	mutex_destroy(&ethqos->lock);
 	ret = stmmac_thin_pltfr_remove(pdev);
 
 	emac_emb_smmu_exit();
