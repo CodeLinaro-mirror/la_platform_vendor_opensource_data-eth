@@ -1248,9 +1248,6 @@ static int stmmac_hw_setup(struct net_device *dev)
 	if (priv->tso)
 		stmmac_enable_tso(priv, priv->ioaddr, 1, chan);
 
-	/* Start the ball rolling... */
-	stmmac_start_dma(priv);
-
 	return 0;
 }
 
@@ -2470,6 +2467,8 @@ void stmmac_mac_link_up(struct net_device *ndev)
 
 	priv = netdev_priv(ndev);
 	if (priv->dev_opened) {
+		/* Start the ball rolling... */
+		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 		if (!priv->boot_kpi) {
