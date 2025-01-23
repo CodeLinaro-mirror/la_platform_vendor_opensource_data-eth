@@ -82,7 +82,7 @@ static void *llcc_mem_alloc(struct ioss_device *idev,
 		prot |= IOMMU_CACHE;
 
 	rc = iommu_map(domain, iova,
-			tcm_mem->phys_addr, tcm_mem->mem_size, prot);
+			tcm_mem->phys_addr, tcm_mem->mem_size, prot, gfp);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to remap TCM as normal memory");
 		dma_unmap_resource(dev,

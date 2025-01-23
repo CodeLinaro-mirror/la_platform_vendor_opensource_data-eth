@@ -1,4 +1,4 @@
-/* Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+/* Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Copyright (c) 2021 The Linux Foundation. All rights reserved.
  *
@@ -16,8 +16,7 @@
 #include <linux/debugfs.h>
 #include <linux/minmax.h>
 #include "stmmac.h"
-#include "ioss/include/linux/msm/ioss_qos.h"
-#include "ioss/include/linux/msm/ioss.h"
+#include "ioss.h"
 #include "emac_ipa_intf.h"
 #include "dwmac-qcom-ethqos.h"
 #include "common.h"

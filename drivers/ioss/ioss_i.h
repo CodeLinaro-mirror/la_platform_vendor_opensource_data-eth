@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -10,15 +10,15 @@
 #include <linux/module.h>
 #include <linux/if_vlan.h>
 #include <linux/platform_device.h>
-#include <linux/ipa_eth.h>
+#include <ipa_eth.h>
 #include <linux/panic_notifier.h>
 
 #if IPA_ETH_API_VER < 2
 #error Unsupported IPA interface IPA_ETH_API_VER
 #endif
 
-#include "include/linux/msm/ioss.h"
-#include "include/linux/msm/ioss_qos.h"
+#include "ioss.h"
+#include "ioss_qos.h"
 
 #if IS_ENABLED(CONFIG_QCOM_LLCC)
 #define LLCC_ENABLE

@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2024-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/inet.h>
 #include <linux/of.h>
 
-#include "include/linux/msm/ioss.h"
-#include "include/linux/msm/ioss_qos.h"
+#include "ioss.h"
+#include "ioss_qos.h"
 
 #include "ioss_i.h"
 

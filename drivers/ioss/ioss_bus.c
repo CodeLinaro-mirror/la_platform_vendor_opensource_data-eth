@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
 #include "ioss_i.h"
-#include "include/linux/msm/ioss_qos.h"
+#include "ioss_qos.h"
 #include <linux/cdev.h>
 
 /* Wake lock duration to allow the device to settle after a resume */
@@ -246,7 +246,7 @@ static int ioss_bus_probe(struct device *dev)
 			goto emac_ipa_cdev_add_fail;
 		}
 
-		emac_ipa_class = class_create(THIS_MODULE,"emac_ipa");
+		emac_ipa_class = class_create("emac_ipa");
 		if (!emac_ipa_class) {
 			rc= -ENODEV;
 			ioss_dev_err(idev, "failed to create emac_ipa class\n");
@@ -559,18 +559,18 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
 		list_del(&ch->node);
 		kfree(ch->ipa_configs);
-		kfree_sensitive(ch->ioss_priv);
-		kfree_sensitive(ch);
+		kvfree_sensitive(ch->ioss_priv,ksize(ch->ioss_priv));
+		kvfree_sensitive(ch,ksize(ch));
 	}
 
 	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
 		list_del(&ch->node);
 		kfree(ch->ipa_configs);
-		kfree_sensitive(ch->ioss_priv);
-		kfree_sensitive(ch);
+		kvfree_sensitive(ch->ioss_priv,ksize(ch->ioss_priv));
+		kvfree_sensitive(ch,ksize(ch));
 	}
 
-	kfree_sensitive(iface->ioss_priv);
+	kvfree_sensitive(iface->ioss_priv,ksize(iface->ioss_priv));
 
 	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
 		if (ioss_devices[i] == idev) {
@@ -579,7 +579,7 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 		}
 	}
 
-	kfree_sensitive(idev);
+	kvfree_sensitive(idev,ksize(idev));
 }
 
 int ioss_bus_register_idev(struct ioss_device *idev)

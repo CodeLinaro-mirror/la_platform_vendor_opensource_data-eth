@@ -1,6 +1,6 @@
 /* Copyright (C) 2021 Toshiba Electronic Devices & Storage Corporation
  *
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,7 +13,9 @@
  */
 
 #include <linux/dma-mapping.h>
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SCM)
 #include <qcom_scm.h>
+#endif
 #include "common.h"
 #include "stmmac.h"
 #include "dwxgmac2.h"

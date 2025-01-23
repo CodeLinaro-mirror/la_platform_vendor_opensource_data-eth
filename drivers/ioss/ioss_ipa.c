@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -78,7 +78,7 @@ static void ioss_ipa_notify_cb(void *priv,
 
 	ioss_dev_op(idev, update_skb, ch, skb);
 
-	if (netif_rx_ni(skb) == NET_RX_DROP)
+	if (netif_rx(skb) == NET_RX_DROP)
 		iface->exception_stats.rx_drops++;
 }
 

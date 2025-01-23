@@ -1,6 +1,6 @@
 /* Copyright (C) 2021 Toshiba Electronic Devices & Storage Corporation
  *
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023, 2025 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -13,8 +13,8 @@
  */
 
 #include <linux/netdevice.h>
-#include "ioss/ioss_i.h"
-#include "ioss/ioss_version.h"
+#include "ioss_i.h"
+#include "ioss_version.h"
 
 #define MAX_PARSABLE_FRP_ENTRIES 72
 #define CONFIG_LEN 40
@@ -567,6 +567,4 @@ int config_tx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
 /* MAC-PCS Interface width
  * param[in] priv : stmmac priv data structure
  */
-#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 ssize_t stmmac_intf_width(struct stmmac_priv *priv);
-#endif
