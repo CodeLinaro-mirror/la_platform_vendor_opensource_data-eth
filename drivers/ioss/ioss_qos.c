@@ -1320,6 +1320,10 @@ static ssize_t store_commit(struct device *dev,
 		ioss_dev_log(idev, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
 					res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
 	}
+	else {
+		ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos function not available");
+		return -EINVAL;
+	}
 
 	if (!list_empty(&idev->ioss_qos_table.qos_rx_tc_table)) {
 		delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
