@@ -1337,7 +1337,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		 */
 
 		rx_ch_avail = qos_rx_queues - 2;
-		rx_queue_avail = qos_rx_queues - 1;
+		rx_queue_avail = qos_rx_queues - 2; // Q0 reserved for BE, Q1 reserved for HW TC
 
 		list_for_each_entry(temp_rx, qos_rx, node)	{
 			if (!qos_tables.ipa_qos_rx_ch && temp_rx->action == IOSS_QOS_HW_PATH)
@@ -1370,33 +1370,19 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 					/* Assign queue if pcp is not used already */
 					if (pcp_mask != pcp_mask_old) {
 						if (temp_rx->action == IOSS_QOS_HW_PATH && qos_tables.ipa_qos_rx_ch) {
-							 if (rx_queue_avail == 1 && (hw_queue <= 1 || !qos_tables.asgn_sw_queue)) {
-								/* Only one queue left and no queue is assigned for HW TC yet*/
-								hw_queue = 1;
-							 } else if (rx_queue_avail == 1 && sw_queue == 1) {
-								/* No more queues are available, aggregate in last assigned hw_queue*/
-								filter_info->queue = hw_queue;
-							 } else if (rx_queue_avail > 1) {
-								/* queues are available, so assign one */
-								hw_queue = rx_queue_avail;
-								rx_queue_avail--;
-							 }
-							filter_info->queue = hw_queue;
+							/* HW TC always goes to Q1 and CH2 */
+							filter_info->queue = 1;
 							filter_info->channel = 2;
 							filter_node_pcp->path = IOSS_QOS_HW_PATH;
-
 						} else if (temp_rx->action == IOSS_QOS_SW_PATH) {
-							if (rx_queue_avail == 1 && (sw_queue <= 1 || !qos_tables.asgn_hw_queue)) {
-								/* Only one queue left and no queue is assigned for SW TC yet*/
-								sw_queue = 1;
-							 } else if (rx_queue_avail == 1 && hw_queue == 1) {
-								/* No more queues are available, aggregate in last assigned hw_queue*/
-								filter_info->queue = sw_queue;
-							 } else if (rx_queue_avail > 1) {
-								/* queues are available, so assign one */
-								sw_queue = rx_queue_avail;
+							if (rx_queue_avail == 1) {
+								/* No more queues are available, assign to Q2 */
+								sw_queue = 2;
+							} else if (rx_queue_avail > 1) {
+								/* queues are available, so assign one (range from Q2 to Qx) */
+								sw_queue = rx_queue_avail + 1;
 								rx_queue_avail--;
-							 }
+							}
 							filter_info->queue = sw_queue;
 							if (qos_tables.queue_to_ch_map[sw_queue]) {
 								for (i = 1; i < priv->plat->rx_qos_queues_to_use; i++) {
