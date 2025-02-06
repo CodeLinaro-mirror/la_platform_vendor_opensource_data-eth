@@ -1319,65 +1319,64 @@ static ssize_t store_commit(struct device *dev,
 		res = idrv->qos_ops->prepare_qos(idev, &idev->ioss_qos_table.qos_rx_tc_table, &idev->ioss_qos_table.qos_tx_pending_table);
 		ioss_dev_log(idev, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
 					res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
-	}
+		if (!list_empty(&idev->ioss_qos_table.qos_rx_tc_table)) {
+			delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
+			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
+		}
 
-	if (!list_empty(&idev->ioss_qos_table.qos_rx_tc_table)) {
-		delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
-		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
-	}
+		if (res.qos_response_status == QOS_COMMIT_FAIL) {
+			ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
+			return -EINVAL;
+		}
+		else if (res.qos_response_status == QOS_COMMIT_LINK_DOWN) {
+			ioss_qos_dev_err(idev, "[ioss qos] : commit  : Ethernet Link down \n");
+		}
+		else if (res.qos_response_status == QOS_COMMIT_BW_EXHAUST) {
+			ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
+		}
+		else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
+			ioss_qos_dev_err(idev, "[ioss qos] : commit ignored : trying to perform empty commit\n");
+		}
 
-	if (res.qos_response_status == QOS_COMMIT_FAIL) {
-		ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
-		return -EINVAL;
-	}
-	else if (res.qos_response_status == QOS_COMMIT_LINK_DOWN) {
-		ioss_qos_dev_err(idev, "[ioss qos] : commit  : Ethernet Link down \n");
-	}
-	else if (res.qos_response_status == QOS_COMMIT_BW_EXHAUST) {
-		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
-	}
-	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
-		ioss_qos_dev_err(idev, "[ioss qos] : commit ignored : trying to perform empty commit\n");
-	}
+		list_for_each(ptr, &idev->ioss_qos_table.qos_rx_pending_table) {
+			rx_node = to_qos_rx_tc(ptr);
+			rx_node->committed = true;
+		}
+		list_for_each(ptr, &idev->ioss_qos_table.qos_tx_pending_table) {
+			tx_node = to_qos_routing_tx(ptr);
+			tx_node->committed = true;
+		}
 
-	list_for_each(ptr, &idev->ioss_qos_table.qos_rx_pending_table) {
-		rx_node = to_qos_rx_tc(ptr);
-		rx_node->committed = true;
-	}
-	list_for_each(ptr, &idev->ioss_qos_table.qos_tx_pending_table) {
-		tx_node = to_qos_routing_tx(ptr);
-		tx_node->committed = true;
-	}
+		if (!list_empty(&idev->ioss_qos_table.qos_rx_committed_table)) {
+			delete_rx_table(&idev->ioss_qos_table.qos_rx_committed_table);
+			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_committed_table);
+		}
+		if (copy_rx_table(&idev->ioss_qos_table.qos_rx_pending_table, &idev->ioss_qos_table.qos_rx_committed_table) < 0)
+			return -ENOMEM;
 
-	if (!list_empty(&idev->ioss_qos_table.qos_rx_committed_table)) {
-		delete_rx_table(&idev->ioss_qos_table.qos_rx_committed_table);
-		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_committed_table);
+		if (!list_empty(&idev->ioss_qos_table.qos_tx_committed_table)) {
+			delete_tx_table(&idev->ioss_qos_table.qos_tx_committed_table);
+			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_committed_table);
+		}
+		if (copy_tx_table(&idev->ioss_qos_table.qos_tx_pending_table, &idev->ioss_qos_table.qos_tx_committed_table) < 0)
+			return -ENOMEM;
+
+		if (res.qos_response_status == QOS_COMMIT_SUCCESS)
+			ret = enable_qos_ipa_channels(idev, res);
+
+		idev->qos_enabled = true;
+
+		for (i = 0; i < ARRAY_SIZE(idev->curr_qos_config.is_rx_tc_sw); i++) {
+			idev->curr_qos_config.is_rx_tc_sw[i] = res.qos_pipe_mapping.is_rx_tc_sw[i];
+			idev->curr_qos_config.pipe_to_tc_mapping_rx[i] = res.qos_pipe_mapping.pipe_to_tc_mapping_rx[i];
+		}
+
+		for (i = 0; i < ARRAY_SIZE(idev->curr_qos_config.is_tx_tc_sw); i++) {
+			idev->curr_qos_config.is_tx_tc_sw[i] = res.qos_pipe_mapping.is_tx_tc_sw[i];
+			idev->curr_qos_config.pipe_to_tc_mapping_tx[i] = res.qos_pipe_mapping.pipe_to_tc_mapping_tx[i];
+		}
+		ioss_qos_dev_log(idev, "[ioss qos] : set idev->qos_enabled to true\n");
 	}
-	if (copy_rx_table(&idev->ioss_qos_table.qos_rx_pending_table, &idev->ioss_qos_table.qos_rx_committed_table) < 0)
-		return -ENOMEM;
-
-	if (!list_empty(&idev->ioss_qos_table.qos_tx_committed_table)) {
-		delete_tx_table(&idev->ioss_qos_table.qos_tx_committed_table);
-		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_committed_table);
-	}
-	if (copy_tx_table(&idev->ioss_qos_table.qos_tx_pending_table, &idev->ioss_qos_table.qos_tx_committed_table) < 0)
-		return -ENOMEM;
-
-	if (res.qos_response_status == QOS_COMMIT_SUCCESS)
-		ret = enable_qos_ipa_channels(idev, res);
-
-	idev->qos_enabled = true;
-
-	for (i = 0; i < ARRAY_SIZE(idev->curr_qos_config.is_rx_tc_sw); i++) {
-		idev->curr_qos_config.is_rx_tc_sw[i] = res.qos_pipe_mapping.is_rx_tc_sw[i];
-		idev->curr_qos_config.pipe_to_tc_mapping_rx[i] = res.qos_pipe_mapping.pipe_to_tc_mapping_rx[i];
-	}
-
-	for (i = 0; i < ARRAY_SIZE(idev->curr_qos_config.is_tx_tc_sw); i++) {
-		idev->curr_qos_config.is_tx_tc_sw[i] = res.qos_pipe_mapping.is_tx_tc_sw[i];
-		idev->curr_qos_config.pipe_to_tc_mapping_tx[i] = res.qos_pipe_mapping.pipe_to_tc_mapping_tx[i];
-	}
-	ioss_qos_dev_log(idev, "[ioss qos] : set idev->qos_enabled to true\n");
 	return size;
 }
 
