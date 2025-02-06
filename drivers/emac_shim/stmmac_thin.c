@@ -2477,7 +2477,7 @@ void stmmac_mac_link_up(struct net_device *ndev)
 		return;
 
 	priv = netdev_priv(ndev);
-	if (priv->dev_opened) {
+	if (priv->dev_inited) {
 		/* Start the ball rolling... */
 		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
