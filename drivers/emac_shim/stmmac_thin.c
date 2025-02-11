@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
+// Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
 /*******************************************************************************
  * This is the driver for the ST MAC 10/100/1000 on-chip Ethernet controllers.
  * ST Ethernet IPs are built around a Synopsys IP Core.
@@ -1218,7 +1219,8 @@ static int stmmac_hw_setup(struct net_device *dev)
 	int ret;
 
 	dev_info(priv->device, "%s: ch = %u\n", __func__, chan);
-	priv->mac_addr(dev);
+	if(!priv->is_gy_en)
+		priv->mac_addr(dev);
 
 	/* DMA initialization and SW reset */
 	ret = stmmac_init_dma_engine(priv);
@@ -1247,9 +1249,6 @@ static int stmmac_hw_setup(struct net_device *dev)
 	/* Enable TSO */
 	if (priv->tso)
 		stmmac_enable_tso(priv, priv->ioaddr, 1, chan);
-
-	/* Start the ball rolling... */
-	stmmac_start_dma(priv);
 
 	return 0;
 }
@@ -1286,6 +1285,9 @@ static int stmmac_open(struct net_device *dev)
 	priv->rx_copybreak = STMMAC_RX_COPYBREAK;
 	priv->dev_opened = true;
 	priv->dev_inited = false;
+
+	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST )
+		priv->ethqos_client_connect(priv->plat->bsp_priv,false);
 
 	if (priv->emac_state > EMAC_INIT_ST)
 		ret = stmmac_dvr_init(dev);
@@ -2202,7 +2204,7 @@ static void stmmac_set_rx_mode(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
-	if (priv->emac_state > EMAC_INIT_ST) {
+	if (!priv->is_gy_en && priv->emac_state > EMAC_INIT_ST) {
 		if (!netdev_mc_empty(dev)) {
 			priv->filter_type = MULTICAST_TYPE;
 			priv->add_filter(dev);
@@ -2302,7 +2304,7 @@ static int stmmac_set_mac_address(struct net_device *ndev, void *addr)
 	if (ret)
 		return ret;
 
-	if (priv->emac_state > EMAC_INIT_ST)
+	if (!priv->is_gy_en && priv->emac_state > EMAC_INIT_ST)
 		ret = priv->mac_addr(ndev);
 
 	return ret;
@@ -2325,6 +2327,9 @@ static int stmmac_vlan_rx_add_vid(struct net_device *ndev,
 {
 	struct stmmac_priv *priv = netdev_priv(ndev);
 
+	if(priv->is_gy_en)
+		return 0;
+
 	if (vid == 0 || vid > 4095) {
 		dev_info(priv->device, "Invalid vlan id %u\n", vid);
 		return 0;
@@ -2341,6 +2346,9 @@ static int stmmac_vlan_rx_kill_vid(struct net_device *ndev,
 				   __be16 proto, u16 vid)
 {
 	struct stmmac_priv *priv = netdev_priv(ndev);
+
+	if(priv->is_gy_en)
+		return 0;
 
 	if (vid == 0 || vid > 4095) {
 		dev_info(priv->device, "Invalid vlan id %u\n", vid);
@@ -2470,6 +2478,8 @@ void stmmac_mac_link_up(struct net_device *ndev)
 
 	priv = netdev_priv(ndev);
 	if (priv->dev_opened) {
+		/* Start the ball rolling... */
+		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 		if (!priv->boot_kpi) {
@@ -2805,7 +2815,12 @@ int stmmac_thin_dvr_probe(struct device *device,
 	struct stmmac_channel *ch;
 
 	/* Set tx used queue to 4 so NW stack can trigger tx queue selection */
+#if IS_ENABLED(CONFIG_EMAC_SHIM_GY)
+		ndev = devm_alloc_etherdev_mqs(device, sizeof(struct stmmac_priv), 4, 1);
+#else
 	ndev = alloc_netdev_mqs(sizeof(struct stmmac_priv), "eth1", NET_NAME_ENUM,ether_setup, 4, 1);
+#endif
+
 
 	if (!ndev)
 		return -ENOMEM;
@@ -3032,6 +3047,51 @@ static void stmmac_reset_queues_param(struct stmmac_priv *priv)
 	tx_q->mss = 0;
 }
 
+
+static void stmmac_reinit_rx_buffers(struct stmmac_priv *priv)
+{
+
+	int i;
+	struct stmmac_rx_queue *rx_q = &priv->rx_queue;
+
+	pr_info("qcom-ethqos: %s enter", __func__);
+	for (i = 0; i < DMA_RX_SIZE; i++) {
+		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
+
+		if (buf->page) {
+			page_pool_recycle_direct(rx_q->page_pool, buf->page);
+			buf->page = NULL;
+		}
+
+	}
+
+	for (i = 0; i < DMA_RX_SIZE; i++) {
+		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
+		struct dma_desc *p;
+
+		p = rx_q->dma_rx + i;
+		if (!buf->page) {
+			buf->page = page_pool_dev_alloc_pages(rx_q->page_pool);
+			if (!buf->page)
+				goto err_reinit_rx_buffers;
+
+			buf->addr = page_pool_get_dma_addr(buf->page);
+			if(!buf->addr) {
+				pr_err("buf->addr is NULL");
+				goto err_reinit_rx_buffers;
+			}
+		}
+		stmmac_set_desc_addr(priv, p, buf->addr);
+	}
+
+	return;
+
+err_reinit_rx_buffers:
+	pr_err(" error in reinit_rx_buffers");
+		while (--i >= 0)
+			stmmac_free_rx_buffer(priv,i);
+}
+
 /**
  * stmmac_thin_resume - resume callback
  * @dev: device pointer
@@ -3052,6 +3112,7 @@ int stmmac_thin_resume(struct device *dev)
 
 	stmmac_reset_queues_param(priv);
 
+	stmmac_reinit_rx_buffers(priv);
 	stmmac_clear_descriptors(priv);
 
 	stmmac_hw_setup(ndev);

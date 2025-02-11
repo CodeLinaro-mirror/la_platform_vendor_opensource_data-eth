@@ -6,6 +6,15 @@ LOCAL_PATH := $(call my-dir)
 ifeq ($(call is-board-platform-in-list, gen4 pineapple), true)
 
 LOCAL_PATH := $(call my-dir)
+ATAETH_SELECT := CONFIG_DATAETH=m
+ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm_gy)
+DATAETH_SELECT += CONFIG_EMAC_SHIM=m
+DATAETH_SELECT += CONFIG_EMAC_SHIM_GY=m
+endif
+ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm)
+DATAETH_SELECT += CONFIG_EMAC_SHIM=m
+DATAETH_SELECT += CONFIG_EMAC_CTRL_FE=m
+endif
 
 # This makefile is only for DLKM
 ifneq ($(findstring vendor,$(LOCAL_PATH)),)
@@ -20,6 +29,9 @@ DLKM_DIR := $(TOP)/device/qcom/common/dlkm
 ###########################################################
 # This is set once per LOCAL_PATH, not per (kernel) module
 KBUILD_OPTIONS := DATAETH_ROOT=$(DATAETH_BLD_DIR)
+KBUILD_OPTIONS += $(foreach dataeth_select, \
+       $(DATAETH_SELECT), \
+       $(dataeth_select))
 DATAETH_SRC_FILES := \
 	$(wildcard $(LOCAL_PATH)/*) \
 	$(wildcard $(LOCAL_PATH)/*/*) \
@@ -44,7 +56,6 @@ include $(DLKM_DIR)/Build_external_kernelmodule.mk
 # as well if corresponding flags are added in KBUILD_OPTIONS from upper
 # level Makefiles.
 
-ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm)
 ########################## emac_ctrl_fe_virtio ############################
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
@@ -66,7 +77,6 @@ LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
 ###########################################################
-endif
 
 ifeq ($(call is-board-platform-in-list, pineapple), true)
 ################################ emac_QPS615 ################################
