@@ -1248,9 +1248,6 @@ static int stmmac_hw_setup(struct net_device *dev)
 	if (priv->tso)
 		stmmac_enable_tso(priv, priv->ioaddr, 1, chan);
 
-	/* Start the ball rolling... */
-	stmmac_start_dma(priv);
-
 	return 0;
 }
 
@@ -2470,6 +2467,8 @@ void stmmac_mac_link_up(struct net_device *ndev)
 
 	priv = netdev_priv(ndev);
 	if (priv->dev_opened) {
+		/* Start the ball rolling... */
+		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 		if (!priv->boot_kpi) {
@@ -3032,6 +3031,51 @@ static void stmmac_reset_queues_param(struct stmmac_priv *priv)
 	tx_q->mss = 0;
 }
 
+
+static void stmmac_reinit_rx_buffers(struct stmmac_priv *priv)
+{
+
+	int i;
+	struct stmmac_rx_queue *rx_q = &priv->rx_queue;
+
+	pr_info("qcom-ethqos: %s enter", __func__);
+	for (i = 0; i < DMA_RX_SIZE; i++) {
+		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
+
+		if (buf->page) {
+			page_pool_recycle_direct(rx_q->page_pool, buf->page);
+			buf->page = NULL;
+		}
+
+	}
+
+	for (i = 0; i < DMA_RX_SIZE; i++) {
+		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
+		struct dma_desc *p;
+
+		p = rx_q->dma_rx + i;
+		if (!buf->page) {
+			buf->page = page_pool_dev_alloc_pages(rx_q->page_pool);
+			if (!buf->page)
+				goto err_reinit_rx_buffers;
+
+			buf->addr = page_pool_get_dma_addr(buf->page);
+			if(!buf->addr) {
+				pr_err("buf->addr is NULL");
+				goto err_reinit_rx_buffers;
+			}
+		}
+		stmmac_set_desc_addr(priv, p, buf->addr);
+	}
+
+	return;
+
+err_reinit_rx_buffers:
+	pr_err(" error in reinit_rx_buffers");
+		while (--i >= 0)
+			stmmac_free_rx_buffer(priv,i);
+}
+
 /**
  * stmmac_thin_resume - resume callback
  * @dev: device pointer
@@ -3052,6 +3096,7 @@ int stmmac_thin_resume(struct device *dev)
 
 	stmmac_reset_queues_param(priv);
 
+	stmmac_reinit_rx_buffers(priv);
 	stmmac_clear_descriptors(priv);
 
 	stmmac_hw_setup(ndev);
