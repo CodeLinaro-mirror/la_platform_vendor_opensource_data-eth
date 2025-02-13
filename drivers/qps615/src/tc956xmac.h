@@ -4,7 +4,7 @@
  * tc956xmac.h
  *
  * Copyright (C) 2007-2009  STMicroelectronics Ltd
- * Copyright (C) 2024 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro Linux driver,
  * and developed or modified for TC956X.
@@ -185,6 +185,9 @@
  *                2. Updated with Register Configuration Check.
  *                3. Added support for board device RBTC9563_3MA
  *  VERSION     : 04-00
+ *  31 May 2024 : 1. Changes related to module param USXGMII_10G, USXGMII_5G, USXGMII_2.5G added
+ *                2. Version update
+ *  VERSION     : 05-00
  */
 
 #ifndef __TC956XMAC_H__
@@ -222,10 +225,6 @@
 #define TC956X_5_G_2_5_G_EEE_SUPPORT
 // #define CONFIG_TC956XMAC_SELFTESTS  /*Enable this macro to test Feature selftest*/
 
-/* TC956X_Host_Driver-industrial_limited_tested_20241030_V_04-00-01-QPSSW-215.patch */
-/* Enable this macro when using TSB provided sample AQR driver which supports preamble suppression */
-// #define TC956X_SAMP_PHY_AQR_DRV_PSE_ENABLED
-
 #ifdef TC956X
 #define VENDOR_ID 0x1179
 #ifndef TC956X_SRIOV_VF
@@ -261,7 +260,7 @@
 #define IRQ_DEV_NAME(x)		(((x) == RM_PF0_ID) ? ("eth0") : ("eth1"))
 #define WOL_IRQ_DEV_NAME(x)	(((x) == RM_PF0_ID) ? ("eth0_wol") : ("eth1_wol"))
 
-#define DRV_MODULE_VERSION	"V_04-00-00"
+#define DRV_MODULE_VERSION	"V_05-00-00"
 #define TC956X_FW_MAX_SIZE	(64*1024)
 #elif (defined TC956X_SRIOV_VF)
 #define TC956X_RESOURCE_NAME	"tc956x_vf_pci-eth"
@@ -406,12 +405,14 @@
 
 #define TC956X_M3_DBG_VER_START			0x4F900
 
-#define ENABLE_USXGMII_INTERFACE	0
-#define ENABLE_XFI_INTERFACE		1 /* XFI/SFI, this is same as USXGMII, except XPCS autoneg disabled */
-#define ENABLE_RGMII_INTERFACE		2
-#define ENABLE_SGMII_INTERFACE		3
-#define ENABLE_2500BASE_X_INTERFACE	4
-#define ENABLE_RGMII_ID_INTERFACE	5
+#define ENABLE_USXGMII_INTERFACE		0
+#define ENABLE_XFI_INTERFACE			1 /* XFI/SFI, this is same as USXGMII, except XPCS autoneg disabled */
+#define ENABLE_RGMII_INTERFACE			2
+#define ENABLE_SGMII_INTERFACE			3
+#define ENABLE_2500BASE_X_INTERFACE		4
+#define ENABLE_USXGMII_10G_INTERFACE	5
+#define ENABLE_USXGMII_5G_INTERFACE		6
+#define ENABLE_USXGMII_2_5G_INTERFACE	7
 #define MTL_FPE_AFSZ_64		0
 #define MTL_FPE_AFSZ_128	1
 #define MTL_FPE_AFSZ_192	2
@@ -477,10 +478,6 @@ struct tc956xmac_resources {
 	unsigned int tx_lpi_timer; /* Parameter to store kernel module parameter for LPI Auto Entry Timer */
 #endif
 	uint16_t pci_bd; /* PCI bus and device ID of self */
-
-	unsigned int mdc_clk;
-	unsigned int c45_state;
-	unsigned int link_down_macrst;
 };
 
 struct tc956xmac_tx_info {
@@ -802,7 +799,7 @@ struct tc956xmac_priv {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dbgfs_dir;
 #endif
-	char int_name_wol[IFNAMSIZ + 9]; /*TC956X_Host_Driver-industrial_limited_tested_20241114_V_04-00-01-QPSSW-218.patch*/
+	char int_name_wol[IFNAMSIZ + 9];
 #endif /* TC956X_SRIOV_PF */
 
 	unsigned long state;
@@ -1263,13 +1260,11 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resource
 int tc956x_platform_remove(struct tc956xmac_priv *priv);
 int tc956x_platform_suspend(struct tc956xmac_priv *priv);
 int tc956x_platform_resume(struct tc956xmac_priv *priv);
-int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res);
 #else
 int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resources *res);
 static inline int tc956x_platform_remove(struct tc956xmac_priv *priv) { return 0; }
 static inline int tc956x_platform_suspend(struct tc956xmac_priv *priv) { return 0; }
 int tc956x_platform_resume(struct tc956xmac_priv *priv);
-static inline int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res) { return 0; }
 #endif
 
 int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 out_value);
@@ -1286,36 +1281,5 @@ int tc956x_vf_rsc_mng_get_fn_id(struct tc956xmac_priv *priv, void __iomem *reg_p
 #endif
 int tc956x_set_pci_speed(struct pci_dev *pdev, u32 speed);
 void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT_LINK_CHANGE_STATE state);
-/*TC956X_Host_Driver-industrial_limited_tested_20241022_V_04-00-01-QPSSW-210.patch*/
-uint16_t tc956x_get_shared_mem_offset(struct pci_dev *pdev, uint16_t pci_bd);
-
-#ifdef TC956X_SRIOV_PF
-#ifdef CONFIG_DEBUG_FS
-int tc956xmac_create_debugfs(struct net_device *net_device);
-int tc956xmac_cleanup_debugfs(struct net_device *net_device);
-#endif
-#endif
-
-#ifndef TC956X_SRIOV_VF
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
-int genphy_c45_read_eee_adv_local(struct phy_device *phydev, unsigned long *adv);
-int genphy_c45_eee_is_active_local(struct phy_device *phydev, unsigned long *adv,
-			     unsigned long *lp, bool *is_enabled);
-int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
-			       struct ethtool_eee *data);
-int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *data);
-int phylink_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *eee);
-#endif
-
-#ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
-extern int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data);
-#endif
-#endif
-
-#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 5, 0)
-struct timespec64 tc956x_calc_basetime(ktime_t old_base_time,
-					   ktime_t current_time,
-					   u64 cycle_time);
-#endif
 
 #endif /* __TC956XMAC_H__ */

@@ -3,7 +3,7 @@
  *
  * tc956x_xpcs.c
  *
- * Copyright (C) 2022 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,6 +39,8 @@
  *  VERSION     : 01-00-19
  *  25 Feb 2022 : 1. Helper function added for XPCS Rx LPI enable/disable
  *  VERSION     : 01-00-44
+ *  31 May 2024 : 1. Added changes related to module param USXGMII_10G, USXGMII_5G, USXGMII_2.5G
+ *  VERSION     : 05-00
  */
 
 #include "common.h"
@@ -117,21 +119,13 @@ int tc956x_xpcs_init(struct tc956xmac_priv *priv, void __iomem *xpcsaddr)
 			}
 		}
 		if ((priv->plat->interface == PHY_INTERFACE_MODE_USXGMII) ||
-			(priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-			|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-			) {
+			(priv->plat->interface == PHY_INTERFACE_MODE_10GKR)) {
 			reg_value = tc956x_xpcs_read(xpcsaddr, XGMAC_SR_XS_PCS_CTRL2);
 			reg_value &= XGMAC_PCS_TYPE_SEL;/*PCS_TYPE_SEL as 10GBASE-R PCS */
 			tc956x_xpcs_write(xpcsaddr, XGMAC_SR_XS_PCS_CTRL2, reg_value);
 
 			reg_value = tc956x_xpcs_read(xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1);
-			if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-				|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-				) {
+			if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR) {
 				reg_value &= (~XGMAC_USXG_EN); /*Disable USXG_EN*/
 			} else {
 				reg_value |= XGMAC_USXG_EN; /*set USXG_EN*/
@@ -141,6 +135,10 @@ int tc956x_xpcs_init(struct tc956xmac_priv *priv, void __iomem *xpcsaddr)
 
 			reg_value = tc956x_xpcs_read(xpcsaddr, XGMAC_VR_XS_PCS_KR_CTRL);
 			reg_value &= ~XGMAC_USXG_MODE;/*USXG_MODE : 0x000*/
+			if (priv->plat->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+				reg_value |= XPCS_USX_5G_MODE;
+			else if (priv->plat->port_interface == ENABLE_USXGMII_2_5G_INTERFACE)
+				reg_value |= XPCS_USX_2_5G_MODE;
 			tc956x_xpcs_write(xpcsaddr, XGMAC_VR_XS_PCS_KR_CTRL, reg_value);
 
 			reg_value = tc956x_xpcs_read(xpcsaddr, XGMAC_VR_XS_PCS_DIG_CTRL1);

@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 29 Mar 2024
+Release Date: 31 May 2024
 
-Release Version: V_04-00
+Release Version: V_05-00
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kernel-6.1.18" and "Fedora 39, kernel-6.6.1"
 
@@ -70,8 +70,8 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
        argument info:
 	     mac0_interface: For PORT0 interface mode setting
 	     mac1_interface: For PORT1 interface mode setting
-	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII, 4: 2500Base-X]
-	     y = [0: USXGMII, 1: XFI, 2: RGMII, 3: SGMII(default), 4: 2500Base-X]
+	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII, 4: 2500Base-X, 5: USXGMII_10G, 6: USXGMII_5G, 7.USXGMII_2.5G]
+	     y = [0: USXGMII, 1: XFI, 2: RGMII, 3: SGMII(default), 4: 2500Base-X, 5: USXGMII_10G, 6: USXGMII_5G, 7.USXGMII_2.5G]
   
     If invalid and unsupported modes are passed as kernel module parameter, the default interface mode will be selected.
 
@@ -612,3 +612,13 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 2. Support for without MDIO and without PHY scenarios
 3. Added support for 5G and 2.5G EEE activation (applicable for Kernel 6.3 onwards)
 4. TC956x switch to switch connection support (upto 2 level) over DSP ports
+
+## TC956X_Linux_Host_Driver_20240531_V_05-00
+1. Max outstanding request errata fix added
+2. Lower speed (1G, 100M, 10M) supported for USXGMII interface
+3. New module parameters USXGMII_10G, USXGMII_5G, USXGMII_2.5G supported for different MAC speed configurations.
+4. MMC Control register initialised during link change, when link_down_macrst is enabled.
+5. For 5.4 kernel maximum size for parsing config file is updated.
+6. Added support for FPE TC command.
+7. Error handling added for oversize gptp packets
+

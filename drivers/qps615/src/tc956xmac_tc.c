@@ -4,7 +4,7 @@
  * tc956xmac_tc.c
  *
  * Copyright (C) 2018 Synopsys, Inc. and/or its affiliates.
- * Copyright (C) 2023 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro and Synopsys Linux driver,
  * and developed or modified for TC956X.
@@ -36,6 +36,8 @@
  *  26 Dec 2023 : 1. Kernel 6.6 Porting changes
  *              : 2. Added the support for TC commands taprio and flower
  *  VERSION     : 01-03-59
+ *  31 May 2024 : 1. Modified for TC FPE support
+ *  VERSION     : 05-00
  */
 
 #include <net/pkt_cls.h>
@@ -1196,6 +1198,13 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 			return -EOPNOTSUPP;
 		}
 
+		if ((qopt->mqprio.preemptible_tcs != 0) && (priv->dma_cap.fpesel)) {
+			if (gates & (1 << (MTL_MAX_TX_TC -1))) /* Check for Express Queue Open */
+				gates |= qopt->mqprio.preemptible_tcs;
+			else 
+				gates &= ~qopt->mqprio.preemptible_tcs;
+		}
+
 		priv->plat->est->gcl[i] = delta_ns | (gates << wid);
 	}
 
@@ -1217,10 +1226,11 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 	priv->plat->est->ctr[0] = (u32)(qopt->cycle_time % NSEC_PER_SEC);
 	priv->plat->est->ctr[1] = (u32)(qopt->cycle_time / NSEC_PER_SEC);
 #endif
+	if (!(priv->dma_cap.fpesel))
+		qopt->mqprio.preemptible_tcs = 0;
 
-	if (fpe && !priv->dma_cap.fpesel)
-		return -EOPNOTSUPP;
-#ifdef TC956X_UNSUPPORTED_UNTESTED
+	fpe = qopt->mqprio.preemptible_tcs;
+
 	ret = tc956xmac_fpe_configure(priv, priv->ioaddr,
 				   priv->plat->tx_queues_to_use,
 				   priv->plat->rx_queues_to_use, fpe);
@@ -1228,7 +1238,7 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 		netdev_err(priv->dev, "failed to enable Frame Preemption\n");
 		return ret;
 	}
-#endif
+
 	ret = tc956xmac_est_configure(priv, priv->ioaddr, priv->plat->est,
 				   priv->plat->clk_ptp_rate);
 	if (ret) {
