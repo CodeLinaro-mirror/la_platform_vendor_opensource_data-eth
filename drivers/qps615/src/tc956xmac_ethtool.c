@@ -62,6 +62,8 @@
  *  VERSION     : 04-00
  *  31 May 2024 : 1. Modified for TC FPE support
  *  VERSION     : 05-00
+ *  31 Jan 2025 : 1. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+ *  VERSION     : 05-00-01
  */
 
 #include <linux/etherdevice.h>
@@ -1566,6 +1568,8 @@ static void tc956xmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wo
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
 
+	if (!priv->phylink)
+		return;
 	if (device_can_wakeup(priv->device))
 		phylink_ethtool_get_wol(priv->phylink, wol);
 }
@@ -1581,6 +1585,8 @@ static int tc956xmac_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol
 
 	if (wol->wolopts & ~support)
 		return -EINVAL;
+	if (!priv->phylink)
+		return 0;
 
 	ret = phylink_ethtool_set_wol(priv->phylink, wol);
 	if (!ret)
@@ -2518,7 +2524,7 @@ static int tc956x_get_mm(struct net_device *ndev, struct ethtool_mm_state *state
 	u32 reg;
 
 	reg = readl(priv->ioaddr + NCID_OFFSET);
-	if ((reg & NCID_FPE) == NCID_FPE )
+	if ((reg & NCID_FPE) == NCID_FPE)
 		state->pmac_enabled = 1;
 
 	return 0;

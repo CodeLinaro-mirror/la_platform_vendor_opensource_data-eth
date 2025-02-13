@@ -56,6 +56,8 @@
  *  VERSION     : 04-00
  *  31 May 2024 : 1. Modified for TC FPE support
  *  VERSION     : 05-00
+ *  31 Jan 2025 : 1. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+ *  VERSION     : 05-00-01
  */
 
 
@@ -247,9 +249,7 @@
 #define XGMAC_HWFEAT_MMCSEL		BIT(8)
 #define XGMAC_HWFEAT_MGKSEL		BIT(7)
 #define XGMAC_HWFEAT_RWKSEL		BIT(6)
-#ifdef TC956X_WITHOUT_MDIO_WITHOUT_PHY
 #define XGMAC_HWFEAT_SMASEL		BIT(5)
-#endif
 #define XGMAC_HWFEAT_VLHASH		BIT(4)
 #define XGMAC_HWFEAT_GMIISEL		BIT(1)
 #define XGMAC_HW_FEATURE1		(MAC_OFFSET + 0x00000120)

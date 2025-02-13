@@ -52,6 +52,9 @@
  *  VERSION     : 04-00
  *  31 May 2024 : 1. Lower speed support for USXGMII interface related changes
  *  VERSION     : 05-00
+ *  31 Jan 2025 : 1. Support for module parameter (array) to configure different ethernet interfaces and
+ *                   associated other mandatory configurations for same ethernet port number in a cascade TC956x setup
+ *  VERSION     : 05-00-01
  */
 
 #ifndef __TC956XMAC_PLATFORM_DATA
@@ -64,8 +67,6 @@
 //#define TC956X
 //#define TC956X_IOCTL_REG_RD_WR_ENABLE
 
-/* Enable TC956X_WITHOUT_MDIO_WITHOUT_PHY macro to disable MDIO and remove PHY dependency */
-//#define TC956X_WITHOUT_MDIO_WITHOUT_PHY
 //#define TC956X_PCIE_GEN3_SETTING
 //#define TC956X_PCIE_DISABLE_DSP1 /*Enable this macro to disable DSP1 port*/
 //#define TC956X_PCIE_DISABLE_DSP2 /*Enable this macro to disable DSP2 port*/
@@ -166,11 +167,11 @@
 #define TC956XMAC_XGMAC_MDC_CSR_16		0x6 /* clk_csr_i/16 */
 #define TC956XMAC_XGMAC_MDC_CSR_18		0x7 /* clk_csr_i/18 */
 #define TC956XMAC_XGMAC_MDC_CSR_62		0x8 /* clk_csr_i/62 */
-#define TC956XMAC_XGMAC_MDC_CSR_102	0x9 /* clk_csr_i/102 */
-#define TC956XMAC_XGMAC_MDC_CSR_122	0xA /* clk_csr_i/122 */
-#define TC956XMAC_XGMAC_MDC_CSR_142	0xB /* clk_csr_i/142 */
-#define TC956XMAC_XGMAC_MDC_CSR_162	0xC /* clk_csr_i/162 */
-#define TC956XMAC_XGMAC_MDC_CSR_202	0xD /* clk_csr_i/202 */
+#define TC956XMAC_XGMAC_MDC_CSR_102		0x9 /* clk_csr_i/102 */
+#define TC956XMAC_XGMAC_MDC_CSR_122		0xA /* clk_csr_i/122 */
+#define TC956XMAC_XGMAC_MDC_CSR_142		0xB /* clk_csr_i/142 */
+#define TC956XMAC_XGMAC_MDC_CSR_162		0xC /* clk_csr_i/162 */
+#define TC956XMAC_XGMAC_MDC_CSR_202		0xD /* clk_csr_i/202 */
 
 
 /* AXI DMA Burst length supported */
@@ -372,6 +373,8 @@ struct plat_tc956xmacenet_data {
 	bool pse;
 	int start_phy_addr;
 	bool gate_mask;
+	u16 link_down_macrst;
+	u16 mac_no_mdio_no_phy;
 };
 
 struct tx956x_shrd_mem {

@@ -87,6 +87,9 @@
  *  31 May 2024 : 1. Lower speed(1G, 100M, 10M) support added for USXGMII interface
  *              : 2. Error handling added for oversize gptp packets
  *  VERSION     : 05-00
+ *  31 Jan 2025 : 1. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+ *              : 2. USXGMII (0) made as supported module param for TC956x Rev ID1
+ *  VERSION     : 05-00-01
 */
 
 #ifndef __COMMON_H__
@@ -136,6 +139,15 @@ enum TC956X_PORT_LINK_CHANGE_STATE {
 	LINK_DOWN = 0,
 	LINK_UP,
 };
+
+/* PHY/MDIO configurations */
+enum TC956X_PHY_MDIO_AVAILABILITY {
+	PHY_ON_MDIO_ON = 0, /* PHY and MDIO available */
+	PHY_ON_MDIO_OFF,    /* PHY available and MDIO not available */ /* Not supported currently */
+	PHY_OFF_MDIO_ON,    /* PHY not available and MDIO available */ /* Not supported currrently */
+	PHY_OFF_MDIO_OFF    /* PHY not available and MDIO not available */
+};
+
 #if defined(TC956X_SRIOV_PF)
 //#define TC956X_PCIE_LINK_STATE_LATENCY_CTRL
 #define TC956X_PCIE_DSP_CUT_THROUGH
@@ -1817,11 +1829,9 @@ RXQ1 used for MAC2MAC */
 #define SP_ETH_SHIFT \
 	((MAC_PORT_NUM_CHECK) ? (SP_ETH0_SHIFT) : (SP_ETH1_SHIFT))
 
+/* REV_ID1 does not support USXGMII_5G, USXGMII_2_5G interface type */
 #define MAX_INTERFACE \
 	((plat->RevID == REV_ID1) ? (ENABLE_USXGMII_10G_INTERFACE) : (ENABLE_USXGMII_2_5G_INTERFACE))
-
-#define MIN_INTERFACE \
-	((plat->RevID == REV_ID1) ? (ENABLE_XFI_INTERFACE) : (ENABLE_USXGMII_INTERFACE))
 
 #ifdef TC956X
 #define TC956X_ETH_XPCS_INT				BIT(19)

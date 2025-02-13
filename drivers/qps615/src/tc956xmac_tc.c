@@ -38,6 +38,9 @@
  *  VERSION     : 01-03-59
  *  31 May 2024 : 1. Modified for TC FPE support
  *  VERSION     : 05-00
+ *  31 Jan 2025 : 1. Linux Kernel version check for supported TC command
+ *                2. Initialisation of some local variables to avoid compiler warnings
+ *  VERSION     : 05-00-01
  */
 
 #include <net/pkt_cls.h>
@@ -1080,7 +1083,7 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 	bool fpe = false;
 	int i, ret = 0;
 
-	u64 system_time;
+	u64 system_time = 0;
 	ktime_t current_time_ns;
 
 	u32 tx_channels_count = priv->plat->tx_queues_to_use;
@@ -1197,14 +1200,14 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 		default:
 			return -EOPNOTSUPP;
 		}
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
 		if ((qopt->mqprio.preemptible_tcs != 0) && (priv->dma_cap.fpesel)) {
-			if (gates & (1 << (MTL_MAX_TX_TC -1))) /* Check for Express Queue Open */
+			if (gates & (1 << (MTL_MAX_TX_TC - 1))) /* Check for Express Queue Open */
 				gates |= qopt->mqprio.preemptible_tcs;
-			else 
+			else
 				gates &= ~qopt->mqprio.preemptible_tcs;
 		}
-
+#endif
 		priv->plat->est->gcl[i] = delta_ns | (gates << wid);
 	}
 
@@ -1226,10 +1229,12 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 	priv->plat->est->ctr[0] = (u32)(qopt->cycle_time % NSEC_PER_SEC);
 	priv->plat->est->ctr[1] = (u32)(qopt->cycle_time / NSEC_PER_SEC);
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
 	if (!(priv->dma_cap.fpesel))
 		qopt->mqprio.preemptible_tcs = 0;
 
 	fpe = qopt->mqprio.preemptible_tcs;
+#endif
 
 	ret = tc956xmac_fpe_configure(priv, priv->ioaddr,
 				   priv->plat->tx_queues_to_use,
