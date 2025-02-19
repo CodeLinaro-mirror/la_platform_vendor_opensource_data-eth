@@ -1700,12 +1700,6 @@ ssize_t stmmac_intf_width(struct stmmac_priv *priv)
 	return intf_width;
 }
 EXPORT_SYMBOL_GPL(stmmac_intf_width);
-#else
-ssize_t stmmac_intf_width(struct stmmac_priv *priv)
-{
-    return -EOPNOTSUPP;
-}
-#endif
 
 void stmmac_config_qos_cbs(struct stmmac_priv *priv, struct qos_struct *qos_table_info)
 {
@@ -2162,4 +2156,5 @@ int config_tx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(config_tx_queue_path);
+#endif
 

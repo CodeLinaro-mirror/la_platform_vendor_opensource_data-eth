@@ -489,6 +489,7 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel);
  */
 int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 index);
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 /* Enable PFC and queue routing for QOS
  *param[in] priv : stmmac priv data structure
  * \param[in] qos_table_info : qos_struct which contains required qos_info post
@@ -568,3 +569,4 @@ int config_tx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
  * param[in] priv : stmmac priv data structure
  */
 ssize_t stmmac_intf_width(struct stmmac_priv *priv);
+#endif

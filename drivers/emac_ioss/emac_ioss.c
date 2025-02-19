@@ -29,6 +29,7 @@ struct stmmac_ioss_device {
 	struct stmmac_priv *_priv;
 };
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 static void qos_adjust_txq_cbs_bw(struct list_head *qos_tx, u16 available_bw)
 {
 	struct qos_routing_tx *temp_tx;
@@ -59,6 +60,7 @@ static void qos_adjust_txq_cbs_bw(struct list_head *qos_tx, u16 available_bw)
 		ioss_qos_dev_log(NULL, "[ioss qos] Alloted BW for TC%d = %d", temp_tx->tc_prio, temp_tx->bw_allocated);
     }
 }
+#endif
 
 static void *stmmac_ioss_dma_alloc(struct ioss_device *idev,
 				   size_t size, dma_addr_t *daddr, gfp_t gfp,
@@ -508,6 +510,8 @@ static int stmmac_ioss_update_skb(struct ioss_channel *ch, struct sk_buff *skb)
 
 	return 0;
 }
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 
 static int stmmac_get_rx_tc_info(struct list_head *rx_qos, enum data_path path)
 {
@@ -2761,6 +2765,7 @@ static struct ioss_qos_ops stmmac_qos_ops = {
 	.validate_tx_tc = stmmac_validate_tx_tc,
 	.get_hw_caps = stmmac_get_hw_cap,
 };
+#endif
 
 static struct ioss_driver_ops stmmac_ioss_ops = {
 	.open_device = stmmac_ioss_open_device,
@@ -2804,7 +2809,9 @@ static struct ioss_driver stmmac_ioss_drv = {
 	.name = DRV_NAME "_ioss",
 	.match = stmmac_driver_match,
 	.ops = &stmmac_ioss_ops,
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
 	.qos_ops = &stmmac_qos_ops,
+#endif
 	.filter_types = IOSS_RXF_BE,
 };
 
