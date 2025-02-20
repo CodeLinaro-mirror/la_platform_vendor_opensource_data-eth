@@ -228,7 +228,7 @@ int emac_ctrl_fe_register_ready_cb(void (*emac_ctrl_fe_ready_cb)(void *user_data
 		return 0;
 	}
 	else {
-		dev_err(msgq_priv->dev, "Msgq not ready yet\n");
+		pr_err("Msgq not ready yet\n");
 		return -EINVAL;
 	}
 }
