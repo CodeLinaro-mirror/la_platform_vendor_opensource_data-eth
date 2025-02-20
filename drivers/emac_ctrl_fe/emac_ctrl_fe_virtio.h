@@ -141,7 +141,7 @@ struct emac_ctrl_fe_virtio_dev {
 	enum emac_ctrl_fe_state_type   emac_ctrl_fe_state;
 	bool                           emac_ctrl_fe_ready;
 	struct list_head               emac_ctrl_fe_ready_cb_list;
-	struct mutex                   emac_ctl_fe_lock;
+	spinlock_t                     emac_ctl_fe_lock;
 
 	enum emac_dma_drv_state_type   emac_dma_drv_state;
 
