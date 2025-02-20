@@ -1443,6 +1443,26 @@ int clear_rx_filter(struct net_device *ndev)
 }
 EXPORT_SYMBOL_GPL(clear_rx_filter);
 
+static void stmmac_mac_config_rx_queues_routing(struct stmmac_priv *priv)
+{
+	u32 rx_queues_count = priv->plat->rx_queues_to_use;
+	u32 queue;
+	u8 packet;
+
+	for (queue = 0; queue < rx_queues_count; queue++) {
+		/* no specific packet type routing specified for the queue */
+		if (priv->plat->rx_queues_cfg[queue].pkt_route == 0x0)
+			continue;
+
+		packet = priv->plat->rx_queues_cfg[queue].pkt_route;
+		stmmac_rx_queue_routing(priv, priv->hw, packet, queue);
+
+		/* Configure Multicast and broadcast additionally if enabled */
+		if (priv->plat->rx_queues_cfg[queue].mbcast_route)
+			stmmac_rx_queue_routing(priv, priv->hw, PACKET_MCBCQ, queue);
+	}
+}
+
 /*!
  * \brief Start the DMA channel. channel_dir member variable
  *	  will be used to start the Tx/Rx channel
@@ -1499,6 +1519,7 @@ int start_channel(struct net_device *ndev, struct channel_info *channel)
 		memcpy(&mac_addr.addr[0], &mac_addr_default[0], sizeof(mac_addr_default));
 		set_mac_addr(ndev, &mac_addr, MAC_ADDR_INDEX);
 
+		stmmac_mac_config_rx_queues_routing(priv);
 		netdev_dbg(priv->dev, "DMA Rx process started in channel = %d\n", channel->channel_num);
 		stmmac_start_rx(priv, priv->ioaddr, channel->channel_num);
 	} else {
