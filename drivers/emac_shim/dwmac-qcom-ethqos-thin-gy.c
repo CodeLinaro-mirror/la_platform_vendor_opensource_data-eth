@@ -67,6 +67,9 @@ struct emac_fe_ev {
 	unsigned long ev;
 };
 
+enum domain_t {
+	POWER_MDIO = 0,
+};
 
 static void emac_fe_ev_wq(struct work_struct *work)
 {
@@ -349,6 +352,56 @@ void qcom_ethqos_client_sock_cleanup(void) {
 	ETHQOSINFO("exit\n");
 }
 
+static int qcom_ethqos_domain_on(struct qcom_ethqos *ethqos, enum domain_t dom)
+{
+	struct device *dev = &ethqos->pdev->dev;
+	int ret = 0;
+
+	ETHQOSDBG("qcom_ethqos_domain_on start\n");
+
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
+		dev_err(dev, "poweron(domain=%d) failed.(err=%d)\n", dom, ret);
+
+	return ret;
+}
+
+static int qcom_ethqos_domain_off(struct qcom_ethqos *ethqos, enum domain_t dom)
+{
+	struct device *dev = &ethqos->pdev->dev;
+	int ret = 0;
+
+	ETHQOSDBG("qcom_ethqos_domain_off start\n");
+
+	ret = pm_runtime_put_sync(dev);
+	if (ret < 0)
+		dev_err(dev, "poweroff(domain=%d) failed.(err=%d)\n", dom, ret);
+
+	return ret;
+}
+
+static int qcom_ethqos_domain_transition_d0d1(void *priv, bool high)
+{
+	struct qcom_ethqos *ethqos = priv;
+	int ret = 0;
+
+	if (high) {
+		ret = qcom_ethqos_domain_on(ethqos, POWER_MDIO);
+		if (ret < 0)
+			dev_err(&ethqos->pdev->dev, "Transition from d0 to d1 failed\n");
+		else
+			dev_info(&ethqos->pdev->dev, "Transition from d0 to d1 done\n");
+
+	} else {
+		ret = qcom_ethqos_domain_off(ethqos, POWER_MDIO);
+		if (ret < 0)
+			dev_err(&ethqos->pdev->dev, "Transition from d1 to d0 failed\n");
+		else
+			dev_info(&ethqos->pdev->dev, "Transition from d1 to d0 done\n");
+	}
+
+	return ret;
+}
 
 static inline unsigned int dwmac_qcom_get_eth_type(unsigned char *buf)
 {
@@ -464,7 +517,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	struct plat_stmmacenet_data *plat_dat = NULL;
 	struct stmmac_resources stmmac_res;
 	struct qcom_ethqos *ethqos = NULL;
-	int ret;
+	int ret, ret_domain;
 	struct net_device *ndev;
 	struct stmmac_priv *priv;
 
@@ -567,6 +620,18 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	priv->ethqos_client_connect = qcom_ethqos_client_connect;
 	priv->is_gy_en = true;
+
+	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1")) {
+		if (!pm_runtime_enabled(&ethqos->pdev->dev)) {
+			ret_domain = devm_pm_runtime_enable(&ethqos->pdev->dev);
+			if (ret_domain)
+				ETHQOSERR("Failed : enable the pm runtime : %d",ret_domain);
+			else {
+				priv->clks_config = qcom_ethqos_domain_transition_d0d1;
+				ETHQOSINFO("GVM ETH Power domain loaded successfully.\n");
+			}
+		}
+	}
 	priv->emac_state = EMAC_INIT_ST;
 
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
