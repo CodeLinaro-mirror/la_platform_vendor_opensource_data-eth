@@ -995,8 +995,6 @@ static ssize_t store_del_tc(struct device *dev,
 				kfree(rx_node);
 			}
 		}
-		delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
-		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
 	}
 	else {
 		if (!tx_tc_already_exists(idev, prio)) {
@@ -1089,8 +1087,6 @@ static ssize_t store_commit(struct device *dev,
 			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_pending_table);
 			delete_rx_table(&idev->ioss_qos_table.qos_rx_committed_table);
 			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_committed_table);
-			delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
-			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
 
 			delete_tx_table(&idev->ioss_qos_table.qos_tx_pending_table);
 			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_pending_table);
@@ -1166,8 +1162,11 @@ static ssize_t store_commit(struct device *dev,
 		ioss_dev_log(idev, "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
 					res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
 	}
-	delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
-	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
+
+	if (!list_empty(&idev->ioss_qos_table.qos_rx_tc_table)) {
+		delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
+		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
+	}
 
 	if (res.qos_response_status == QOS_COMMIT_FAIL) {
 		ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
@@ -1184,9 +1183,6 @@ static ssize_t store_commit(struct device *dev,
 		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
 		return -EINVAL;
 	}
-
-	delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
-	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
 
 	list_for_each(ptr, &idev->ioss_qos_table.qos_rx_pending_table) {
 		rx_node = to_qos_rx_tc(ptr);
@@ -2351,8 +2347,10 @@ void ioss_qos_refresh(struct ioss_device *idev)
 		     "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
 		     res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
 
-	delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
-	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
+	if (!list_empty(&idev->ioss_qos_table.qos_rx_tc_table)) {
+		delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
+		INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
+	}
 
 	if (res.qos_response_status == QOS_COMMIT_FAIL) {
 		ioss_qos_dev_err(idev, "[ioss qos] : prepare_qos returned error, commit failed");
