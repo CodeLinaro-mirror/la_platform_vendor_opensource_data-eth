@@ -2737,7 +2737,8 @@ static ssize_t stmmac_get_qos_info(struct ioss_device *idev, char* buf, ssize_t 
 	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
 				  "emac_dl_queue_sel: %s\n", stmmac_is_skprio_routing(ndev)
 				  ? "skprio": "pcp");
-
+	bytes_written += snprintf(buf + bytes_written, buf_size - bytes_written,
+				  "usable_bw: %d\n", stmmac_get_cbs_avail_bw(priv->speed));
 	return bytes_written;
 }
 
