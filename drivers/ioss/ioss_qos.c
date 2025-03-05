@@ -347,6 +347,7 @@ static void copy_tx_node(struct qos_routing_tx *src, struct qos_routing_tx *dest
 
 	dest->tc_prio = src->tc_prio;
 	dest->committed = src->committed;
+	dest->disabled = src->disabled;
 	dest->action = src->action;
 	dest->cbs_bw.low_bw = src->cbs_bw.low_bw;
 	dest->cbs_bw.high_bw = src->cbs_bw.high_bw;
@@ -1178,7 +1179,6 @@ static ssize_t store_commit(struct device *dev,
 	}
 	else if (res.qos_response_status == QOS_COMMIT_BW_EXHAUST) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : BW EXHAUSTED \n");
-		return -EINVAL;
 	}
 	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit ignored : trying to perform empty commit\n");
@@ -1383,7 +1383,11 @@ static ssize_t store_bw(struct device *dev,
 	char *tmp = NULL;
 	char *dup = kstrdup(user_buf, GFP_KERNEL);
 	char *buf = kstrdup(user_buf, GFP_KERNEL);
+	int max_usable_bw;
+	int bw_total_min = 0;
 	struct ioss_device *idev = NULL;
+	struct qos_routing_tx *temp_tx;
+
 	struct kobject *kobj = real_kobj_from_dev(dev, 2);
 
 	idev = ioss_dev_from_kobj(kobj);
@@ -1415,13 +1419,20 @@ static ssize_t store_bw(struct device *dev,
 
 	kfree(tmp);
 
+	max_usable_bw = idev->qos_hw_cap.max_usable_bw;
+
 	if (!is_valid_bw(idev->ioss_qos_new_nodes.tx_node->cbs_bw.low_bw)) {
 		ioss_qos_dev_err(NULL, "[ioss qos] Low BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
 		goto bw_err;
 	}
 
-	if (!is_valid_bw(idev->ioss_qos_new_nodes.tx_node->cbs_bw.high_bw)) {
-		ioss_qos_dev_err(NULL, "[ioss qos] High BW must be in the range [%d, %d]\n", BW_LOWER_LIMIT, BW_UPPER_LIMIT);
+	bw_total_min = idev->ioss_qos_new_nodes.tx_node->cbs_bw.low_bw;
+	list_for_each_entry(temp_tx, &idev->ioss_qos_table.qos_tx_pending_table, node) {
+		bw_total_min += temp_tx->cbs_bw.low_bw;
+	}
+
+	if (bw_total_min > max_usable_bw) {
+		ioss_qos_dev_err(NULL, "[ioss qos] Exceeding MAX allowed BW [%d, %d]\n", BW_LOWER_LIMIT, max_usable_bw);
 		goto bw_err;
 	}
 
@@ -1973,6 +1984,47 @@ void ioss_qos_remove_sysfs(struct device *dev)
 	kobject_put(idev->qos_tc_params_kobj);
 	kobject_del(idev->qos_kobj);
 	kobject_put(idev->qos_kobj);
+}
+
+int ioss_qos_add_idev(struct ioss_device *idev)
+{
+	struct ioss_driver *idrv = to_ioss_driver(idev->dev.driver);
+
+	if (!idrv->qos_ops)
+		return 0;
+
+	// Check if any of the required QoS operations are null
+	if (!idrv->qos_ops->prepare_qos ||
+	    !idrv->qos_ops->request_qos ||
+	    !idrv->qos_ops->enable_qos ||
+	    !idrv->qos_ops->clear_qos ||
+	    !idrv->qos_ops->show_qos ||
+	    !idrv->qos_ops->clear_qos_cache ||
+	    !idrv->qos_ops->get_qos_info ||
+	    !idrv->qos_ops->validate_tx_tc ||
+	    !idrv->qos_ops->get_hw_caps){
+		ioss_qos_dev_err(idev, "Missing Required QoS Operations");
+		return -EINVAL;
+	}
+
+	idrv->qos_ops->get_hw_caps(idev, &idev->qos_hw_cap);
+
+	return ioss_qos_create_sysfs(&idev->dev);
+}
+
+void ioss_qos_remove_idev(struct ioss_device *idev)
+{
+	struct ioss_driver *idrv = to_ioss_driver(idev->dev.driver);
+
+	if (!idrv->qos_ops)
+		return;
+
+	if (idev->qos_enabled) {
+		idrv->qos_ops->clear_qos(idev);
+		idev->qos_enabled = false;
+	}
+
+	ioss_qos_remove_sysfs(&idev->dev);
 }
 
 static int ioss_parse_qos_channel(struct ioss_device *idev,
