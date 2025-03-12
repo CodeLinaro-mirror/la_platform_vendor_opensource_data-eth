@@ -477,6 +477,7 @@ struct tc956xmac_resources {
 	unsigned int mdc_clk;
 	unsigned int c45_state;
 	unsigned int link_down_macrst;
+	unsigned int start_phy_addr;
 };
 
 struct tc956xmac_tx_info {

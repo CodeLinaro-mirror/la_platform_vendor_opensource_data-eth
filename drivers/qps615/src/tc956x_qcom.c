@@ -242,6 +242,7 @@ int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_
 	u32 mdc_clk;
 	u32 c45_state;
 	u32 link_down_macrst;
+	u32 start_phy_addr;
 
 	if (of_property_read_u32(dev->of_node, "qcom,phy-port-interface", &interface)) {
 		dev_err(dev, "Failed to get phy port interface\n");
@@ -273,6 +274,15 @@ int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_
 			dev_err(dev, "link down macrst overlay to %d\n", link_down_macrst);
 			res->link_down_macrst = link_down_macrst;
 		}
+
+		if (of_property_read_u32(dev->of_node, "qcom,start-phy-addr", &start_phy_addr)) {
+			dev_err(dev, "Failed to get start phy addr\n");
+			return ret;
+		} else {
+			dev_err(dev, "start phy addr overlay to %d\n", start_phy_addr);
+			res->start_phy_addr = start_phy_addr;
+		}
+
 		ret = 1;
 	}
 	return ret;
