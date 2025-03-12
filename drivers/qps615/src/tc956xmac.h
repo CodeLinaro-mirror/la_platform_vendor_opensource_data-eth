@@ -505,6 +505,7 @@ struct tc956xmac_resources {
 	unsigned int mdc_clk;
 	unsigned int c45_state;
 	unsigned int link_down_macrst;
+	unsigned int start_phy_addr;
 	uint16_t pci_bdf; /* PCI bus, device ID and Fun ID of self */
 	uint16_t probe_seq_no;
 };

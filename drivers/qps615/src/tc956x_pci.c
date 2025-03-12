@@ -3369,6 +3369,7 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	if (overlay) {
 		plat->mdc_clk = res.mdc_clk;
 		plat->c45_needed = res.c45_state;
+		plat->start_phy_addr = res.start_phy_addr;
 		plat->link_down_macrst = (res.link_down_macrst == 1) ? ENABLE : DISABLE;
 	}
 
