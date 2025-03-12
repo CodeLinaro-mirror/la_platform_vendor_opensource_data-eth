@@ -76,6 +76,15 @@ del_tc() {
             echo "Filter del don't have chance to be executed."
             return 255
         fi
+        # tc filter del dev eth0 egress
+        tc_commands="filter del dev $dev_name egress"
+        /sbin/tc $tc_commands
+        exit_status=$?
+        if [ $exit_status -ne 0 ]
+        then
+            echo "TC command couldn't be executed successfully, please refer to help page and retry it."
+            return 255
+        fi
     else
         echo "There is no $1 parameter for delete action. Please refer to help page."
     fi
