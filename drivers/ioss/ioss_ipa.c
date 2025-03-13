@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -22,10 +22,8 @@ static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type
 {
 	static const enum ipa_eth_pipe_traffic_type ipa_map[IOSS_TRAFFIC_TYPE_MAX] = {
 		[IOSS_TRAFFIC_BE] = IPA_ETH_PIPE_BEST_EFFORT,
-#if IPA_ETH_API_VER > 2
 		[IOSS_TRAFFIC_BE_TAGGED] = IPA_ETH_PIPE_BEST_EFFORT_VLAN,
 		[IOSS_TRAFFIC_QOS]	=	IPA_ETH_PIPE_TRAFFIC_TYPE_QOS,
-#endif
 		[IOSS_TRAFFIC_LL] = IPA_ETH_PIPE_LOW_LATENCY,
 	};
 
@@ -37,10 +35,8 @@ static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa
 	static const enum ioss_traffic_type ioss_map[IPA_ETH_PIPE_TRAFFIC_TYPE_MAX] = {
 		[IPA_ETH_PIPE_BEST_EFFORT] = IOSS_TRAFFIC_BE,
 		[IPA_ETH_PIPE_LOW_LATENCY] = IOSS_TRAFFIC_LL,
-#if IPA_ETH_API_VER > 2
 		[IPA_ETH_PIPE_BEST_EFFORT_VLAN] = IOSS_TRAFFIC_BE_TAGGED,
 		[IPA_ETH_PIPE_TRAFFIC_TYPE_QOS]	=	IOSS_TRAFFIC_QOS,
-#endif
 	};
 
 	return ioss_map[ipa_type];
@@ -92,13 +88,8 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
 	pi->dir = to_ipa_dir(ch->direction);
-#if IPA_ETH_API_VER > 2
 	pi->traffic_type = to_ipa_traffic_type(ch->traffic_type);
-#endif
-
-#if IPA_ETH_API_VER >= 4
 	pi->tc_bmap = ch->tc_mapping;
-#endif
 
 	desc_mem = list_first_entry_or_null(
 			&ch->desc_mem, typeof(*desc_mem), node);
@@ -178,6 +169,38 @@ static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 	return 0;
 }
 
+#if IPA_ETH_API_VER > 4
+int ioss_ipa_enable_pipes(struct ioss_interface *iface)
+{
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_client *ec = &ifp->ipa_ec;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	if (ipa_eth_client_enable_pipes(ec)) {
+		ioss_dev_err(idev, "Failed to enable pipes");
+		return -EINVAL;
+	}
+	ioss_dev_dbg(idev, "Enabled IPA pipes");
+
+	return 0;
+}
+
+int ioss_ipa_disable_pipes(struct ioss_interface *iface)
+{
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_client *ec = &ifp->ipa_ec;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	if (ipa_eth_client_disable_pipes(ec)) {
+		ioss_dev_err(idev, "Failed to disable pipes");
+		return -EINVAL;
+	}
+	ioss_dev_dbg(idev, "Disabled IPA pipes");
+
+	return 0;
+}
+#endif
+
 int ioss_ipa_register(struct ioss_interface *iface)
 {
 	int i;
@@ -189,9 +212,6 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	ec->priv = iface;
 	ec->inst_id = iface->instance_id;
-#if IPA_ETH_API_VER < 4
-	ec->traffic_type = to_ipa_traffic_type(DEFAULT_IOSS_TRAFFIC_TYPE);
-#endif
 	ec->client_type = ioss_ipa_hal_get_ctype(idev);
 
 	if (ec->client_type == IPA_ETH_CLIENT_MAX) {
@@ -329,8 +349,6 @@ static bool validate_channel(struct ioss_channel *ch,
 	return channel_match_ipa_config(ch, ch->iface->ipa_config);
 }
 
-#if IPA_ETH_API_VER > 2
-
 /* Recursively select channels as per the channel config list provided by IPA */
 static int ioss_ipa_validate_one_channel(struct ioss_interface *iface, struct ipa_eth_dma_ch_config *ch_list, int num_channels)
 {
@@ -410,36 +428,6 @@ int ioss_ipa_validate_channels(struct ioss_interface *iface)
 	return ioss_ipa_validate_one_channel(
 			iface, ipa_config->dma_config, required_channels);
 }
-
-#else
-
-/* Select any channel that applies to default IPA profile and carries
- * default traffic type.
- */
-int ioss_ipa_validate_channels(struct ioss_interface *iface)
-{
-	int count = 0;
-	struct ioss_channel *ch, *tmp_ch;
-	enum ioss_traffic_type be = to_ioss_traffic(IPA_ETH_PIPE_BEST_EFFORT);
-
-	iface->ipa_config = DEFAULT_IPA_CONFIG;
-
-	ioss_ipa_invalidate_channels(iface);
-
-	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
-		if (!validate_channel(ch, ch->direction, be))
-			continue;
-
-		list_move(&ch->node, &iface->valid_channels);
-		count++;
-	}
-
-	ioss_dev_log(ioss_iface_dev(iface), "Selected %d channels", count);
-
-	return 0;
-}
-
-#endif
 
 void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
 {
