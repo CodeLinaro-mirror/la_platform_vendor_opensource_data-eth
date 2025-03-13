@@ -115,6 +115,7 @@ struct stmmac_priv {
 	int (*add_filter)(struct net_device *ndev);
 	int (*del_filter)(struct net_device *ndev);
 	int (*mac_addr)(struct net_device *ndev);
+	int (*del_mc_broadcast_filter)(void);
 	/* lock for priv data */
 	struct mutex lock;
 

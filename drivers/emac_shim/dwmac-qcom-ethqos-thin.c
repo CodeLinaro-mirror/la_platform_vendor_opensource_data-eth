@@ -561,6 +561,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv->mac_addr = qcom_ethqos_mac_addr;
 	priv->add_filter = qcom_ethqos_add_filter;
 	priv->del_filter = qcom_ethqos_del_filter;
+	priv->del_mc_broadcast_filter = &emac_ctrl_fe_disable_mac_filter;
 
 	priv->emac_state = EMAC_INIT_ST;
 
@@ -635,6 +636,7 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct qcom_ethqos *ethqos;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
+        int filter_del;
 	int ret;
 
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-thin-smmu-embedded")) {
@@ -652,6 +654,12 @@ static int qcom_ethqos_suspend(struct device *dev)
 		ETHQOSINFO(" Suspend not possible\n");
 		return 0;
 	}
+
+	filter_del = emac_ctrl_fe_disable_mac_filter();
+	if(filter_del)
+	  ETHQOSINFO("qcom_ethqos_thin: Filter delete unsuccessful");
+	else
+	  ETHQOSINFO("qcom_ethqos_thin: Filter delete successful");
 
 	priv = netdev_priv(ndev);
 	ret = stmmac_thin_suspend(dev);
