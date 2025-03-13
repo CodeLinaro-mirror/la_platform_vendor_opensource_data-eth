@@ -1308,10 +1308,19 @@ static int stmmac_release(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 ch = priv->queue;
+	int filter_del;
 
 	dev_info(priv->device, "%s Enter\n", __func__);
 	priv->dev_inited = false;
 	priv->dev_opened = false;
+
+	if (!priv->is_gy_en && priv->del_mc_broadcast_filter){
+		filter_del = priv->del_mc_broadcast_filter();
+		if(filter_del)
+			pr_info("qcom-ethqos-thin: Filter delete unsuccessful");
+		else
+			pr_info("qcom-ethqos-thin: Filter delete successful");
+	}
 
 	stmmac_stop_queue(priv);
 
