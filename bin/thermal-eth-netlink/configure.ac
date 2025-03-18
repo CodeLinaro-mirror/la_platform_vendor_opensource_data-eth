@@ -1,0 +1,78 @@
+#										-*- Autoconf -*-
+
+# configure.ac -- Autoconf script for thermal-engine
+#
+
+# Process this file with autoconf to produce a configure script.
+
+AC_PREREQ(2.61)
+AC_INIT([thermal-eth-netlink],
+	1.0.0)
+AM_INIT_AUTOMAKE([foreign])
+AM_MAINTAINER_MODE
+AC_CONFIG_HEADER([config.h])
+AC_CONFIG_MACRO_DIR([m4])
+
+# Checks for programs.
+AC_PROG_CC
+AM_PROG_CC_C_O
+AC_PROG_LIBTOOL
+AC_PROG_AWK
+AC_PROG_CPP
+AC_PROG_INSTALL
+AC_PROG_LN_S
+AC_PROG_MAKE_SET
+PKG_PROG_PKG_CONFIG
+
+AC_ARG_WITH([qmi_framework],
+	    AC_HELP_STRING([--with-qmi-framework],
+			   [enable qmi-framework for building thermal engine on LE]))
+
+
+PKG_CHECK_MODULES([QMIF], [qmi-framework])
+AC_SUBST([QMIF_CFLAGS])
+AC_SUBST([QMIF_LIBS])
+
+AC_ARG_WITH([netlink_framework],
+	    AC_HELP_STRING([--with-netlink-framework],
+			   [enable netlink-framework for building thermal engine on LE]))
+
+AC_ARG_WITH([glib],
+	    AC_HELP_STRING([--with-glib],
+			   [enable glib, building HLOS systems which use glib]))
+
+
+AC_ARG_WITH([sanitized-headers],
+	    [AS_HELP_STRING([--with-sanitized-headers=DIR],[location of the sanitized Linux kernel headers])],
+	    [CFLAGS="${CFLAGS} -I$withval"])
+
+AC_ARG_ENABLE([target-sa525m],
+	      AC_HELP_STRING([--enable-target-sa525m],
+			     [Enable conditional compile for target sa525m]),
+			     [target_sa525m="${enableval}"],
+			     target_sa525m=no)
+
+
+has_libnl_ver=0
+PKG_CHECK_MODULES([LIBNL], [libnl-3.0 >= 3.0 libnl-genl-3.0 >= 3.0], [has_libnl_ver=3], [
+		   PKG_CHECK_MODULES([LIBNL], [libnl-2.0 >= 2.0], [has_libnl_ver=2], [
+				      PKG_CHECK_MODULES([LIBNL], [libnl-1], [has_libnl_ver=1], [has_libnl_ver=0])])])
+
+if (test "$has_libnl_ver" -eq 0); then
+	AC_MSG_ERROR(libnl and libnl-genl are required but were not found)
+fi
+
+if (test "$has_libnl_ver" -gt 1); then
+	AC_DEFINE([HAVE_LIBNL20], [1], [Define if you have libnl-2.0 or higher])
+fi
+
+if (test "$has_libnl_ver" -gt 2); then
+	AC_DEFINE([HAVE_LIBNL30], [1], [Define if you have libnl-3.0 or higher])
+fi
+
+AC_SUBST([LIBNL_CFLAGS])
+AC_SUBST([LIBNL_LIBS])
+AC_SUBST([CFLAGS])
+AC_SUBST([CC])
+AC_CONFIG_FILES([Makefile])
+AC_OUTPUT

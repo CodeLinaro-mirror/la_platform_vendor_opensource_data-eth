@@ -1,6 +1,5 @@
-//SPDX-License-Identifier: GPL-2.0-only
-//Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
-
+//Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+//SPDX-License-Identifier: BSD-3-Clause-Clear
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -8,7 +7,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "thermal_netlink.h"
-#include "ds_util.h"
 
 static void thermal_cdev_state_change(int cdev_id, int cus_state, void *data)
 {
@@ -24,5 +22,6 @@ int main(int argc, char **argv)
 		pause();
 
 	thermal_nl_stop();
+
 	return 0;
 }
