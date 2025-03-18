@@ -120,10 +120,10 @@ static void emac_fe_ev_wq(struct work_struct *work)
 			break;
 		case EMAC_LINK_UP:
 			ETHQOSDBG("Link up ev\n");
-			if (priv->emac_state == EMAC_HW_UP_ST) {
-				priv->emac_state = EMAC_LINK_UP_ST;
+			if (priv->emac_state == EMAC_HW_UP_ST && priv->dev_inited) {
 				stmmac_mac_link_up(priv->dev);
 			}
+			priv->emac_state = EMAC_LINK_UP_ST;
 			break;
 		case EMAC_LINK_DOWN:
 			ETHQOSDBG("Link down ev\n");
