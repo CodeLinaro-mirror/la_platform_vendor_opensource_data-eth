@@ -1404,14 +1404,10 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 									}
 								}
 							}
-							/*If no HW TC's, we can assign CH2 to SW as well*/
-							if (rx_ch_avail == 3 || (rx_ch_avail == 2 && !num_rx_hw_tc)) {
-								/* Assign CH4 to High prio SW TC */
-								filter_info->channel = rx_ch_avail + 1;
+							filter_info->channel = rx_ch_avail + 1;
+							/* SW TC should use CH3 and above*/
+							if (rx_ch_avail >= 3 ) {
 								rx_ch_avail--;
-							} else {
-								/* Assign CH3 for all other SW TC's */
-								filter_info->channel = rx_ch_avail + 1;
 							}
 							filter_node_pcp->path = IOSS_QOS_SW_PATH;
 						}
