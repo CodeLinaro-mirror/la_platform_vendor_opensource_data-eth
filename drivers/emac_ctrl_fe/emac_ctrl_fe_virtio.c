@@ -38,7 +38,7 @@ static int __maybe_unused emac_ctl_fe_xmit(
 	struct emac_ctrl_fe_virtio_dev *pdev
 )
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	struct scatterlist sg[1];
 	struct emac_ctrl_fe_to_be_virtio_msg *msg = NULL;
 	int retval = 0;
@@ -84,11 +84,13 @@ static struct delayed_work emac_ctrl_fe_trigger_notif;
 
 int emac_ctrl_fe_register_notifier(struct notifier_block *nb)
 {
+	unsigned long flags = 0;
+
 	if (emac_ctrl_fe_ctx) {
 		/*DMA Driver is now registered*/
-		mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+		spin_lock_irqsave(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 		emac_ctrl_fe_ctx->emac_dma_drv_state = EMAC_CTRL_FE_DMA_DRV_REG;
-		mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+		spin_unlock_irqrestore(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 		EMAC_CTL_FE_INFO("Register for Event notification \n");
 		/*process pending acks*/
 		if (emac_ctrl_fe_ctx->emac_ctrl_fe_state >=
@@ -105,10 +107,12 @@ EXPORT_SYMBOL_GPL(emac_ctrl_fe_register_notifier);
 
 int emac_ctrl_fe_unregister_notifier(struct notifier_block *nb)
 {
+	unsigned long flags = 0;
+
 	if (emac_ctrl_fe_ctx) {
-		mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+		spin_lock_irqsave(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 		emac_ctrl_fe_ctx->emac_dma_drv_state = EMAC_CTRL_FE_DMA_DRV_UNREG;
-		mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+		spin_unlock_irqrestore(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 
 		emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_VIRT_UNREG_EVENTS;
 		emac_ctrl_fe_ctx->tx_msg.len = sizeof(struct emac_ctrl_fe_to_be_virtio_msg);
@@ -187,13 +191,40 @@ void __maybe_unused emac_ctrl_fe_gvm_dma_stopped(void){
 }
 EXPORT_SYMBOL_GPL(emac_ctrl_fe_gvm_dma_stopped);
 
+int __maybe_unused emac_ctrl_fe_disable_mac_filter(void){
+	int ret = 0;
+	unsigned long tmp;
+
+	EMAC_CTL_FE_INFO("Request Disable MAC Filter to Host");
+	emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_DISABLE_MAC_FILTER;
+	emac_ctrl_fe_ctx->tx_msg.len = sizeof(struct emac_ctrl_fe_to_be_virtio_msg);
+	emac_ctl_fe_xmit(emac_ctrl_fe_ctx);
+
+	EMAC_CTL_FE_INFO("Wait for Host to reply MAC Filter status");
+	tmp = msecs_to_jiffies(WAIT_HOST_REPLY_MAX_TIMEOUT);
+	ret = down_timeout(&emac_ctrl_fe_ctx->emac_ctl_fe_sem, tmp);
+	if (ret == -ETIME) {
+		EMAC_CTL_FE_WARN("Wait for Host reply timeout");
+	}
+	else if (ret == 0) {
+		EMAC_CTL_FE_INFO("Received Disabling MAC Filter reply from Host");
+	}
+	else {
+		EMAC_CTL_FE_INFO("Unknown error return value");
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_disable_mac_filter);
+
 /* request filter addition at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_types filter_type,
 	union emac_ctrl_fe_filter *filter) {
+	unsigned long flags = 0;
 
 	if (!emac_ctrl_fe_ctx)
 		return -EINVAL;
-	mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+	spin_lock_irqsave(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 
 	EMAC_CTL_FE_INFO("Fe Filter Add Req %d", filter_type);
 	switch (filter_type) {
@@ -246,7 +277,7 @@ int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_type
 		break;
 	}
 
-	mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+	spin_unlock_irqrestore(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(emac_ctrl_fe_filter_add_request);
@@ -254,11 +285,12 @@ EXPORT_SYMBOL_GPL(emac_ctrl_fe_filter_add_request);
 /* request filter deletion at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_types filter_type,
 	union emac_ctrl_fe_filter filter) {
+	unsigned long flags = 0;
 
 	if (!emac_ctrl_fe_ctx)
 		return -EINVAL;
 
-	mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+	spin_lock_irqsave(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 
 	EMAC_CTL_FE_INFO("Relay Filter Del req");
 	switch (filter_type) {
@@ -311,7 +343,7 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 		break;
 	}
 
-	mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+	spin_unlock_irqrestore(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(emac_ctrl_fe_filter_del_request);
@@ -400,6 +432,11 @@ void emac_ctl_fe_process_rxbuf(
 			emac_ctrl_fe_notify(EMAC_DMA_INT_STS_AVAIL);
 			break;
 
+		case EMAC_DISABLE_MAC_FILTER_ACK:
+			EMAC_CTL_FE_INFO("Notify EMAC_DISABLE_MAC_FILTER_ACK");
+			up(&emac_ctrl_fe_ctx->emac_ctl_fe_sem);
+			break;
+
 		default:
 			EMAC_CTL_FE_WARN("Received cmd %d not recognized ",  msg->cmd);
 			break;
@@ -417,7 +454,7 @@ static void emac_ctl_fe_recv_done(struct virtqueue *rvq)
 {
 	struct emac_ctrl_fe_virtio_dev *pdev = rvq->vdev->priv;
 	struct emac_ctrl_be_to_fe_virtio_msg *msg;
-	unsigned long flags;
+	unsigned long flags = 0;
 	unsigned int len;
 	EMAC_CTL_FE_DBG("Entry");
 
@@ -502,7 +539,7 @@ static int emac_ctrl_fe_init_vqs(struct emac_ctrl_fe_virtio_dev *pdev)
 
 static void emac_ctrl_fe_allocate_rxbufs(struct emac_ctrl_fe_virtio_dev *pdev)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	int i, size;
 
 	spin_lock_irqsave(&pdev->rxq_lock, flags);
@@ -532,7 +569,8 @@ static int emac_ctrl_fe_probe(struct virtio_device *vdev)
 		goto fail;
 	}
 
-	mutex_init(&pdev->emac_ctl_fe_lock);
+	spin_lock_init(&pdev->emac_ctl_fe_lock);
+	sema_init(&pdev->emac_ctl_fe_sem, (0));
 
 	emac_ctrl_fe_ctx = pdev;
 	vdev->priv = pdev;

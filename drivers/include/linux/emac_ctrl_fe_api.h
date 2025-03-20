@@ -52,6 +52,8 @@ enum emac_ctrl_fe_gvm_event {
 	EMAC_LINK_UP=3,
 	/* Interrupt in DMA channel, SW must read process and clear Ch Status Reg*/
 	EMAC_DMA_INT_STS_AVAIL=4,
+	/* Inform MAC Filter is cleared successfully*/
+	EMAC_DISABLE_MAC_FILTER_ACK=5,
 };
 
 enum emac_ctrl_dma_drv_event {
@@ -80,6 +82,8 @@ int emac_ctrl_fe_register_ready_cb(
 
 /* Notify to EMAC CTRL FE that DMA is stopped and safe to pull the plug */
 void emac_ctrl_fe_gvm_dma_stopped(void);
+
+int __maybe_unused emac_ctrl_fe_disable_mac_filter(void);
 
 /* request filter addition at EMAC HW*/
 int emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_types filter_type,
