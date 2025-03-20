@@ -460,8 +460,6 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	struct net_device *ndev;
 	struct stmmac_priv *priv;
 
-	ETHQOSINFO("Start\n");
-
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (ret) {
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
@@ -470,9 +468,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 			return ret;
 		}
 	}
-	if (of_device_is_compatible(np, "qcom,emac-thin-smmu-embedded"))
+	if (of_device_is_compatible(np, "qcom,emac-thin-smmu-embedded")) {
+		ETHQOSINFO("Start\n");
 		return emac_emb_smmu_cb_probe(pdev);
-
+	}
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe start");
 #endif
