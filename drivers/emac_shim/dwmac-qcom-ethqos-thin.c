@@ -460,8 +460,6 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	struct net_device *ndev;
 	struct stmmac_priv *priv;
 
-	ETHQOSINFO("Start\n");
-
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (ret) {
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
@@ -470,9 +468,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 			return ret;
 		}
 	}
-	if (of_device_is_compatible(np, "qcom,emac-thin-smmu-embedded"))
+	if (of_device_is_compatible(np, "qcom,emac-thin-smmu-embedded")) {
+		ETHQOSINFO("Start\n");
 		return emac_emb_smmu_cb_probe(pdev);
-
+	}
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe start");
 #endif
@@ -561,6 +560,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv->mac_addr = qcom_ethqos_mac_addr;
 	priv->add_filter = qcom_ethqos_add_filter;
 	priv->del_filter = qcom_ethqos_del_filter;
+	priv->del_mc_broadcast_filter = &emac_ctrl_fe_disable_mac_filter;
 
 	priv->emac_state = EMAC_INIT_ST;
 
@@ -635,6 +635,7 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct qcom_ethqos *ethqos;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
+        int filter_del;
 	int ret;
 
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-thin-smmu-embedded")) {
@@ -652,6 +653,12 @@ static int qcom_ethqos_suspend(struct device *dev)
 		ETHQOSINFO(" Suspend not possible\n");
 		return 0;
 	}
+
+	filter_del = emac_ctrl_fe_disable_mac_filter();
+	if(filter_del)
+		ETHQOSINFO("qcom_ethqos_thin: delete unsuccessful suspend");
+	else
+		ETHQOSINFO("qcom_ethqos_thin: good to go suspend");
 
 	priv = netdev_priv(ndev);
 	ret = stmmac_thin_suspend(dev);
