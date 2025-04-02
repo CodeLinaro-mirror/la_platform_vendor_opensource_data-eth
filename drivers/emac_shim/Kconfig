@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config EMAC_SHIM
+	tristate "Emac Thin Driver"
+	depends on ARCH_QCOM
+	help
+		Emac THin Driver for DMA Virtualization.
+		This provides a eth interface to virtually access
+		DMA Channels from Host EMAC to transfer data.
+
+		Say Y here to compile support for EMAC thin driver
+		into the kernel or say M to compile as a module.
+
+config DATAETH
+	tristate "Data-eth component"
+	help
+		Data-eth component to enable any module whose config is not present.
+
+		Say Y here to compile support for Data-eth component
+		into the kernel or say M to compile as a module.
+config EMAC_SHIM_GY
+	tristate "Data-eth component"
+	help
+		Data-eth component to enable any module whose config is not present.
+
+		Say Y here to compile support for Data-eth component
+		into the kernel or say M to compile as a module.
