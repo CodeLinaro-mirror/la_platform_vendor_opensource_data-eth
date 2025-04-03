@@ -191,6 +191,29 @@ void __maybe_unused emac_ctrl_fe_gvm_dma_stopped(void){
 }
 EXPORT_SYMBOL_GPL(emac_ctrl_fe_gvm_dma_stopped);
 
+int __maybe_unused emac_ctrl_fe_disable_mac_filter(void){
+	int ret = 0;
+	unsigned long tmp;
+
+	EMAC_CTL_FE_INFO("Request to disable MAC filter");
+	emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_DISABLE_MAC_FILTER;
+	emac_ctrl_fe_ctx->tx_msg.len = sizeof(struct emac_ctrl_fe_to_be_virtio_msg);
+	emac_ctl_fe_xmit(emac_ctrl_fe_ctx);
+
+	EMAC_CTL_FE_INFO("Wait for the result of disabling MAC filter");
+	tmp = msecs_to_jiffies(WAIT_HOST_REPLY_MAX_TIMEOUT);
+	ret = down_timeout(&emac_ctrl_fe_ctx->emac_ctl_fe_sem, tmp);
+	if (ret == 0)
+		EMAC_CTL_FE_INFO("Disable MAC filter successfully");
+	else if (ret == -ETIME)
+		EMAC_CTL_FE_WARN("Waiting for backend reply timed out");
+	else
+		EMAC_CTL_FE_WARN("Unknown error return");
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_disable_mac_filter);
+
 /* request filter addition at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_types filter_type,
 	union emac_ctrl_fe_filter *filter) {
@@ -406,6 +429,11 @@ void emac_ctl_fe_process_rxbuf(
 			emac_ctrl_fe_notify(EMAC_DMA_INT_STS_AVAIL);
 			break;
 
+		case EMAC_DISABLE_MAC_FILTER_ACK:
+			EMAC_CTL_FE_INFO("Notify EMAC_DISABLE_MAC_FILTER_ACK");
+			up(&emac_ctrl_fe_ctx->emac_ctl_fe_sem);
+			break;
+
 		default:
 			EMAC_CTL_FE_WARN("Received cmd %d not recognized ",  msg->cmd);
 			break;
@@ -539,6 +567,7 @@ static int emac_ctrl_fe_probe(struct virtio_device *vdev)
 	}
 
 	spin_lock_init(&pdev->emac_ctl_fe_lock);
+	sema_init(&pdev->emac_ctl_fe_sem, (0));
 
 	emac_ctrl_fe_ctx = pdev;
 	vdev->priv = pdev;
