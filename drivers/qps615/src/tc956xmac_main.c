@@ -4,7 +4,7 @@
  * tc956xmac_main.c
  *
  * Copyright(C) 2007-2011 STMicroelectronics Ltd
- * Copyright (C) 2024 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro Linux driver,
  * and developed or modified for TC956X.
@@ -154,6 +154,12 @@
  *                2. Bug fix for SGMII 1Gbps speed change
  *                3. Support for TC956x switch to switch connection (upto 2 level) over DSP ports
  *  VERSION     : 04-00
+ *  31 May 2024 : 1. Lower speed(1G, 100M, 10M) support added for USXGMII interface
+ *                2. Changes related to module param USXGMII_10G, USXGMII_5G, USXGMII_2.5G added
+ *                3. MMC Control register is reset during link change.
+ *                4. Maximum size for parsing config file is updated.
+ *                5. Error handling added for oversize gptp packets
+ *  VERSION     : 05-00
  */
 
 #include <linux/clk.h>
@@ -325,7 +331,9 @@ static void tc956xmac_init_fs(struct net_device *dev);
 static void tc956xmac_exit_fs(struct net_device *dev);
 #endif
 #endif /* TC956X_SRIOV_PF */
-
+#ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
+extern int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data);
+#endif
 #ifdef TC956X_SRIOV_PF
 extern struct tx956x_shrd_mem tx956x_pci_shrd_mem[TC956X_TOT_CASCADE_DEV];
 
@@ -3008,7 +3016,7 @@ static void tc956xmac_validate(struct phylink_config *config,
 	phylink_set_port_modes(mac_supported);
 
 	/*USXGMII interface does not support speed of 1000/100/10*/
-	if (priv->plat->interface == PHY_INTERFACE_MODE_USXGMII) {
+	if (priv->plat->port_interface == ENABLE_USXGMII_INTERFACE) {
 		phylink_set(mask, 10baseT_Half);
 		phylink_set(mask, 10baseT_Full);
 		phylink_set(mask, 100baseT_Half);
@@ -3018,6 +3026,28 @@ static void tc956xmac_validate(struct phylink_config *config,
 		phylink_set(mask, 1000baseKX_Full);
 	}
 
+	/*USXGMII 5G interface does not support speed of 10G*/
+	if (priv->plat->port_interface == ENABLE_USXGMII_5G_INTERFACE) {
+		phylink_set(mask, 10000baseSR_Full);
+		phylink_set(mask, 10000baseLR_Full);
+		phylink_set(mask, 10000baseER_Full);
+		phylink_set(mask, 10000baseLRM_Full);
+		phylink_set(mask, 10000baseT_Full);
+		phylink_set(mask, 10000baseKX4_Full);
+		phylink_set(mask, 10000baseKR_Full);
+	}
+
+	/*USXGMII 2.5G interface does not support speed of 10G/5G*/
+	if (priv->plat->port_interface == ENABLE_USXGMII_2_5G_INTERFACE) {
+		phylink_set(mask, 10000baseSR_Full);
+		phylink_set(mask, 10000baseLR_Full);
+		phylink_set(mask, 10000baseER_Full);
+		phylink_set(mask, 10000baseLRM_Full);
+		phylink_set(mask, 10000baseT_Full);
+		phylink_set(mask, 10000baseKX4_Full);
+		phylink_set(mask, 10000baseKR_Full);
+		phylink_set(mask, 5000baseT_Full);
+	}
 
 	/* Cut down 1G if asked to */
 	if ((max_speed > 0) && (max_speed < 1000)) {
@@ -3082,11 +3112,7 @@ static void tc956xmac_mac_pcs_get_state(struct phylink_config *config,
 	if (reg_value & XGMAC_C37_AN_COMPL) {/*check if AN 37 is complete CL37_ANCMPLT_INTR*/
 		KPRINT_INFO("AN clause 37 completed");
 		if ((priv->plat->interface == PHY_INTERFACE_MODE_USXGMII) ||
-		   (priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-			|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-			) {
+		   (priv->plat->interface == PHY_INTERFACE_MODE_10GKR)) {
 			if (reg_value & XGMAC_USXG_AN_STS_LINK_MASK) {/*check link status*/
 				state->link = 1;
 				KPRINT_INFO("XPCS USXGMII link up");
@@ -3095,8 +3121,14 @@ static void tc956xmac_mac_pcs_get_state(struct phylink_config *config,
 					state->speed = SPEED_10000;
 				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x5)/*If USXG_AN_STS is 5G*/
 					state->speed = SPEED_5000;
-				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x4)/*If USXG_AN_STS is 5G*/
+				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x4)/*If USXG_AN_STS is 2.5G*/
 					state->speed = SPEED_2500;
+				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x2)/*If USXG_AN_STS is 1G*/
+					state->speed = SPEED_1000;
+				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x1)/*If USXG_AN_STS is 100M*/
+					state->speed = SPEED_100;
+				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x0)/*If USXG_AN_STS is 10M*/
+					state->speed = SPEED_10;
 
 				if (reg_value & XGMAC_USXG_AN_STS_DUPLEX_MASK)/*If USXG_AN_STS is full duplex*/
 					state->duplex = DUPLEX_FULL;
@@ -3147,11 +3179,7 @@ static int tc956xmac_mac_link_state(struct phylink_config *config,
 	if (reg_value & XGMAC_C37_AN_COMPL) {/*check if AN 37 is complete CL37_ANCMPLT_INTR*/
 		KPRINT_INFO("AN clause 37 completed");
 		if ((priv->plat->interface == PHY_INTERFACE_MODE_USXGMII) ||
-		   (priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-			|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-			) {
+		   (priv->plat->interface == PHY_INTERFACE_MODE_10GKR)) {
 			if (reg_value & XGMAC_USXG_AN_STS_LINK_MASK) {/*check link status*/
 				state->link = 1;
 				KPRINT_INFO("XPCS USXGMII link up");
@@ -3162,9 +3190,18 @@ static int tc956xmac_mac_link_state(struct phylink_config *config,
 				/*If USXG_AN_STS is 5G*/
 				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x5)
 					state->speed = SPEED_5000;
-				/*If USXG_AN_STS is 5G*/
+				/*If USXG_AN_STS is 2.5G*/
 				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x4)
 					state->speed = SPEED_2500;
+				/*If USXG_AN_STS is 1G*/
+				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x2)
+					state->speed = SPEED_1000;
+				/*If USXG_AN_STS is 100M*/
+				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x1)
+					state->speed = SPEED_100;
+				/*If USXG_AN_STS is 10M*/
+				else if (((reg_value & XGMAC_USXG_AN_STS_SPEED_MASK) >> 9) == 0x0)
+					state->speed = SPEED_10;
 
 				/*If USXG_AN_STS is full duplex*/
 				if (reg_value & XGMAC_USXG_AN_STS_DUPLEX_MASK)
@@ -3217,8 +3254,11 @@ static void tc956xmac_speed_change_init_mac(struct tc956xmac_priv *priv,
 {
 	/* use signal from MSPHY */
 	uint8_t SgmSigPol = 0;
-	int ret = 0;
+	int ret = 0, reg = 0, reg_value = 0;
 	bool enable_an = true;
+
+	reg = readl(priv->tc956x_SFR_pci_base_addr + NMISCCTL_OFFSET);
+	reg &= MISC_CTRL;
 
 	if (priv->port_num == RM_PF0_ID) {
 		/* Enable all clocks to eMAC Port0 */
@@ -3240,18 +3280,73 @@ static void tc956xmac_speed_change_init_mac(struct tc956xmac_priv *priv,
 				ret |= NEMACCTL_SP_SEL_SGMII_1000M;
 		} else {
 			/*else if ((PORT0_INTERFACE == ENABLE_USXGMII_INTERFACE)*/
-			if (state->speed == SPEED_10000)
-				ret |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
-			else if (state->speed == SPEED_5000)
-				ret |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
-			else if (state->speed == SPEED_2500)
-				ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
-		}
+			if (priv->port_interface == ENABLE_USXGMII_INTERFACE) {
+				if (state->speed == SPEED_10000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
+				else if (state->speed == SPEED_5000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_5G_5G;
+				else if (state->speed == SPEED_2500)
+					ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_2_5G;
+			} else if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE) {
+				if (state->speed == SPEED_10000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
+				else if (state->speed == SPEED_5000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
+				else if (state->speed == SPEED_2500)
+					ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
+				else if (state->speed == SPEED_1000) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_1G_10G;
+					reg |= SP_ETH_1G << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_100) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_100M_10G;
+					reg |= SP_ETH_100M << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_10) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_10M_10G;
+					reg |= SP_ETH_10M << SP_ETH_SHIFT;
+				}
+			} else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE) {
+				if (state->speed == SPEED_5000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_5G_5G;
+				else if (state->speed == SPEED_2500)
+					ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_5G;
+				else if (state->speed == SPEED_1000) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_1G_5G;
+					reg |= SP_ETH_1G << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_100) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_100M_5G;
+					reg |= SP_ETH_100M << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_10) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_10M_5G;
+					reg |= SP_ETH_10M << SP_ETH_SHIFT;
+				}
+			} else if (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE) {
+				if (state->speed == SPEED_2500)
+					ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_2_5G;
+				else if (state->speed == SPEED_1000) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_1G_2_5G;
+					reg |= SP_ETH_1G << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_100) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_100M_2_5G;
+					reg |= SP_ETH_100M << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_10) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_10M_2_5G;
+					reg |= SP_ETH_10M << SP_ETH_SHIFT;
+				}
+			}
+			reg_value = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_XS_PCS_KR_CTRL);
+			reg_value &= ~XGMAC_USXG_MODE; /*USXG_MODE : 0x000*/
+			if ((priv->plat->port_interface == ENABLE_USXGMII_5G_INTERFACE) || ((priv->port_interface == ENABLE_USXGMII_INTERFACE) && (state->speed == SPEED_5000)))
+				reg_value |= XPCS_USX_5G_MODE;
+			else if ((priv->plat->port_interface == ENABLE_USXGMII_2_5G_INTERFACE) || ((priv->port_interface == ENABLE_USXGMII_INTERFACE) && (state->speed== SPEED_2500)))
+				reg_value |= XPCS_USX_2_5G_MODE;
+			tc956x_xpcs_write(priv->xpcsaddr, XGMAC_VR_XS_PCS_KR_CTRL, reg_value);
+ 		}
 		ret &= ~(0x00000040); /* Mask Polarity */
 		if (SgmSigPol == 1)
 			ret |= 0x00000040; /* Set Active low */
 		ret |= (NEMACCTL_PHY_INF_SEL | NEMACCTL_LPIHWCLKEN);
 		writel(ret, priv->tc956x_SFR_pci_base_addr + NEMAC0CTL_OFFSET);
+		writel(reg, priv->tc956x_SFR_pci_base_addr + NMISCCTL_OFFSET);
 	}
 	if (priv->port_num == RM_PF1_ID) {
 		/* Enable all clocks to eMAC Port1 */
@@ -3275,12 +3370,66 @@ static void tc956xmac_speed_change_init_mac(struct tc956xmac_priv *priv,
 			else
 				ret |= NEMACCTL_SP_SEL_SGMII_1000M;
 		} else {
-			if (state->speed == SPEED_10000)
-				ret |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
-			else if (state->speed == SPEED_5000)
-				ret |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
-			else if (state->speed == SPEED_2500)
-				ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
+			if (priv->port_interface == ENABLE_USXGMII_INTERFACE) {
+				if (state->speed == SPEED_10000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
+				else if (state->speed == SPEED_5000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_5G_5G;
+				else if (state->speed == SPEED_2500)
+					ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_2_5G;
+			} else if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE) {
+				if (state->speed == SPEED_10000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
+				else if (state->speed == SPEED_5000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
+				else if (state->speed == SPEED_2500)
+					ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
+				else if (state->speed == SPEED_1000) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_1G_10G;
+					reg |= SP_ETH_1G << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_100) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_100M_10G;
+					reg |= SP_ETH_100M << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_10) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_10M_10G;
+					reg |= SP_ETH_10M << SP_ETH_SHIFT;
+				}
+			} else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE) {
+				if (state->speed == SPEED_5000)
+					ret |= NEMACCTL_SP_SEL_USXGMII_5G_5G;
+				else if (state->speed == SPEED_2500)
+					ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_5G;
+				else if (state->speed == SPEED_1000) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_1G_5G;
+					reg |= SP_ETH_1G << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_100) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_100M_5G;
+					reg |= SP_ETH_100M << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_10) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_10M_5G;
+					reg |= SP_ETH_10M << SP_ETH_SHIFT;
+				}
+			} else if (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE) {
+				if (state->speed == SPEED_2500)
+					ret |= NEMACCTL_SP_SEL_USXGMII_2_5G_2_5G;
+				else if (state->speed == SPEED_1000) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_1G_2_5G;
+					reg |= SP_ETH_1G << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_100) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_100M_2_5G;
+					reg |= SP_ETH_100M << SP_ETH_SHIFT;
+				} else if (state->speed == SPEED_10) {
+					ret |= NEMACCTL_SP_SEL_USXGMII_10M_2_5G;
+					reg |= SP_ETH_10M << SP_ETH_SHIFT;
+				}
+			}
+			reg_value = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_XS_PCS_KR_CTRL);
+			reg_value &= ~XGMAC_USXG_MODE; /*USXG_MODE : 0x000*/
+			if ((priv->plat->port_interface == ENABLE_USXGMII_5G_INTERFACE) || ((priv->port_interface == ENABLE_USXGMII_INTERFACE) && (state->speed == SPEED_5000)))
+				reg_value |= XPCS_USX_5G_MODE;
+			else if ((priv->plat->port_interface == ENABLE_USXGMII_2_5G_INTERFACE) || ((priv->port_interface == ENABLE_USXGMII_INTERFACE) && (state->speed== SPEED_2500)))
+				reg_value |= XPCS_USX_2_5G_MODE;
+			tc956x_xpcs_write(priv->xpcsaddr, XGMAC_VR_XS_PCS_KR_CTRL, reg_value);
 		}
 
 		ret &= ~(0x00000040); /* Mask Polarity */
@@ -3288,6 +3437,7 @@ static void tc956xmac_speed_change_init_mac(struct tc956xmac_priv *priv,
 			ret |= 0x00000040; /* Set Active low */
 		ret |= (NEMACCTL_PHY_INF_SEL | NEMACCTL_LPIHWCLKEN);
 		writel(ret, priv->tc956x_SFR_pci_base_addr + NEMAC1CTL_OFFSET);
+		writel(reg, priv->tc956x_SFR_pci_base_addr + NMISCCTL_OFFSET);
 	}
 
 	/*PMA module init*/
@@ -3355,7 +3505,7 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 				const struct phylink_link_state *state)
 {
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
-	u32 ctrl, emac_ctrl;
+	u32 ctrl, emac_ctrl, misc_ctrl;
 	u32 val;
 	bool config_done = false;
 #ifdef TC956X_MAGIC_PACKET_WOL_CONF
@@ -3370,6 +3520,8 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 
 	emac_ctrl = readl(priv->ioaddr + NEMACCTL_OFFSET);
 	emac_ctrl &= ~NEMACCTL_SP_SEL_MASK;
+	misc_ctrl = readl(priv->ioaddr + NMISCCTL_OFFSET);
+	misc_ctrl &= MISC_CTRL;
 
 	if (priv->hw->xpcs) {
 		reg_value = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_MII_AN_INTR_STS);
@@ -3400,18 +3552,59 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 				switch (state->speed) {
 				case SPEED_10000:
 					ctrl |= priv->hw->link.xgmii.speed10000;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
+					if ((priv->port_interface == ENABLE_USXGMII_INTERFACE) || (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE))
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
 					val |= XGMAC_SR_MII_CTRL_SPEED_10G;
 					break;
 				case SPEED_5000:
 					ctrl |= priv->hw->link.xgmii.speed5000;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
+					if ((priv->port_interface == ENABLE_USXGMII_INTERFACE) || (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE))
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_5G_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
 					val |= XGMAC_SR_MII_CTRL_SPEED_5G;
 					break;
 				case SPEED_2500:
 					ctrl |= priv->hw->link.xgmii.speed2500;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
+					if ((priv->port_interface == ENABLE_USXGMII_INTERFACE) || (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE))
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_2_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
+					else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_5G;
 					val |= XGMAC_SR_MII_CTRL_SPEED_2_5G;
+					break;
+				case SPEED_1000:
+					ctrl |= priv->hw->link.speed1000;
+					if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_1G_10G;
+					else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_1G_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_1G_2_5G;
+					misc_ctrl |= SP_ETH_1G << SP_ETH_SHIFT;
+					val |= XGMAC_SR_MII_CTRL_SPEED_1G;
+					break;
+				case SPEED_100:
+					ctrl |= priv->hw->link.speed100;
+					if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_100M_10G;
+					else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_100M_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_100M_2_5G;
+					misc_ctrl |= SP_ETH_100M << SP_ETH_SHIFT;
+					val |= XGMAC_SR_MII_CTRL_SPEED_100M;
+					break;
+				case SPEED_10:
+					ctrl |= priv->hw->link.speed10;
+					if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10M_10G;
+					else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10M_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10M_2_5G;
+					misc_ctrl |= SP_ETH_10M << SP_ETH_SHIFT;
 					break;
 				default:
 					return;
@@ -3511,8 +3704,7 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 			config_done = true;
 		} /* End of if (priv->wol_config_enabled != true) */
 #endif /* #ifdef TC956X_MAGIC_PACKET_WOL_CONF */
-	} else if (state->interface == PHY_INTERFACE_MODE_RGMII ||
-		   state->interface == PHY_INTERFACE_MODE_RGMII_ID) {
+	} else if (state->interface == PHY_INTERFACE_MODE_RGMII) {
 		switch (state->speed) {
 		case SPEED_1000:
 			ctrl |= priv->hw->link.speed1000;
@@ -3569,6 +3761,7 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 	if (config_done) {
 		writel(ctrl, priv->ioaddr + MAC_CTRL_REG);
 		writel(emac_ctrl, priv->ioaddr + NEMACCTL_OFFSET);
+		writel(misc_ctrl, priv->ioaddr + NMISCCTL_OFFSET);
 	}
 #endif
 }
@@ -3582,11 +3775,7 @@ static void tc956xmac_mac_an_restart(struct phylink_config *config)
 	if (priv->hw->xpcs) {
 		/*Enable XPCS Autoneg*/
 		if ((priv->plat->interface == PHY_INTERFACE_MODE_10GKR) ||
-			(priv->port_interface == ENABLE_2500BASE_X_INTERFACE)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-			|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-			) {
+			(priv->port_interface == ENABLE_2500BASE_X_INTERFACE)) {
 			enable_en = false;
 			KPRINT_INFO("%s :Port %d %s AN Enable:%d", __func__, priv->port_num, priv->dev->name, enable_en);
 		} else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII) {
@@ -3890,7 +4079,7 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 {
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
-	u32 ctrl, emac_ctrl;
+	u32 ctrl, emac_ctrl, misc_ctrl;
 	bool config_done = false;
 	u32 reg_value;
 	u32 val;
@@ -3908,6 +4097,8 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 
 	emac_ctrl = readl(priv->ioaddr + NEMACCTL_OFFSET);
 	emac_ctrl &= ~NEMACCTL_SP_SEL_MASK;
+	misc_ctrl = readl(priv->ioaddr + NMISCCTL_OFFSET);
+	misc_ctrl &= MISC_CTRL;
 
 	if (priv->hw->xpcs) {
 		reg_value = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_VR_MII_AN_INTR_STS);
@@ -3936,18 +4127,59 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 				switch (speed) {
 				case SPEED_10000:
 					ctrl |= priv->hw->link.xgmii.speed10000;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
+					if ((priv->port_interface == ENABLE_USXGMII_INTERFACE) || (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE))
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10G_10G;
 					val |= XGMAC_SR_MII_CTRL_SPEED_10G;
 					break;
 				case SPEED_5000:
 					ctrl |= priv->hw->link.xgmii.speed5000;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
+					if ((priv->port_interface == ENABLE_USXGMII_INTERFACE) || (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE))
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_5G_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_5G_10G;
 					val |= XGMAC_SR_MII_CTRL_SPEED_5G;
 					break;
 				case SPEED_2500:
 					ctrl |= priv->hw->link.xgmii.speed2500;
-					emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
+					if ((priv->port_interface == ENABLE_USXGMII_INTERFACE) || (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE))
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_2_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_10G;
+					else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_2_5G_5G;
 					val |= XGMAC_SR_MII_CTRL_SPEED_2_5G;
+					break;
+				case SPEED_1000:
+					ctrl |= priv->hw->link.speed1000;
+					if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_1G_10G;
+					else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_1G_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_1G_2_5G;
+					misc_ctrl |= SP_ETH_1G << SP_ETH_SHIFT;
+					val |= XGMAC_SR_MII_CTRL_SPEED_1G;
+					break;
+				case SPEED_100:
+					ctrl |= priv->hw->link.speed100;
+					if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_100M_10G;
+					else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_100M_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_100M_2_5G;
+					misc_ctrl |= SP_ETH_100M << SP_ETH_SHIFT;
+					val |= XGMAC_SR_MII_CTRL_SPEED_100M;
+					break;
+				case SPEED_10:
+					ctrl |= priv->hw->link.speed10;
+					if (priv->port_interface == ENABLE_USXGMII_10G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10M_10G;
+					else if (priv->port_interface == ENABLE_USXGMII_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10M_5G;
+					else if (priv->port_interface == ENABLE_USXGMII_2_5G_INTERFACE)
+						emac_ctrl |= NEMACCTL_SP_SEL_USXGMII_10M_2_5G;
+					misc_ctrl |= SP_ETH_10M << SP_ETH_SHIFT;
 					break;
 				default:
 					return;
@@ -4052,8 +4284,7 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 			config_done = true;
 		} /* End of if (priv->wol_config_enabled != true) */
 #endif /* #ifdef TC956X_MAGIC_PACKET_WOL_CONF */
-	} else if (interface == PHY_INTERFACE_MODE_RGMII ||
-		   interface == PHY_INTERFACE_MODE_RGMII_ID) {
+	} else if (interface == PHY_INTERFACE_MODE_RGMII) {
 		switch (speed) {
 		case SPEED_1000:
 			ctrl |= priv->hw->link.speed1000;
@@ -4119,6 +4350,7 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 	if (config_done) {
 		writel(ctrl, priv->ioaddr + MAC_CTRL_REG);
 		writel(emac_ctrl, priv->ioaddr + NEMACCTL_OFFSET);
+		writel(misc_ctrl, priv->ioaddr + NMISCCTL_OFFSET);
 	}
 
 	tc956xmac_mac_set(priv, priv->ioaddr, true);
@@ -4228,11 +4460,7 @@ static void tc956xmac_check_pcs_mode(struct tc956xmac_priv *priv)
 			priv->hw->pcs = TC956XMAC_PCS_SGMII;
 #endif
 		} else if ((interface == PHY_INTERFACE_MODE_USXGMII) ||
-			  (interface == PHY_INTERFACE_MODE_10GKR)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-			  || (interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-			  ) {
+			  (interface == PHY_INTERFACE_MODE_10GKR)) {
 			netdev_dbg(priv->dev, "PCS USXGMII/XFI support enabled\n");
 #ifdef TC956X
 			priv->hw->pcs = TC956XMAC_PCS_USXGMII;
@@ -4241,18 +4469,13 @@ static void tc956xmac_check_pcs_mode(struct tc956xmac_priv *priv)
 	}
 #ifdef TC956X
 	priv->hw->pcs = 0;
-	if (interface == PHY_INTERFACE_MODE_RGMII ||
-		interface == PHY_INTERFACE_MODE_RGMII_ID) {
+	if (interface == PHY_INTERFACE_MODE_RGMII) {
 		priv->hw->xpcs = 0;
 	} else if (interface == PHY_INTERFACE_MODE_SGMII) {
 		netdev_dbg(priv->dev, "PCS SGMII support enabled\n");
 		priv->hw->xpcs = TC956XMAC_PCS_SGMII;
 	} else if ((interface == PHY_INTERFACE_MODE_USXGMII) ||
-		  (interface == PHY_INTERFACE_MODE_10GKR)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-		  || (interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-		  ) {
+		  (interface == PHY_INTERFACE_MODE_10GKR)) {
 		netdev_dbg(priv->dev, "PCS USXGMII support enabled\n");
 		priv->hw->xpcs = TC956XMAC_PCS_USXGMII;
 	}
@@ -4401,8 +4624,7 @@ static int tc956xmac_init_phy(struct net_device *dev)
 	edata.advertised = 0;
 
 	if (priv->phylink) {
-		if (priv->plat->interface != PHY_INTERFACE_MODE_RGMII &&
-			priv->plat->interface != PHY_INTERFACE_MODE_RGMII_ID) {
+		if (priv->plat->interface != PHY_INTERFACE_MODE_RGMII) {
 			netdev_info(priv->dev, "Ethtool EEE Setting\n");
 			phylink_ethtool_set_eee(priv->phylink, &edata);
 #ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
@@ -4457,7 +4679,6 @@ static int tc956xmac_phy_setup(struct tc956xmac_priv *priv)
 	*/
 	if (mode == PHY_INTERFACE_MODE_SGMII)
 		__set_bit(PHY_INTERFACE_MODE_2500BASEX,  priv->phylink_config.supported_interfaces);
-
 #endif
 
 	phylink = phylink_create(&priv->phylink_config, fwnode,
@@ -6038,7 +6259,9 @@ static void tc956xmac_mmc_setup(struct tc956xmac_priv *priv)
 
 	if (priv->dma_cap.rmon) {
 		tc956xmac_mmc_ctrl(priv, priv->mmcaddr, mode);
-		memset(&priv->mmc, 0, sizeof(struct tc956xmac_counters));
+		/* Avoid SW MMC counters reset during link down MAC reset */
+		if (priv->link_down_rst == false)
+			memset(&priv->mmc, 0, sizeof(struct tc956xmac_counters));
 	} else
 		netdev_info(priv->dev, "No MAC Management Counters available\n");
 #else
@@ -6868,9 +7091,7 @@ static int tc956xmac_hw_setup(struct net_device *dev, bool init_ptp)
 	/* Set the HW DMA mode and the COE */
 	tc956xmac_dma_operation_mode(priv);
 
-	/* Avoid SW MMC counters reset during link down MAC reset */
-	if (priv->link_down_rst == false)
-		tc956xmac_mmc_setup(priv);
+	tc956xmac_mmc_setup(priv);
 
 	/* CRC & Padding Configuration */
 
@@ -6934,11 +7155,7 @@ static int tc956xmac_hw_setup(struct net_device *dev, bool init_ptp)
 	if (priv->hw->xpcs) {
 		/*C37 AN enable*/
 		if ((priv->plat->interface == PHY_INTERFACE_MODE_10GKR) ||
-			(priv->port_interface == ENABLE_2500BASE_X_INTERFACE)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-			|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-			)
+			(priv->port_interface == ENABLE_2500BASE_X_INTERFACE))
 			enable_en = false;
 		else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII) {
 			if (priv->is_sgmii_2p5g == true)
@@ -7122,7 +7339,7 @@ static int tc956xmac_open(struct net_device *dev)
 	struct pci_dev *pdev = container_of(priv->device, struct pci_dev, dev);
 
 	int bfsize = 0;
-	u32 chan, rd_val;
+	u32 chan;
 	int ret, irq_no;
 #ifdef TC956X_SRIOV_VF
 	u32 link_status = 0;
@@ -7130,11 +7347,14 @@ static int tc956xmac_open(struct net_device *dev)
 	u32 duplex;
 	int state_count = 0;
 #endif
+#ifdef TC956X_SRIOV_PF
+	u32 rd_val;
+#endif
 
 #ifndef TC956X_SRIOV_VF
 	struct phy_device *phydev = NULL;
 	int addr = priv->plat->phy_addr;
-	char *pwol_dev_name; /*TC956X_Host_Driver-industrial_limited_tested_20241114_V_04-00-01-QPSSW-218.patch*/
+	char *pwol_dev_name;
 
 	KPRINT_INFO("---> light weight = %d %s : Port %d interface %s", priv->link_down_rst, __func__, priv->port_num, dev->name);
 #ifndef TC956X_WITHOUT_MDIO_WITHOUT_PHY
@@ -7182,6 +7402,8 @@ static int tc956xmac_open(struct net_device *dev)
 			}
 		}
 	}
+	priv->dev->phydev->dev_flags = priv->port_interface;
+
 #if defined(TC956X_AUTOMOTIVE_CONFIG) || defined(TC956X_CPE_CONFIG)
 	/* Do not re-allocate host resources during resume sequence. Only re-initialize resources */
 	if (priv->tc956x_port_pm_suspend == false) {
@@ -7367,10 +7589,12 @@ static int tc956xmac_open(struct net_device *dev)
 	}
 
 #ifdef EEE_MAC_CONTROLLED_MODE
+	rd_val = readl(priv->ioaddr + NCLKCTRL0_OFFSET);
 	if (priv->port_num == RM_PF0_ID) {
 		rd_val |= (NCLKCTRL0_MAC0312CLKEN | NCLKCTRL0_MAC0125CLKEN);
 	}
 	rd_val |= (NCLKCTRL0_POEPLLCEN | NCLKCTRL0_SGMPCIEN | NCLKCTRL0_REFCLKOCEN);
+	writel(rd_val, priv->ioaddr + NCLKCTRL0_OFFSET);
 #endif
 	/* Initialize MSIGEN */
 	tc956x_msi_init(priv, dev);
@@ -7413,11 +7637,8 @@ static int tc956xmac_open(struct net_device *dev)
 		if (priv->tc956x_port_pm_suspend == false) {
 			/* Request the Wake IRQ in case of another line is used for WoL */
 			if (priv->wol_irq != dev->irq) {
-				/*TC956X_Host_Driver-industrial_limited_tested_20241114_V_04-00-01-QPSSW-218.patch*/
-				pwol_dev_name = priv->int_name_wol;
-				snprintf(pwol_dev_name, sizeof(priv->int_name_wol), "%s_wol", dev->name);
 				ret = request_irq(priv->wol_irq, tc956xmac_wol_interrupt,
-						  IRQF_NO_SUSPEND, pwol_dev_name, dev);
+						  IRQF_NO_SUSPEND, WOL_IRQ_DEV_NAME(priv->port_num), dev);
 				if (unlikely(ret < 0)) {
 					netdev_err(priv->dev,
 						   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
@@ -8248,7 +8469,15 @@ static netdev_tx_t tc956xmac_xmit(struct sk_buff *skb, struct net_device *dev)
 		}
 		return NETDEV_TX_BUSY;
 	}
-
+#ifndef TC956X_SRIOV_VF
+	if (tx_q->queue_index == TC956X_GPTP_TX_CH) {
+		if (unlikely(skb->len > PTP_MAX_PKT_SIZE)) {
+			dev_kfree_skb(skb);
+			priv->dev->stats.tx_dropped++;
+			return NETDEV_TX_OK;
+		}
+	}
+#endif
 	/* Prepare context descriptor for one-step timestamp correction */
 #ifdef TC956X_SRIOV_VF
 	if ((tx_q->queue_index == priv->plat->gptp_ch_no) && (priv->ost_en == 1)
@@ -13489,6 +13718,8 @@ static int tc956xmac_extension_ioctl(struct tc956xmac_priv *priv,
 #else
 	u32 cmd;
 #endif
+	u32 reg;
+
 	DBGPR_FUNC(priv->device, "-->%s\n", __func__);
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
@@ -13571,9 +13802,12 @@ static int tc956xmac_extension_ioctl(struct tc956xmac_priv *priv,
 #elif (defined TC956X_SRIOV_VF)
 	return tc956xmac_set_est(priv, data);
 #endif
-
-#ifdef TC956X_UNSUPPORTED_UNTESTED
 	case TC956XMAC_GET_FPE: /*Function to Get FPE related configurations*/
+		reg = readl(priv->ioaddr + NCID_OFFSET);
+		if ((reg & NCID_FPE) != NCID_FPE ) {
+			KPRINT_INFO("FPE Supported only in ES3 Board\n");
+			return 0;
+		}
 #ifdef TC956X_SRIOV_PF
 	{
 		int ret;
@@ -13597,6 +13831,11 @@ static int tc956xmac_extension_ioctl(struct tc956xmac_priv *priv,
 	return tc956xmac_get_fpe(priv, data);
 #endif
 	case TC956XMAC_SET_FPE: /*Function to Set FPE related configurations*/
+		reg = readl(priv->ioaddr + NCID_OFFSET);
+		if ((reg & NCID_FPE) != NCID_FPE ) {
+			KPRINT_INFO("FPE Supported only in ES3 Board\n");
+			return 0;
+		}
 #ifdef TC956X_SRIOV_PF
 	{
 		struct tc956xmac_ioctl_fpe_cfg *fpe;
@@ -13614,7 +13853,6 @@ static int tc956xmac_extension_ioctl(struct tc956xmac_priv *priv,
 #elif (defined TC956X_SRIOV_VF)
 		return tc956xmac_set_fpe(priv, data);
 #endif
-#endif /* TC956X_UNSUPPORTED_UNTESTED */
 
 #ifdef TC956X_SRIOV_PF
 	case TC956X_GET_FW_STATUS:
@@ -16560,11 +16798,7 @@ void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PO
 
 			/*C37 AN enable*/
 			if ((priv->plat->interface == PHY_INTERFACE_MODE_10GKR) ||
-				(priv->port_interface == ENABLE_2500BASE_X_INTERFACE)
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0) /* TC956X_Host_Driver-industrial_limited_tested_20241025_V_04-00-01-QPSSW-216.patch */
-				|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
-#endif
-				)
+				(priv->port_interface == ENABLE_2500BASE_X_INTERFACE))
 				enable_en = false;
 			else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII) {
 				if (priv->is_sgmii_2p5g == true)
