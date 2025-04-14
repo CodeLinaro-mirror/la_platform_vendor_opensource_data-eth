@@ -2358,7 +2358,7 @@ static bool ioss_ipa_reconnect_required(struct ioss_device *idev, struct respons
 	return false;
 }
 
-#define QOS_UEVENT_TS_STATUS "QOS_ACTION=ts-status"
+#define QOS_UEVENT_TS_STATUS "QOS_ACTION=filter-update"
 #define QOS_UEVENT_TS_OK "QOS_TS_OK="
 #define QOS_UEVENT_TS_FAIL "QOS_TS_FAIL="
 
