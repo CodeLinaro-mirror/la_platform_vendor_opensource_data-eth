@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 31 Jan 2025
+Release Date: 31 Mar 2025
 
-Release Version: V_05-00-01
+Release Version: V_06-00-00
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kernel-6.1.18" and "Fedora 39, kernel-6.6.1"
 
@@ -195,6 +195,10 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 		
 		XXX_L0s_ENTRY_DELAY range: 1-31
 		XXX_L1_ENTRY_DELAY: 1-1023
+	Note:
+	1. To apply the above values, it is also required to enable the macro TC956X_PCIE_LINK_STATE_LATENCY_CTRL
+	2. Also it is possible to provide USP_L0s_ENTRY_DELAY, USP_L1_ENTRY_DELAY, EP_L0s_ENTRY_DELAY, EP_L1_ENTRY_DELAY via Module parameters.
+	   Refer User Manual for the details.
 
 9. To check vlan feature status execute:
 	ethtool -k <interface> | grep vlan
@@ -218,13 +222,14 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 		(b) Rx valn offload (vlan stripping) is disabled.
 		(c) Tx vlan offload is enabled.
 
-10. Please use the below command to insert the kernel module for passing pause frames to application except pause frames from PHY:
+10. Use the below command to insert the kernel module for passing pause frames to application except pause frames from PHY:
 
-	#insmod tc956x_pcie_eth.ko mac0_filter_phy_pause=x mac1_filter_phy_pause=x
+	#insmod tc956x_pcie_eth.ko tc956x_eth_ports_bdf=BDF1,BDF2,...BDFn  macX_filter_phy_pause=x1,x2,...xn
 
 	argument info:
-		mac0_filter_phy_pause: For PORT0
-		mac1_filter_phy_pause: For PORT1
+		tc956x_eth_ports_bdf: Refer section 2 for the details.
+		macX_interface: Array of Filter PHY pause frames arranged in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+		Filter PHY pause frames alone and pass Link partner pause frames to application for BDfs provided.
 		x = [0: DISABLE (default), 1: ENABLE]
 
 	If invalid values are passed as kernel module parameter, the default value will be selected.
@@ -246,23 +251,17 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 	Example - To wake on phy activity and magic packet use :
 	ethtool -s eth0 wol pg
 
-13. Please use the below command to insert the kernel module to enable EEE and configure LPI Auto Entry timer:
+13. Use the below command to insert the kernel module to enable EEE and configure LPI Auto Entry timer:
 
-	#insmod tc956x_pcie_eth.ko mac0_eee_enable=X mac0_lpi_timer=Y mac1_eee_enable=X mac1_lpi_timer=Y
+	#insmod tc956x_pcie_eth.ko tc956x_eth_ports_bdf=BDF1,BDF2,...BDFn  macX_eee_enable=x1,x2,...xn macX_lpi_timer=y1,y2,...yn
 
 	argument info:
+		tc956x_eth_ports_bdf: Refer section 2 for the details.
+		macX_eee_enable: Array of Enable/Disable EEE arranged in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+		x = [0: DISABLE (default), 1: ENABLE]
 
-		mac0_eee_enable: For PORT0
-		mac1_eee_enable: For PORT1
-		X = [0: DISABLE (default), 1: ENABLE]
-		This module parameter is to Enable/Disable EEE for Port 0/1 - default is 0.
-		If invalid values are passed as kernel module parameter, the default value will be selected.		
-
-		mac0_lpi_timer: For PORT0
-		mac1_lpi_timer: For PORT1
-		Y = [0..1048568 (us)]
-		This module parameter is to configure LPI Automatic Entry Timer for Port 0/1 - default is 600 (us).
-		If invalid values are passed as kernel module parameter, the default value will be selected.		
+		macX_lpi_timer: Array of LPI Automatic Entry Timer arranged in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+		y = [0..1048568 (us)]  default is 600 (us)
 
 	In addition to above module parameter, use below ethtool command to configure EEE and LPI auto entry timer.
 	#ethtool --set-eee <interfcae> eee <on/off> tx-timer <time in us>
@@ -271,62 +270,34 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 	Use below command to check the status of EEE configuration
 	#ethtool --show-eee <interface>
 
-14. Please use the below command to insert the kernel module for RX Queue size, Flow control thresholds & TX Queue size configuration.
+14. Use the below command to insert the kernel module for RX Queue size, Flow control thresholds & TX Queue size configuration.
 
-	#insmod tc956x_pcie_eth.ko mac0_rxq0_size=x mac0_rxq0_rfd=y mac0_rxq0_rfa=y
-		mac0_rxq1_size=x mac0_rxq1_rfd=y mac0_rxq1_rfa=y
-		mac0_txq0_size=x mac0_txq1_size=x
-		mac1_rxq0_size=x mac1_rxq0_rfd=y mac1_rxq0_rfa=y
-		mac1_rxq1_size=x mac1_rxq1_rfd=y mac1_rxq1_rfa=y
-		mac1_txq0_size=x mac1_txq1_size=x
-
-	argument info:
-		mac0_rxq0_size: For PORT0 RX Queue-0
-		mac0_rxq1_size: For PORT0 RX Queue-1
-		mac1_rxq0_size: For PORT1 RX Queue-0
-		mac1_rxq1_size: For PORT1 RX Queue-1
-		mac0_txq0_size: For PORT0 TX Queue-0
-		mac0_txq1_size: For PORT0 TX Queue-1
-		mac1_txq0_size: For PORT1 TX Queue-0
-		mac1_txq1_size: For PORT1 TX Queue-1
-		x = [Range Supported : 3072..44032 (bytes)], default is 18432 (bytes)
-
-		mac0_rxq0_rfd: For PORT0 Queue-0 threshold for Disable flow control
-		mac0_rxq1_rfd: For PORT0 Queue-1 threshold for Disable flow control
-		mac0_rxq0_rfa: For PORT0 Queue-0 threshold for Enable flow control
-		mac0_rxq1_rfa: For PORT0 Queue-1 threshold for Enable flow control
-		mac1_rxq0_rfd: For PORT1 Queue-0 threshold for Disable flow control
-		mac1_rxq1_rfd: For PORT1 Queue-1 threshold for Disable flow control
-		mac1_rxq0_rfa: For PORT1 Queue-0 threshold for Enable flow control
-		mac1_rxq1_rfa: For PORT1 Queue-1 threshold for Enable flow control
-		y = [Range Supported : 0..84], default is 24 (13KB)
-
-	If invalid values are passed as kernel module parameter, the default value will be selected for Queue Sizes and for Flow control 80% of Queue size will be used.
+	#insmod tc956x_pcie_eth.ko tc956x_eth_ports_bdf=BDF1,BDF2,...BDFn macX_rxq0_size=x1,x2,...xn macX_rxq0_rfd=x1,x2,...xn macX_rxq0_rfa=x1,x2,...xn
+		macX_rxq1_size=x1,x2,...xn macX_rxq1_rfd=x1,x2,...xn macX_rxq1_rfa=x1,x2,...xn
+		macX_txq0_size=x1,x2,...xn macX_txq1_size=x1,x2,...xn
+	Refer User Manual for details about configuration of above module parameters.
 
 	Note:
 	1. Please configure flow control thresholds (RFD & RFA) as per Queue size (Default values are for Default Queue size which is 18KB).
+	2. If invalid values are passed as kernel module parameter, the default value will be selected for Queue Sizes and for Flow control 80% of Queue size will be used.
 
-15. Please use the below command to insert the kernel module for counting Link partner pause frames and output to ethtool:
+15. Use the below command to insert the kernel module for counting Link partner pause frames and output to ethtool:
 
-	#insmod tc956x_pcie_eth.ko mac0_en_lp_pause_frame_cnt=x mac1_en_lp_pause_frame_cnt=x
+	#insmod tc956x_pcie_eth.ko tc956x_eth_ports_bdf=BDF1,BDF2,...BDFn macX_en_lp_pause_frame_cnt=x1,x2,...xn
 
-	argument info:
-		mac0_en_lp_pause_frame_cnt: For PORT0
-		mac1_en_lp_pause_frame_cnt: For PORT1
-		x = [0: DISABLE (default), 1: ENABLE]
+	Refer User Manual for details about configuration of above module parameters.
 
-	If invalid values are passed as kernel module parameter, the default value will be selected.
-	Note: It is required to enable kernel module parameter "mac0_filter_phy_pause/mac1_filter_phy_pause" along with this module parameter to count link partner pause frames.
+	Note: It is required to enable kernel module parameter "macX_filter_phy_pause" along with this module parameter to count link partner pause frames.
 
-16. Please use the below command to insert the kernel module for power saving at Link Down state:
+16. Use the below command to insert the kernel module for power saving at Link Down state:
 
-	#insmod tc956x_pcie_eth.ko mac_power_save_at_link_down=x
+	#insmod tc956x_pcie_eth.ko tc956x_eth_ports_bdf=BDF1,BDF2,...BDFn macX_power_save_at_link_down=x1,x2,...xn
 
 	argument info:
-		mac_power_save_at_link_down: Common for both PORT0 & PORT1
+		macX_power_save_at_link_down: Array of Enable Power saving during Link down arranged in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+        Same value to be assigned for Port-0 and Port-1 - default is 0
+		Note: If Port-0 and Port-1 have different values, power saving is not gauranteed\	
 		x = [0: DISABLE (default), 1: ENABLE]
-
-	If invalid values are passed as kernel module parameter, the default value will be selected.
 
 17. Debufs directory will be created for port specific in debug path of kernel i.e. "/sys/kernel/debug" in x86 Linux platfrom.
     Under port specific debugfs directory (tc956x_port0_debug/tc956x_port1_debug), module specific files are created to get dump of debug information related to module.
@@ -348,15 +319,12 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 
 18. Use the below command to insert the kernel module for SW reset during link down.
 
-	#insmod tc956x_pcie_eth.ko mac0_link_down_macrst=x mac1_link_down_macrst=y
+	#insmod tc956x_pcie_eth.ko tc956x_eth_ports_bdf=BDF1,BDF2,...BDFn macX_link_down_macrst=x1,x2,...xn
 
 	argument info:
-		mac0_link_down_macrst: For PORT0
-		x = [0: DISABLE, 1: ENABLE (default)]
-		mac1_link_down_macrst: For PORT1
-		y = [0: DISABLE (default), 1: ENABLE]
-
-	If invalid values are passed as kernel module parameter, the default value will be selected.
+	macX_link_down_macrst: Array of MAC Link down reset setting in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+		MAC reset for PHY Clock loss during Link Down - default is 1 (ENABLE) for all Port0 and 0 (DISABLE) for all Port1,
+		Supported values [0: DISABLE, 1: ENABLE]
 
 19. To disable MDIO and remove PHY dependency in the driver, use module parameter "macX_no_mdio_no_phy".
 	Supported options are as follows.
@@ -701,15 +669,21 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 
 ## TC956X_Linux_Host_Driver_20250131_V_05-00-01
 1. Merge of Automotive limited github branches (V_04-00-01 ~ V_04-00-03) as listed above with 05-00 version
-1. Support for module parameter (array) to configure different ethernet interfaces and associated other mandatory configurations for same ethernet port number in a cascade TC956x setup
-2. Driver modification to disable phydev private flag access.
-3. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
-4. Modification to support PHY_INTERFACE_MODE_RGMII_ID interface type
-5. Fix for ping issue in 5Gbps speed of USXGMII interface (mac_interface=0)
-6. Fix for throughput issue when CPE macro is enabled
-7. Fix to avoid unbound access of SW MAC table during deletion
-8. Initialisation of some local variables to avoid compiler warnings
-9. Update for correct DMA address width in case of 64-bit Host bus addressing
-10. Linux Kernel version check for supported TC command
-11. Fix for MAC address conflict in Cascade setup
-12. USXGMII (0) made as supported module param for TC956x Rev ID1
+2. Support for module parameter (array) to configure different ethernet interfaces and associated other mandatory configurations for same ethernet port number in a cascade TC956x setup
+3. Driver modification to disable phydev private flag access.
+4. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+5. Modification to support PHY_INTERFACE_MODE_RGMII_ID interface type
+6. Fix for ping issue in 5Gbps speed of USXGMII interface (mac_interface=0)
+7. Fix for throughput issue when CPE macro is enabled
+8. Fix to avoid unbound access of SW MAC table during deletion
+9. Initialisation of some local variables to avoid compiler warnings
+10. Update for correct DMA address width in case of 64-bit Host bus addressing
+11. Linux Kernel version check for supported TC command
+12. Fix for MAC address conflict in Cascade setup
+13. USXGMII (0) made as supported module param for TC956x Rev ID1
+
+## TC956X_Linux_Host_Driver_20250228_V_05-02-00
+1. Support for module parameters (array) for USP, EP, MAC Power Save during link down, Filter and count PHY pause frames, force config speed, RFA, RFD, MTL TX/RX Queue size, EEE to ethernet port number in a cascade TC956x setup
+
+## TC956X_Linux_Host_Driver_20250331_V_06-00-00
+1. Support for 3MA/3DB environment

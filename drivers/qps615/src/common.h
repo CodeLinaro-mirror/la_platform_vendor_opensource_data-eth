@@ -90,6 +90,10 @@
  *  31 Jan 2025 : 1. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
  *              : 2. USXGMII (0) made as supported module param for TC956x Rev ID1
  *  VERSION     : 05-00-01
+ *  28 Feb 2025 : 1. Support for USP Lo/L1 Delay module parameters
+ *  VERSION     : 05-02-00
+ *  31 Mar 2025 : 1. Support for 3MA/3DB environment
+ *  VERSION     : 06-00-00
 */
 
 #ifndef __COMMON_H__
@@ -190,7 +194,10 @@ enum TC956X_PHY_MDIO_AVAILABILITY {
 // #define TSN_DEMO_AUTOMOTIVE
 
 /* This macro to be disabled for board device other than RBTC9563_3MA */
-/* #define RBTC9563_3MA */
+//#define RBTC9563_3MA
+
+/* This macro to be enabled when RBTC9563-3DB PHY to be used */
+//#define RBTC9563_3DB
 
 #define TC956X_M3_DMEM_OFFSET	0x40000
 #define MAC2MAC_ETH0_RXDESC_L	0x7800
@@ -1899,6 +1906,12 @@ RXQ1 used for MAC2MAC */
 #define TC956X_PCIE_EP_L0s_ENTRY_MASK		GENMASK(17, 13)
 #define TC956X_PCIE_EP_L1_ENTRY_MASK		GENMASK(27, 18)
 
+#define	TC956X_PCIE_USP_L0s_ENTRY_SHIFT		(0)
+#define	TC956X_PCIE_USP_L1_ENTRY_SHIFT		(0)
+
+#define TC956X_PCIE_USP_L0s_ENTRY_MASK		GENMASK(4, 0)
+#define TC956X_PCIE_USP_L1_ENTRY_MASK		GENMASK(9, 0)
+
 #define TC956X_PCIE_S_EN_ALL_PORTS_ACCESS	(0xF)
 
 /*
@@ -1907,6 +1920,10 @@ L1 value range : 1-1023
 
 Ex: entry value is n then
 entry delay = n * 256 ns */
+
+/* Invalid entry delays*/
+#define INVALID_L0s_ENTRY_DELAY	(0x0U)
+#define INVALID_L1_ENTRY_DELAY	(0x0U)
 
 /* Link state change delay configuration for Upstream Port */
 #define USP_L0s_ENTRY_DELAY	(0x1FU)

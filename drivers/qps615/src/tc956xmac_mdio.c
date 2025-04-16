@@ -53,6 +53,8 @@
  *  VERSION     : 04-00
  *  11 Dec 2024 : 1. Driver modification to disable phydev private flag access.
  *  VERSION     : 04-00-03
+ *  31 Mar 2025 : 1. Support for 3MA/3DB environment
+ *  VERSION     : 06-00-00
  */
 
 #include <linux/gpio/consumer.h>
@@ -147,13 +149,20 @@ static int __tc956xmac_xgmac2_mdio_read(struct mii_bus *bus, int phyaddr, int ph
 	unsigned int mii_data = priv->hw->mii.data;
 	u32 tmp, addr, value = MII_XGMAC_BUSY;
 	int ret;
+	u8 poll_time = 0;
 
 	if (priv->plat->cphy_read)
 		return priv->plat->cphy_read(priv, phyaddr, phyreg);
 
+#ifdef RBTC9563_3DB
+		if (priv->port_num == 1) {
+			poll_time = 100;
+		}
+#endif
+
 	/* Wait until any existing MII operation is complete */
 	if (readl_poll_timeout(priv->ioaddr + mii_data, tmp,
-			       !(tmp & MII_XGMAC_BUSY), /*100*/1, 10000))
+			       !(tmp & MII_XGMAC_BUSY), /*100*/poll_time + 1, 10000))
 		return -EBUSY;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
@@ -202,7 +211,7 @@ static int __tc956xmac_xgmac2_mdio_read(struct mii_bus *bus, int phyaddr, int ph
 
 	/* Wait until any existing MII operation is complete */
 	if (readl_poll_timeout(priv->ioaddr + mii_data, tmp,
-			       !(tmp & MII_XGMAC_BUSY), /*100*/1, 10000))
+			       !(tmp & MII_XGMAC_BUSY), /*100*/poll_time + 1, 10000))
 		return -EBUSY;
 
 	/* Set the MII address register to read */
@@ -211,7 +220,7 @@ static int __tc956xmac_xgmac2_mdio_read(struct mii_bus *bus, int phyaddr, int ph
 
 	/* Wait until any existing MII operation is complete */
 	if (readl_poll_timeout(priv->ioaddr + mii_data, tmp,
-			       !(tmp & MII_XGMAC_BUSY), /*100*/10, 10000))
+			       !(tmp & MII_XGMAC_BUSY), /*100*/(poll_time + 10), 10000))
 		return -EBUSY;
 
 	/* Read the data from the MII data register */
@@ -257,6 +266,7 @@ static int __tc956xmac_xgmac2_mdio_write(struct mii_bus *bus, int phyaddr,
 	unsigned int mii_data = priv->hw->mii.data;
 	u32 addr, tmp, value = MII_XGMAC_BUSY;
 	int ret;
+	u8 poll_time = 0;
 #ifdef TC956X_MAGIC_PACKET_WOL_CONF
 	u32 devtype = 0, datareg = 0, dataval = 0;
 #endif
@@ -264,9 +274,15 @@ static int __tc956xmac_xgmac2_mdio_write(struct mii_bus *bus, int phyaddr,
 	if (priv->plat->cphy_write)
 		return priv->plat->cphy_write(priv, phyaddr, phyreg, phydata);
 
+#ifdef RBTC9563_3DB
+		if (priv->port_num == 1) {
+			poll_time = 100;
+		}
+#endif
+
 	/* Wait until any existing MII operation is complete */
 	if (readl_poll_timeout(priv->ioaddr + mii_data, tmp,
-			       !(tmp & MII_XGMAC_BUSY), /*100*/1, 10000))
+			       !(tmp & MII_XGMAC_BUSY), /*100*/(poll_time + 1), 10000))
 		return -EBUSY;
 
 	if (phyreg & TC956X_MII_ADDR_C45) {
@@ -300,7 +316,7 @@ static int __tc956xmac_xgmac2_mdio_write(struct mii_bus *bus, int phyaddr,
 
 	/* Wait until any existing MII operation is complete */
 	if (readl_poll_timeout(priv->ioaddr + mii_data, tmp,
-			       !(tmp & MII_XGMAC_BUSY), /*100*/1, 10000))
+			       !(tmp & MII_XGMAC_BUSY), /*100*/poll_time + 1, 10000))
 		return -EBUSY;
 
 #ifdef TC956X_MAGIC_PACKET_WOL_CONF
@@ -349,7 +365,7 @@ static int __tc956xmac_xgmac2_mdio_write(struct mii_bus *bus, int phyaddr,
 #endif
 	/* Wait until any existing MII operation is complete */
 	return readl_poll_timeout(priv->ioaddr + mii_data, tmp,
-				  !(tmp & MII_XGMAC_BUSY), /*100*/10, 10000);
+				  !(tmp & MII_XGMAC_BUSY), /*100*/poll_time + 10, 10000);
 }
 /**
  * tc956xmac_xgmac2_mdio_write
