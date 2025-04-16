@@ -73,6 +73,8 @@
  *  31 Jan 2025 : 1. Merge of Automotive limited github branches as listed above after 5-00 version
  *                2. Fix to avoid unbound access of SW MAC table during deletion
  *  VERSION     : 05-00-01
+ *  28 Feb 2025 : 1. Support for phy pause frames module paramter array
+ *  VERSION     : 05-02-00
  */
 
 #include <linux/bitrev.h>
@@ -81,11 +83,6 @@
 #include "tc956xmac.h"
 #include "tc956xmac_ptp.h"
 #include "dwxgmac2.h"
-
-#ifndef TC956X_SRIOV_VF
-extern unsigned int mac0_filter_phy_pause;
-extern unsigned int mac1_filter_phy_pause;
-#endif
 
 #ifdef TC956X_SRIOV_DEBUG
 void tc956x_filter_debug(struct tc956xmac_priv *priv);
@@ -1381,8 +1378,7 @@ static void dwxgmac2_set_filter(struct tc956xmac_priv *priv, struct mac_device_i
 	value |= XGMAC_FILTER_HPF;
 #ifndef TC956X_SRIOV_VF
 	/* Configuring to Pass all pause frames to application, PHY pause frames will be filtered by FRP */
-	if ((mac0_filter_phy_pause == ENABLE && priv->port_num == RM_PF0_ID) ||
-	   (mac1_filter_phy_pause == ENABLE && priv->port_num == RM_PF1_ID)) {
+	if (priv->plat->filter_phy_pause == ENABLE) {
 		/* setting pcf to 0b10 i.e. pass pause frames of address filter fail to Application */
 		value |= 0x80;
 	}

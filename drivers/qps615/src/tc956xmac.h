@@ -203,6 +203,10 @@
  *                5. Fix for MAC address assignment conflict in Cascade setup
  *                6. Version update
  *  VERSION     : 05-00-01
+ *  28 Feb 2025 : 1. Version update
+ *  VERSION     : 05-02-00
+ *  31 Mar 2025 : 1. Version update
+ *  VERSION     : 06-00-00
  */
 
 #ifndef __TC956XMAC_H__
@@ -277,7 +281,7 @@
 #define IRQ_DEV_NAME(x)		(((x) == RM_PF0_ID) ? ("eth0") : ("eth1"))
 #define WOL_IRQ_DEV_NAME(x)	(((x) == RM_PF0_ID) ? ("eth0_wol") : ("eth1_wol"))
 
-#define DRV_MODULE_VERSION	"V_05-00-01"
+#define DRV_MODULE_VERSION	"V_06-00-00"
 #define TC956X_FW_MAX_SIZE	(64*1024)
 #elif (defined TC956X_SRIOV_VF)
 #define TC956X_RESOURCE_NAME	"tc956x_vf_pci-eth"
@@ -932,7 +936,7 @@ struct tc956xmac_priv {
 						appropriate sequence of link down & up */
 
 #endif
-	struct tc956x_gpio_config saved_gpio_config[GPIO_12 + 1]; /* Only GPIO0- GPIO06, GPI010-GPIO12 are used */
+	struct tc956x_gpio_config saved_gpio_config[GPIO_13 + 1]; /* Only GPIO0- GPIO06, GPI010-GPIO13 are used */
 
 #ifdef TC956X_SRIOV_PF
 #ifdef CONFIG_DEBUG_FS

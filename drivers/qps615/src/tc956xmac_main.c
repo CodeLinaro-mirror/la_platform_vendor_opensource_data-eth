@@ -183,6 +183,11 @@
  *                9. Update for PHY device condition check for speed change to avoid crash issue during w/o MDIO and w/o PHY configuration
  *                10. Version update
  *  VERSION     : 05-00-01
+ *  28 Feb 2025 : 1. Support for mac power down, phy pause frames, force config speed
+ *                   module parameters (array) to ethernet port number in a cascade TC956x setup
+ *  VERSION     : 05-02-00
+ *  31 Mar 2025 : 1. Support for 3MA/3DB environment
+ *  VERSION     : 06-00-00
  */
 
 #include <linux/clk.h>
@@ -461,14 +466,7 @@ static u8 phy_sa_addr[2][6] = {
 	{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}, /*For Port-0*/
 	{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}, /*For Port-1*/
 };
-extern unsigned int mac0_en_lp_pause_frame_cnt;
-extern unsigned int mac1_en_lp_pause_frame_cnt;
 #ifndef TC956X_SRIOV_VF
-
-extern unsigned int mac_power_save_at_link_down;
-
-extern unsigned int mac0_force_speed_mode;
-extern unsigned int mac1_force_speed_mode;
 
 static int dwxgmac2_rx_parser_read_entry(struct tc956xmac_priv *priv,
 		struct tc956xmac_rx_parser_entry *entry, int entry_pos)
@@ -1025,9 +1023,6 @@ int tc956x_print_debug_regs(struct net_device *net_device, struct tc956x_regs *r
 
 	return 0;
 }
-
-extern unsigned int mac0_force_speed_mode;
-extern unsigned int mac1_force_speed_mode;
 
 static DEFINE_SPINLOCK(reg_dump_lock);
 static void dump_all_reg(struct tc956xmac_priv *priv)
@@ -1869,7 +1864,7 @@ int tc956x_gpio_restore_configuration(struct tc956xmac_priv *priv)
 
 	DBGPR_FUNC(priv->device, "-->%s", __func__);
 
-	for (gpio_pin = 0; gpio_pin <= GPIO_12; gpio_pin++) {
+	for (gpio_pin = 0; gpio_pin <= GPIO_13; gpio_pin++) {
 
 		/* Restore only the GPIOs which were configured/saved */
 		if (!(priv->saved_gpio_config[gpio_pin].config))
@@ -3533,7 +3528,7 @@ static void tc956xmac_speed_change_init_mac(struct tc956xmac_priv *priv,
 			reg_value &= ~XGMAC_USXG_MODE; /*USXG_MODE : 0x000*/
 			if (state->speed == SPEED_5000)
 				reg_value |= XPCS_USX_5G_MODE;
-			else if (state->speed== SPEED_2500)
+			else if (state->speed == SPEED_2500)
 				reg_value |= XPCS_USX_2_5G_MODE;
 			tc956x_xpcs_write(priv->xpcsaddr, XGMAC_VR_XS_PCS_KR_CTRL, reg_value);
 		}
@@ -3555,6 +3550,11 @@ static void tc956xmac_mac_config(struct phylink_config *config, unsigned int mod
 
 #ifdef TC956X
 	u32 reg_value;
+
+#ifdef RBTC9563_3DB
+	if ((priv->port_num == 1) && (priv->port_link_down == true))
+		tc956xmac_link_change_set_power(priv, LINK_UP);
+#endif
 
 	NMSGPR_INFO(priv->device, "-->%s\n", __func__);
 
@@ -4693,8 +4693,7 @@ static int tc956xmac_init_phy(struct net_device *dev)
 		}
 	}
 	/* In forced speed mode, donot return error here */
-	if (((priv->port_num == RM_PF1_ID) && (mac1_force_speed_mode == ENABLE)) ||
-		((priv->port_num == RM_PF0_ID) && (mac0_force_speed_mode == ENABLE)))
+	if (priv->plat->force_speed_mode == ENABLE)
 		ret = 0;
 
 	return ret;
@@ -4745,8 +4744,7 @@ static int tc956xmac_phy_setup(struct tc956xmac_priv *priv)
 		return PTR_ERR(phylink);
 
 	/* Fixed phy mode should be set using device tree, driver just registers callback here */
-	if (((priv->port_num == RM_PF1_ID) && (mac1_force_speed_mode == ENABLE)) ||
-		((priv->port_num == RM_PF0_ID) && (mac0_force_speed_mode == ENABLE)))
+	if (priv->plat->force_speed_mode == ENABLE)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
 		priv->phylink_config.get_fixed_state = tc956xmac_phylink_fixed_state;
 #else
@@ -6586,8 +6584,9 @@ static void tc956xmac_tx_timer(struct timer_list *t)
 static void tc956xmac_init_coalesce(struct tc956xmac_priv *priv)
 {
 
-	u32 tx_channel_count = priv->plat->tx_queues_to_use;
-	u32 chan;
+#ifdef ENABLE_TX_TIMER
+	u32 chan_no;
+#endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
 	u32 rx_channel_count = priv->plat->rx_queues_to_use;
 #endif
@@ -6601,8 +6600,9 @@ static void tc956xmac_init_coalesce(struct tc956xmac_priv *priv)
 	priv->tx_coal_timer = TC956XMAC_COAL_TX_TIMER;
 	priv->rx_coal_frames = TC956XMAC_RX_FRAMES;
 #else
+	u32 chan;
 
-	for (chan = 0; chan < tx_channel_count; chan++) {
+	for (chan = 0; chan < priv->plat->tx_queues_to_use; chan++) {
 
 		if (priv->port_num == RM_PF0_ID)
 			priv->tx_coal_frames[chan] = mac0_tx_interrupt_num;
@@ -6618,17 +6618,17 @@ static void tc956xmac_init_coalesce(struct tc956xmac_priv *priv)
 #endif
 
 #ifdef ENABLE_TX_TIMER
-	for (chan = 0; chan < tx_channel_count; chan++) {
-		struct tc956xmac_tx_queue *tx_q = &priv->tx_queue[chan];
+	for (chan_no = 0; chan_no < priv->plat->tx_queues_to_use; chan_no++) {
+		struct tc956xmac_tx_queue *tx_q = &priv->tx_queue[chan_no];
 #ifdef TC956X_SRIOV_PF
-		if (priv->plat->tx_ch_in_use[chan] == TC956X_DISABLE_CHNL)
+		if (priv->plat->tx_ch_in_use[chan_no] == TC956X_DISABLE_CHNL)
 			continue;
 #elif defined TC956X_SRIOV_VF
 		/* skip configuring for unallocated channel */
-		if (priv->plat->ch_in_use[chan] == 0)
+		if (priv->plat->ch_in_use[chan_no] == 0)
 			continue;
 #else
-		if (priv->plat->tx_dma_ch_owner[chan] != USE_IN_TC956X_SW)
+		if (priv->plat->tx_dma_ch_owner[chan_no] != USE_IN_TC956X_SW)
 			continue;
 #endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
@@ -9253,8 +9253,7 @@ drain_data:
 		tc956xmac_get_rx_hwtstamp(priv, p, np, skb, queue);
 #else
 		/* Pause frame counter to count link partner pause frames */
-		if ((mac0_en_lp_pause_frame_cnt == ENABLE && priv->port_num == RM_PF0_ID) ||
-			(mac1_en_lp_pause_frame_cnt == ENABLE && priv->port_num == RM_PF1_ID)) {
+		if (priv->plat->en_lp_pause_frame_cnt == ENABLE) {
 			proto = htons(((skb->data[13]<<8) | skb->data[12]));
 			if (proto == ETH_P_PAUSE) {
 				if (!(skb->data[6] == phy_sa_addr[priv->port_num][0] && skb->data[7] == phy_sa_addr[priv->port_num][1]
@@ -9886,6 +9885,8 @@ static irqreturn_t tc956xmac_interrupt_v0(int irq, void *dev_id)
 			KPRINT_INFO("%s : (Do not queue PHY Work during suspend. Set WOL Interrupt flag)\n", __func__);
 			priv->tc956xmac_pm_wol_interrupt = true;
 		} else {
+			struct phy_device *phydev;
+			phydev = mdiobus_get_phy(priv->mii, priv->plat->phy_addr);
 			KPRINT_INFO("%s : (Queue PHY Work.)\n", __func__);
 			queue_work(system_wq, &priv->emac_phy_work);
 		}
@@ -10202,6 +10203,9 @@ static irqreturn_t tc956xmac_interrupt_v1(int irq, void *dev_id)
 			KPRINT_INFO("%s : (Do not queue PHY Work during suspend. Set WOL Interrupt flag)\n", __func__);
 			priv->tc956xmac_pm_wol_interrupt = true;
 		} else {
+			struct phy_device *phydev;
+			phydev = mdiobus_get_phy(priv->mii, priv->plat->phy_addr);
+
 			KPRINT_INFO("%s : (Queue PHY Work.)\n", __func__);
 			queue_work(system_wq, &priv->emac_phy_work);
 		}
@@ -15534,7 +15538,7 @@ int tc956xmac_vf_dvr_probe(struct device *device,
 	priv->dev = ndev;
 	priv->ioaddr = res->addr;
 
-	memset(priv->saved_gpio_config, 0, sizeof(struct tc956x_gpio_config) * (GPIO_12 + 1));
+	memset(priv->saved_gpio_config, 0, sizeof(struct tc956x_gpio_config) * (GPIO_13 + 1));
 
 	ret = tc956x_platform_probe(priv, res);
 	if (ret) {
@@ -16779,8 +16783,10 @@ void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PO
 	int ret;
 	bool enable_en = true;
 
-	if (mac_power_save_at_link_down == ENABLE) {
-		KPRINT_INFO("-->%s : Port %d %s", __func__, priv->port_num, priv->dev->name);
+	if (priv->plat->mac_power_save_at_link_down == ENABLE) {
+		NMSGPR_INFO(priv->device, "-->%s : Port %d %s", __func__, priv->port_num, priv->dev->name);
+		NMSGPR_INFO(priv->device, "Status of Power saving at Link down %d\n", priv->plat->mac_power_save_at_link_down);
+
 		/* Select register address by port */
 		if (priv->port_num == 0) {
 			nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
@@ -16790,20 +16796,20 @@ void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PO
 			nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL1_OFFSET;
 		}
 		if (state == LINK_DOWN) {
-			KPRINT_INFO("%s : Port %d %s Set Power for Link Down", __func__, priv->port_num, priv->dev->name);
+			NMSGPR_INFO(priv->device, "%s : Port %d %s Set Power for Link Down", __func__, priv->port_num, priv->dev->name);
 			nrst_val = readl(nrst_reg);
 			nclk_val = readl(nclk_reg);
-			KPRINT_INFO("%s : Port %d %s Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, priv->dev->name,
+			NMSGPR_INFO(priv->device, "%s : Port %d %s Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, priv->dev->name,
 				nrst_val, nclk_val);
 			/* Save register values before Asserting reset and Clock Disable */
 			priv->pm_saved_linkdown_rst = ((~nrst_val) & NRSTCTRL_LINK_DOWN_SAVE); /* Save Non-Common De-Asserted Resets */
 			priv->pm_saved_linkdown_clk = (nclk_val & NCLKCTRL_LINK_DOWN_SAVE); /* Save Non-Common Enabled Clocks */
-			KPRINT_INFO("%s : Port %d %s priv->pm_saved_linkdown_rst %x priv->pm_saved_linkdown_clk %x", __func__,
+			NMSGPR_INFO(priv->device, "%s : Port %d %s priv->pm_saved_linkdown_rst %x priv->pm_saved_linkdown_clk %x", __func__,
 				priv->port_num, priv->dev->name, priv->pm_saved_linkdown_rst, priv->pm_saved_linkdown_clk);
 			/* Assert Reset and Disable Clock */
 			nrst_val = nrst_val | NRSTCTRL_LINK_DOWN;
 			nclk_val = nclk_val & ~NCLKCTRL_LINK_DOWN;
-			KPRINT_INFO("%s : Port %d %s Wr RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, priv->dev->name,
+			NMSGPR_INFO(priv->device, "%s : Port %d %s Wr RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, priv->dev->name,
 				nrst_val, nclk_val);
 			writel(nrst_val, nrst_reg);
 			writel(nclk_val, nclk_reg);
@@ -16814,11 +16820,11 @@ void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PO
 				commonclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
 				commonrst_val = readl(commonrst_reg);
 				commonclk_val = readl(commonclk_reg);
-				KPRINT_INFO("%s : Port %d %s Common Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, priv->dev->name,
+				NMSGPR_INFO(priv->device, "%s : Port %d %s Common Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, priv->dev->name,
 					commonrst_val, commonclk_val);
 				pm_saved_cmn_linkdown_rst = ((~commonrst_val) & NRSTCTRL_LINK_DOWN_CMN_SAVE); /* Save Common De-Asserted Resets */
 				pm_saved_cmn_linkdown_clk = commonclk_val & NCLKCTRL_LINK_DOWN_CMN_SAVE; /* Save Common Enabled Clocks */
-				KPRINT_INFO("%s : Port %d %s pm_saved_cmn_linkdown_rst %x pm_saved_cmn_linkdown_clk %x", __func__,
+				NMSGPR_INFO(priv->device, "%s : Port %d %s pm_saved_cmn_linkdown_rst %x pm_saved_cmn_linkdown_clk %x", __func__,
 					priv->port_num, priv->dev->name, pm_saved_cmn_linkdown_rst, pm_saved_cmn_linkdown_clk);
 			}
 			priv->port_link_down = true; /* Set per port flag to true */
@@ -16826,38 +16832,38 @@ void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PO
 			KPRINT_INFO("%s : Port %d %s Set Power for Link Up", __func__, priv->port_num, priv->dev->name);
 			if (tx956x_pci_shrd_mem[priv->pci_bd].eth_link_down_cnt == TC956X_ALL_MAC_PORT_LINK_DOWN) {
 				/* Restore Common register values */
-				KPRINT_INFO("%s : Port %d %s pm_saved_cmn_linkdown_clk %x, pm_saved_cmn_linkdown_rst %x", __func__,
+				NMSGPR_INFO(priv->device, "%s : Port %d %s pm_saved_cmn_linkdown_clk %x, pm_saved_cmn_linkdown_rst %x", __func__,
 					priv->port_num, priv->dev->name, pm_saved_cmn_linkdown_clk, pm_saved_cmn_linkdown_rst);
 				/* Enable Common Clock and De-Assert Common Resets */
 				commonclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
 				commonrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
 				commonclk_val = readl(commonclk_reg);
 				commonrst_val = readl(commonrst_reg);
-				KPRINT_INFO("%s : Port %d %s Common Rd CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, priv->dev->name,
+				NMSGPR_INFO(priv->device, "%s : Port %d %s Common Rd CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, priv->dev->name,
 					commonclk_val, commonrst_val);
 				/* Clear Common Clocks only when both port suspends */
 				commonclk_val = (commonclk_val | pm_saved_cmn_linkdown_clk); /* Enable Common Saved Clock */
 				commonrst_val = (commonrst_val & (~pm_saved_cmn_linkdown_rst)); /* De-assert Common Saved Reset */
 				writel(commonclk_val, commonclk_reg);
 				writel(commonrst_val, commonrst_reg);
-				KPRINT_INFO("%s : Port %d %s Common Wr CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, priv->dev->name,
+				NMSGPR_INFO(priv->device, "%s : Port %d %s Common Wr CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, priv->dev->name,
 					commonclk_val, commonrst_val);
-				KPRINT_INFO("%s : Port %d %s Common Rd CLK Reg:%x, RST Reg:%x", __func__, priv->port_num, priv->dev->name,
+				NMSGPR_INFO(priv->device, "%s : Port %d %s Common Rd CLK Reg:%x, RST Reg:%x", __func__, priv->port_num, priv->dev->name,
 					readl(commonclk_reg), readl(commonrst_reg));
 			}
 			/* Restore register values */
-			KPRINT_INFO("%s : Port %d %s pm_saved_linkdown_clk %x, pm_saved_linkdown_rst %x", __func__,
+			NMSGPR_INFO(priv->device, "%s : Port %d %s pm_saved_linkdown_clk %x, pm_saved_linkdown_rst %x", __func__,
 				priv->port_num, priv->dev->name, priv->pm_saved_linkdown_clk, priv->pm_saved_linkdown_rst);
 			nclk_val = readl(nclk_reg);
 			nrst_val = readl(nrst_reg);
-			KPRINT_INFO("%s : Port %d %s Rd CLK Reg:%x, RST Reg:%x", __func__, priv->port_num, priv->dev->name,
+			NMSGPR_INFO(priv->device, "%s : Port %d %s Rd CLK Reg:%x, RST Reg:%x", __func__, priv->port_num, priv->dev->name,
 				nrst_val, nclk_val);
 			/* Restore values same as before link down */
 			nclk_val = (nclk_val | priv->pm_saved_linkdown_clk); /* Enable Saved Clock */
 			nrst_val = (nrst_val & (~(priv->pm_saved_linkdown_rst))); /* De-assert Saved Reset */
 			writel(nclk_val, nclk_reg);
 			writel(nrst_val, nrst_reg);
-			KPRINT_INFO("%s : Port %d %s Wr CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, priv->dev->name,
+			NMSGPR_INFO(priv->device, "%s : Port %d %s Wr CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, priv->dev->name,
 				nclk_val, nrst_val);
 
 			tx956x_pci_shrd_mem[priv->pci_bd].eth_link_down_cnt--; /* Decrement Counter Only when this api called */
@@ -16866,7 +16872,7 @@ void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PO
 			/* Re-Init XPCS module as MACxPONRST is asserted during link-down */
 			ret = tc956x_xpcs_init(priv, priv->xpcsaddr);
 			if (ret < 0)
-				KPRINT_INFO("XPCS initialization error\n");
+				NMSGPR_INFO(priv->device, "XPCS initialization error\n");
 
 			/*C37 AN enable*/
 			if ((priv->plat->interface == PHY_INTERFACE_MODE_10GKR) ||
@@ -16886,11 +16892,12 @@ void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PO
 
 			tc956x_xpcs_ctrl_ane(priv, enable_en);
 		}
-		KPRINT_INFO("%s : Port %d %s Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, priv->dev->name,
+		NMSGPR_INFO(priv->device, "%s : Port %d %s Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, priv->dev->name,
 			readl(nrst_reg), readl(nclk_reg));
-		KPRINT_INFO("<--%s : Port %d %s", __func__, priv->port_num,  priv->dev->name);
+		NMSGPR_INFO(priv->device, "<--%s : Port %d %s", __func__, priv->port_num,  priv->dev->name);
 	} else {
-		KPRINT_INFO("-->%s : status of Power saving at Link down %d", __func__, mac_power_save_at_link_down);
+		NMSGPR_INFO(priv->device, "-->%s : Port %d %s", __func__, priv->port_num, priv->dev->name);
+		NMSGPR_INFO(priv->device, "Status of Power saving at Link down %d\n", priv->plat->mac_power_save_at_link_down);
 	}
 
 }

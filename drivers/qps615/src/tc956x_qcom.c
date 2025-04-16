@@ -153,6 +153,15 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 	int ret = 0;
 	struct tc956x_qcom_priv *qpriv;
 
+#ifdef RBTC9563_3MA
+#ifdef RBTC9563_3DB
+	tc956x_GPIO_OutputConfigPin(priv, GPIO_12, 0);
+#else
+	tc956x_GPIO_OutputConfigPin(priv, GPIO_12, 1);
+	tc956x_GPIO_OutputConfigPin(priv, GPIO_13, 0);
+#endif
+#endif
+
 	dev_dbg(priv->device, "QPS615 platform probing has started\n");
 
 	qpriv = kzalloc(sizeof(*qpriv), GFP_KERNEL);
@@ -247,6 +256,15 @@ int tc956x_platform_suspend(struct tc956xmac_priv *priv)
 int tc956x_platform_resume(struct tc956xmac_priv *priv)
 {
 	int ret = 0;
+
+#ifdef RBTC9563_3MA
+#ifdef RBTC9563_3DB
+	tc956x_GPIO_OutputConfigPin(priv, GPIO_12, 0);
+#else
+	tc956x_GPIO_OutputConfigPin(priv, GPIO_12, 1);
+	tc956x_GPIO_OutputConfigPin(priv, GPIO_13, 0);
+#endif
+#endif
 
 	if (priv->wolopts) {
 		ret = disable_irq_wake(priv->wol_irq);

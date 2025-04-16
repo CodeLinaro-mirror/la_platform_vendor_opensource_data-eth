@@ -55,6 +55,9 @@
  *  31 Jan 2025 : 1. Support for module parameter (array) to configure different ethernet interfaces and
  *                   associated other mandatory configurations for same ethernet port number in a cascade TC956x setup
  *  VERSION     : 05-00-01
+ *  28 Feb 2025 : 1. Support for usp, ep, mac power down, phy pause frames, force config speed
+ *                   module parameters (array) to ethernet port number in a cascade TC956x setup
+ *  VERSION     : 05-02-00
  */
 
 #ifndef __TC956XMAC_PLATFORM_DATA
@@ -375,6 +378,18 @@ struct plat_tc956xmacenet_data {
 	bool gate_mask;
 	u16 link_down_macrst;
 	u16 mac_no_mdio_no_phy;
+#ifdef TC956X
+	u8  device_num;
+#endif
+	u16 force_speed_mode;
+	int force_config_speed;
+	u16 filter_phy_pause;
+	u16 en_lp_pause_frame_cnt;
+	u16 mac_power_save_at_link_down;
+	u16 ep_l0s_delay;
+	u32 ep_l1_delay;
+	u16 usp_l0s_delay;
+	u32 usp_l1_delay;
 };
 
 struct tx956x_shrd_mem {
