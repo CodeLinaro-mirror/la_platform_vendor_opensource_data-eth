@@ -53,16 +53,16 @@ static int get_idev_statistics(struct ioss_device *idev,
 	stats->exp_rx_packets += iface->exception_stats.rx_packets;
 	stats->exp_rx_bytes += iface->exception_stats.rx_bytes;
 
-	if (stats->emac_rx_packets)
+	if (stats->emac_rx_packets + stats->exp_rx_packets >= netdev_stats.rx_packets)
 		stats->hwp_rx_packets = stats->emac_rx_packets +
 				stats->exp_rx_packets - netdev_stats.rx_packets;
-	if (stats->emac_tx_packets)
+	if (stats->emac_tx_packets + stats->exp_tx_packets >= netdev_stats.tx_packets)
 		stats->hwp_tx_packets = stats->emac_tx_packets +
 				stats->exp_tx_packets - netdev_stats.tx_packets;
-	if (stats->emac_rx_bytes)
+	if (stats->emac_rx_bytes + stats->exp_rx_bytes >= netdev_stats.rx_bytes)
 		stats->hwp_rx_bytes = stats->emac_rx_bytes +
 				stats->exp_rx_bytes - netdev_stats.rx_bytes;
-	if (stats->emac_tx_bytes)
+	if (stats->emac_tx_bytes + stats->exp_tx_bytes >= netdev_stats.tx_bytes)
 		stats->hwp_tx_bytes = stats->emac_tx_bytes +
 				stats->exp_tx_bytes - netdev_stats.tx_bytes;
 	stats->hwp_rx_drops = stats->emac_rx_drops;
