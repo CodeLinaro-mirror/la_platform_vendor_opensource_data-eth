@@ -35,12 +35,11 @@
 
 #define EMAC_HW_v3_0_0 0x30000000
 
-#define SERVER_IP "192.168.7.1"
+#define SERVER_IP "192.168.1.1"
 #define SERVER_PORT 8888
 #define MAX_SIZE 2048
 #define MAX_RECEIVE_RETRIES 10
-#define CONNECT_DELAY 2000
-#define RECEIVE_DELAY 10
+static DECLARE_WAIT_QUEUE_HEAD(conn_wait_queue);
 
 struct client_socket
 {
@@ -205,7 +204,7 @@ static void qcom_ethqos_client_receive(struct kthread_work *work) {
 		len = kernel_recvmsg(client_sk.conn_socket, &msg, &vec, max_size, max_size, msg.msg_flags);
 		if (len <= 0) {
 			ETHQOSERR("packet receive failed with error: %d\n",len);
-			msleep(RECEIVE_DELAY);
+			wait_event_timeout(conn_wait_queue, 0, 0.01 * HZ);
 			retries++;
 			if(retries == MAX_RECEIVE_RETRIES) {
 				ETHQOSERR("Exhaust receive retries...\n");
@@ -280,7 +279,7 @@ connect:
 		/*retry mechanish here*/
 		if (client_sk.connect_retry_cnt > 0)
 		{
-			 msleep(CONNECT_DELAY);
+			wait_event_timeout(conn_wait_queue, 0, 0.05 * HZ);
 			 --client_sk.connect_retry_cnt;
 			 goto connect;
 		}
@@ -521,8 +520,6 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	struct net_device *ndev;
 	struct stmmac_priv *priv;
 
-	ETHQOSINFO("Start GY probe\n");
-
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (ret) {
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
@@ -537,6 +534,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe start");
 #endif
+	ETHQOSINFO("Start GY probe\n");
 
 	ipc_emac_thin_log_ctxt = ipc_log_context_create(IPCLOG_STATE_PAGES,
 						   "emac", 0);
