@@ -309,6 +309,16 @@ add_tc() {
                 fi
                 tc_commands="$tc_commands u32 match ip src $1"
                 shift
+	    elif [ "$1" == "ip6src" ]
+            then
+                shift
+                if [ $# -lt 1 ]
+                then
+                    echo "Parameter is missing. Please refer to help page."
+                    return 255
+                fi
+                tc_commands="$tc_commands u32 match ip6 src $1"
+                shift
 	    elif [ "$1" == "priority" ]
             then
                 shift
