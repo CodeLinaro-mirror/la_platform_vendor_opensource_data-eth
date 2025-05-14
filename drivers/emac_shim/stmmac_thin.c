@@ -3116,7 +3116,13 @@ int stmmac_thin_resume(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct stmmac_channel *ch;
+	unsigned long flags;
+	if (!ndev)
+		return -ENOMEM;
 
+	pr_info("%s: Enter\n", __func__);
+	ch = &priv->channel;
 	if (!netif_running(ndev))
 		return 0;
 
@@ -3141,7 +3147,9 @@ int stmmac_thin_resume(struct device *dev)
 	stmmac_enable_queue(priv);
 
 	stmmac_start_queue(priv);
-
+	spin_lock_irqsave(&ch->lock, flags);
+	stmmac_enable_dma_irq(priv, priv->ioaddr, priv->queue, 1, 1);
+	spin_unlock_irqrestore(&ch->lock, flags);
 	mutex_unlock(&priv->lock);
 
 	return 0;
