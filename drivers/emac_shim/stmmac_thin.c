@@ -2949,8 +2949,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 	}
 
 	/* Disable tx_coal_timer if plat provides callback */
-	priv->tx_coal_timer_disable =
-		plat_dat->get_plat_tx_coal_frames ? true : false;
+	priv->tx_coal_timer_disable = false;
 
 #ifdef CONFIG_DEBUG_FS
 	if (stmmac_init_fs(ndev) < 0)
