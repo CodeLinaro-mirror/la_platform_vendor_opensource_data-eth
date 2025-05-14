@@ -65,6 +65,7 @@ static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
 
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
+static void stmmac_reset_queues_param(struct stmmac_priv *priv);
 
 #ifdef CONFIG_DEBUG_FS
 static int stmmac_init_fs(struct net_device *dev);
@@ -1114,6 +1115,7 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 
 	/* DMA CSR Channel configuration */
 	stmmac_init_chan(priv, priv->ioaddr, priv->plat->dma_cfg, chan);
+	stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 1, 1);
 
 	/* DMA RX Channel Configuration */
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
@@ -2526,12 +2528,15 @@ int stmmac_dvr_init(struct net_device *dev)
 {
 	struct stmmac_priv *priv;
 	int ret = 0;
-
+	struct stmmac_channel *ch;
+	unsigned long flags;
 	if (!dev)
 		return -ENOMEM;
 
 	pr_info("%s: Enter\n", __func__);
 	priv = netdev_priv(dev);
+	ch = &priv->channel;
+	stmmac_reset_queues_param(priv);
 
 	mutex_lock(&priv->lock);
 
@@ -2588,7 +2593,9 @@ int stmmac_dvr_init(struct net_device *dev)
 	stmmac_start_queue(priv);
 
 	priv->dev_inited = true;
-
+	spin_lock_irqsave(&ch->lock, flags);
+	stmmac_enable_dma_irq(priv, priv->ioaddr, priv->queue, 1, 1);
+	spin_unlock_irqrestore(&ch->lock, flags);
 	mutex_unlock(&priv->lock);
 
 	return 0;
