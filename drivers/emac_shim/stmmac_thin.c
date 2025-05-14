@@ -1032,19 +1032,27 @@ static int stmmac_napi_check(struct stmmac_priv *priv, u32 chan)
 	int status = stmmac_dma_interrupt_status(priv, priv->ioaddr,
 						 &priv->xstats, chan);
 	struct stmmac_channel *ch = &priv->channel;
+	unsigned long flags;
 
 	trace_stmmac_irq_status(chan, status);
 	if (status & handle_rx) {
 		if (napi_schedule_prep(&ch->rx_napi)) {
 			trace_stmmac_disable_irq(chan);
-			stmmac_disable_dma_irq(priv, priv->ioaddr, chan);
-			__napi_schedule_irqoff(&ch->rx_napi);
-			status |= handle_tx;
+			spin_lock_irqsave(&ch->lock, flags);
+			stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 1, 0);
+			spin_unlock_irqrestore(&ch->lock, flags);
+			__napi_schedule(&ch->rx_napi);
 		}
 	}
 
-	if (status & handle_tx)
-		napi_schedule_irqoff(&ch->tx_napi);
+	if (status & handle_tx) {
+		if (napi_schedule_prep(&ch->rx_napi)) {
+			spin_lock_irqsave(&ch->lock, flags);
+			stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 0, 1);
+			spin_unlock_irqrestore(&ch->lock, flags);
+			__napi_schedule(&ch->rx_napi);
+		}
+	}
 
 	return status;
 }
@@ -1151,10 +1159,17 @@ static void stmmac_tx_timer(struct timer_list *t)
 	/* If NAPI is already running we can miss some events. Let's rearm
 	 * the timer and try again.
 	 */
-	if (likely(napi_schedule_prep(&ch->tx_napi)))
+
+	if (likely(napi_schedule_prep(&ch->tx_napi))) {
+		unsigned long flags;
+
+		spin_lock_irqsave(&ch->lock, flags);
+		stmmac_disable_dma_irq(priv, priv->ioaddr,priv->queue, 0, 1);
+		spin_unlock_irqrestore(&ch->lock, flags);
 		__napi_schedule(&ch->tx_napi);
-	else
+	} else {
 		mod_timer(&tx_q->txtimer, STMMAC_COAL_TIMER(10));
+	}
 }
 
 /**
@@ -2143,8 +2158,12 @@ static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 	work_done = stmmac_rx(priv, budget, chan);
 
 	if (work_done < budget && napi_complete_done(napi, work_done)) {
+		unsigned long flags;
+
 		trace_stmmac_enable_irq(chan);
-		stmmac_enable_dma_irq(priv, priv->ioaddr, chan);
+		spin_lock_irqsave(&ch->lock, flags);
+		stmmac_enable_dma_irq(priv, priv->ioaddr, chan, 1, 0);
+		spin_unlock_irqrestore(&ch->lock, flags);
 	}
 	trace_stmmac_poll_exit(chan, work_done);
 	return work_done;
@@ -2155,7 +2174,6 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
 	struct stmmac_channel *ch =
 		container_of(napi, struct stmmac_channel, tx_napi);
 	struct stmmac_priv *priv = ch->priv_data;
-	struct stmmac_tx_queue *tx_q;
 	u32 chan = priv->queue;
 	int work_done;
 
@@ -2164,15 +2182,12 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
 	work_done = stmmac_tx_clean(priv, DMA_TX_SIZE, chan);
 	work_done = min(work_done, budget);
 
-	if (work_done < budget)
-		napi_complete_done(napi, work_done);
+	if (work_done < budget && napi_complete_done(napi, work_done)) {
+		unsigned long flags;
 
-	/* Force transmission restart */
-	tx_q = &priv->tx_queue;
-	if (tx_q->cur_tx != tx_q->dirty_tx) {
-		stmmac_enable_dma_transmission(priv, priv->ioaddr);
-		stmmac_set_tx_tail_ptr(priv, priv->ioaddr, tx_q->tx_tail_addr,
-				       chan);
+		spin_lock_irqsave(&ch->lock, flags);
+		stmmac_enable_dma_irq(priv, priv->ioaddr, chan, 0, 1);
+		spin_unlock_irqrestore(&ch->lock, flags);
 	}
 
 	return work_done;
@@ -2912,7 +2927,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 	ch = &priv->channel;
 
 	ch->priv_data = priv;
-
+	spin_lock_init(&ch->lock);
 	netif_napi_add(ndev, &ch->rx_napi, stmmac_napi_poll_rx);
 
 	netif_napi_add_tx(ndev, &ch->tx_napi, stmmac_napi_poll_tx);
