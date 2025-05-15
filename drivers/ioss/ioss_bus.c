@@ -559,18 +559,18 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
 		list_del(&ch->node);
 		kfree(ch->ipa_configs);
-		kvfree_sensitive(ch->ioss_priv,ksize(ch->ioss_priv));
-		kvfree_sensitive(ch,ksize(ch));
+		kfree_sensitive(ch->ioss_priv);
+		kfree_sensitive(ch);
 	}
 
 	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
 		list_del(&ch->node);
 		kfree(ch->ipa_configs);
-		kvfree_sensitive(ch->ioss_priv,ksize(ch->ioss_priv));
-		kvfree_sensitive(ch,ksize(ch));
+		kfree_sensitive(ch->ioss_priv);
+		kfree_sensitive(ch);
 	}
 
-	kvfree_sensitive(iface->ioss_priv,ksize(iface->ioss_priv));
+	kfree_sensitive(iface->ioss_priv);
 
 	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
 		if (ioss_devices[i] == idev) {
@@ -579,7 +579,7 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 		}
 	}
 
-	kvfree_sensitive(idev,ksize(idev));
+	kfree_sensitive(idev);
 }
 
 int ioss_bus_register_idev(struct ioss_device *idev)
