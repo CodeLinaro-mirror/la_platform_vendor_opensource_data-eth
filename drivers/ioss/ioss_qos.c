@@ -1139,7 +1139,7 @@ static ssize_t store_del_tc(struct device *dev,
 
 	if (is_dir_rx) {
 		if (!rx_tc_already_exists(idev, prio)) {
-			ioss_qos_dev_err(NULL, "[ioss qos] : entered tc priority not present in rx table\n");
+			ioss_qos_dev_log(NULL, "[ioss qos] : entered tc priority not present in rx table\n");
 			return -EINVAL;
 		}
 
@@ -1154,7 +1154,7 @@ static ssize_t store_del_tc(struct device *dev,
 	}
 	else {
 		if (!tx_tc_already_exists(idev, prio)) {
-			ioss_qos_dev_err(NULL, "[ioss qos] : entered tc priority not present in tx table\n");
+			ioss_qos_dev_log(NULL, "[ioss qos] : entered tc priority not present in tx table\n");
 			return -EINVAL;
 		}
 
