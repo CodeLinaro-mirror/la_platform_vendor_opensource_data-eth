@@ -583,10 +583,19 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 	struct ipa_eth_config *ipa_config;
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ioss_device *idev = ioss_iface_dev(iface);
+
 #if IPA_ETH_API_VER >= 4
 	u32 inst_id = iface->instance_id;
 	enum ipa_eth_client_type ct = ioss_ipa_hal_get_ctype(idev);
 #endif
+
+	if (iface->state == IOSS_IF_ST_ERROR) {
+		iface->state = IOSS_IF_ST_OFFLINE;
+		ioss_dev_dbg(idev,
+			"Interface %s state changed to %s",
+			idev->net_dev->name, if_st_s(iface));
+	}
+
 	if (iface->state != IOSS_IF_ST_OFFLINE) {
 		ioss_dev_dbg(idev,
 			"Interface %s state is %s; required is %s",
