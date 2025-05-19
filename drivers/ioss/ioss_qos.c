@@ -618,7 +618,6 @@ void ioss_qos_remove_channels(struct ioss_interface *iface)
 	idev->qos_rx_channels = 0;
 	idev->qos_tx_channels = 0;
 
-	ioss_qos_clear_cache(idev);
 }
 
 static int convert_flows_to_tc(struct ioss_device *idev, struct list_head *qos_rx)
@@ -1373,6 +1372,10 @@ static ssize_t store_commit(struct device *dev,
 		}
 		else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
 			ioss_qos_dev_err(idev, "[ioss qos] : commit ignored : trying to perform empty commit\n");
+		}
+		else if (res.qos_response_status == QOS_COMMIT_SUCCESS) {
+			idev->qos_commit_in_progress = true;
+			idev->qos_response = res;
 		}
 
 		list_for_each(ptr, &idev->ioss_qos_table.qos_rx_pending_table) {
@@ -2446,6 +2449,7 @@ int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 	else {
 		ret = idrv->qos_ops->request_qos(idev);
 		ret = __ioss_qos_enable(idev);
+		idev->qos_commit_in_progress = false;
 	}
 
 	return ret;
@@ -2617,11 +2621,17 @@ void ioss_qos_refresh(struct ioss_device *idev)
 	if (!idrv->qos_ops || !idrv->qos_ops->prepare_qos)
 		return;
 
-	res = idrv->qos_ops->prepare_qos(idev, &idev->ioss_qos_table.qos_rx_tc_table,
-					 &idev->ioss_qos_table.qos_tx_committed_table);
-	ioss_dev_log(idev,
-		     "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
-		     res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
+	if (!idev->qos_commit_in_progress) {
+		res = idrv->qos_ops->prepare_qos(idev, &idev->ioss_qos_table.qos_rx_tc_table,
+					 	 &idev->ioss_qos_table.qos_tx_committed_table);
+		ioss_dev_log(idev,
+			     "[ioss qos]: glue returned response with err: %d, num_tx_pipes: %u, num_rx_pipes: %u",
+			     res.qos_response_status, res.num_tx_pipes, res.num_rx_pipes);
+	}
+	else {
+		res = idev->qos_response;
+	}
+	idev->qos_commit_in_progress = false;
 
 	if (!list_empty(&idev->ioss_qos_table.qos_rx_tc_table)) {
 		delete_rx_tc_table(&idev->ioss_qos_table.qos_rx_tc_table);
@@ -2633,8 +2643,7 @@ void ioss_qos_refresh(struct ioss_device *idev)
 		return;
 	}
 	else if (res.qos_response_status == QOS_COMMIT_EMPTY) {
-		ioss_qos_dev_err(idev, "[ioss qos] : commit fail : trying to perform empty commit\n");
-		return;
+		ioss_qos_dev_err(idev, "Detected empty commit. Proceeding...");
 	}
 	else if (res.qos_response_status == QOS_COMMIT_LINK_DOWN) {
 		ioss_qos_dev_err(idev, "[ioss qos] : commit  : Ethernet Link down \n");
