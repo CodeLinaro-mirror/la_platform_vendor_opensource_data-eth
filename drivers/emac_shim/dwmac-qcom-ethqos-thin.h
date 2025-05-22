@@ -6,6 +6,8 @@
 
 //#include <linux/msm-bus.h>
 #include <linux/ipc_logging.h>
+#include <linux/pm_domain.h>
+#include <linux/pm_runtime.h>
 #include "../include/linux/emac_ctrl_fe_api.h"
 
 extern void *ipc_emac_thin_log_ctxt;
