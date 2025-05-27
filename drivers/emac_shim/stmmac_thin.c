@@ -1033,27 +1033,19 @@ static int stmmac_napi_check(struct stmmac_priv *priv, u32 chan)
 	int status = stmmac_dma_interrupt_status(priv, priv->ioaddr,
 						 &priv->xstats, chan);
 	struct stmmac_channel *ch = &priv->channel;
-	unsigned long flags;
 
 	trace_stmmac_irq_status(chan, status);
 	if (status & handle_rx) {
 		if (napi_schedule_prep(&ch->rx_napi)) {
 			trace_stmmac_disable_irq(chan);
-			spin_lock_irqsave(&ch->lock, flags);
-			stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 1, 0);
-			spin_unlock_irqrestore(&ch->lock, flags);
-			__napi_schedule(&ch->rx_napi);
+			stmmac_disable_dma_irq(priv, priv->ioaddr, chan);
+			__napi_schedule_irqoff(&ch->rx_napi);
+			status |= handle_tx;
 		}
 	}
 
-	if (status & handle_tx) {
-		if (napi_schedule_prep(&ch->rx_napi)) {
-			spin_lock_irqsave(&ch->lock, flags);
-			stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 0, 1);
-			spin_unlock_irqrestore(&ch->lock, flags);
-			__napi_schedule(&ch->rx_napi);
-		}
-	}
+	if (status & handle_tx)
+		napi_schedule_irqoff(&ch->tx_napi);
 
 	return status;
 }
@@ -1115,8 +1107,7 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 
 	/* DMA CSR Channel configuration */
 	stmmac_init_chan(priv, priv->ioaddr, priv->plat->dma_cfg, chan);
-	stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 1, 1);
-
+	stmmac_disable_dma_irq(priv, priv->ioaddr, chan);
 	/* DMA RX Channel Configuration */
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
 			    rx_q->dma_rx_phy, chan);
@@ -1161,17 +1152,10 @@ static void stmmac_tx_timer(struct timer_list *t)
 	/* If NAPI is already running we can miss some events. Let's rearm
 	 * the timer and try again.
 	 */
-
-	if (likely(napi_schedule_prep(&ch->tx_napi))) {
-		unsigned long flags;
-
-		spin_lock_irqsave(&ch->lock, flags);
-		stmmac_disable_dma_irq(priv, priv->ioaddr,priv->queue, 0, 1);
-		spin_unlock_irqrestore(&ch->lock, flags);
+	if (likely(napi_schedule_prep(&ch->tx_napi)))
 		__napi_schedule(&ch->tx_napi);
-	} else {
+	else
 		mod_timer(&tx_q->txtimer, STMMAC_COAL_TIMER(10));
-	}
 }
 
 /**
@@ -2164,12 +2148,8 @@ static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 	work_done = stmmac_rx(priv, budget, chan);
 
 	if (work_done < budget && napi_complete_done(napi, work_done)) {
-		unsigned long flags;
-
 		trace_stmmac_enable_irq(chan);
-		spin_lock_irqsave(&ch->lock, flags);
-		stmmac_enable_dma_irq(priv, priv->ioaddr, chan, 1, 0);
-		spin_unlock_irqrestore(&ch->lock, flags);
+		stmmac_enable_dma_irq(priv, priv->ioaddr, chan);
 	}
 	trace_stmmac_poll_exit(chan, work_done);
 	return work_done;
@@ -2180,6 +2160,7 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
 	struct stmmac_channel *ch =
 		container_of(napi, struct stmmac_channel, tx_napi);
 	struct stmmac_priv *priv = ch->priv_data;
+	struct stmmac_tx_queue *tx_q;
 	u32 chan = priv->queue;
 	int work_done;
 
@@ -2188,12 +2169,15 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
 	work_done = stmmac_tx_clean(priv, DMA_TX_SIZE, chan);
 	work_done = min(work_done, budget);
 
-	if (work_done < budget && napi_complete_done(napi, work_done)) {
-		unsigned long flags;
+	if (work_done < budget)
+		napi_complete_done(napi, work_done);
 
-		spin_lock_irqsave(&ch->lock, flags);
-		stmmac_enable_dma_irq(priv, priv->ioaddr, chan, 0, 1);
-		spin_unlock_irqrestore(&ch->lock, flags);
+	/* Force transmission restart */
+	tx_q = &priv->tx_queue;
+	if (tx_q->cur_tx != tx_q->dirty_tx) {
+		stmmac_enable_dma_transmission(priv, priv->ioaddr);
+		stmmac_set_tx_tail_ptr(priv, priv->ioaddr, tx_q->tx_tail_addr,
+				       chan);
 	}
 
 	return work_done;
@@ -2528,16 +2512,14 @@ int stmmac_dvr_init(struct net_device *dev)
 {
 	struct stmmac_priv *priv;
 	int ret = 0;
-	struct stmmac_channel *ch;
-	unsigned long flags;
+
 	if (!dev)
 		return -ENOMEM;
 
 	pr_info("%s: Enter\n", __func__);
 	priv = netdev_priv(dev);
-	ch = &priv->channel;
-	stmmac_reset_queues_param(priv);
 
+	stmmac_reset_queues_param(priv);
 	mutex_lock(&priv->lock);
 
 	ret = alloc_dma_desc_resources(priv);
@@ -2593,9 +2575,6 @@ int stmmac_dvr_init(struct net_device *dev)
 	stmmac_start_queue(priv);
 
 	priv->dev_inited = true;
-	spin_lock_irqsave(&ch->lock, flags);
-	stmmac_enable_dma_irq(priv, priv->ioaddr, priv->queue, 1, 1);
-	spin_unlock_irqrestore(&ch->lock, flags);
 	mutex_unlock(&priv->lock);
 
 	return 0;
@@ -2936,7 +2915,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 	ch = &priv->channel;
 
 	ch->priv_data = priv;
-	spin_lock_init(&ch->lock);
+
 	netif_napi_add(ndev, &ch->rx_napi, stmmac_napi_poll_rx);
 
 	netif_napi_add_tx(ndev, &ch->tx_napi, stmmac_napi_poll_tx);
@@ -3116,13 +3095,10 @@ int stmmac_thin_resume(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
-	struct stmmac_channel *ch;
-	unsigned long flags;
 	if (!ndev)
 		return -ENOMEM;
 
 	pr_info("%s: Enter\n", __func__);
-	ch = &priv->channel;
 	if (!netif_running(ndev))
 		return 0;
 
@@ -3147,9 +3123,6 @@ int stmmac_thin_resume(struct device *dev)
 	stmmac_enable_queue(priv);
 
 	stmmac_start_queue(priv);
-	spin_lock_irqsave(&ch->lock, flags);
-	stmmac_enable_dma_irq(priv, priv->ioaddr, priv->queue, 1, 1);
-	spin_unlock_irqrestore(&ch->lock, flags);
 	mutex_unlock(&priv->lock);
 
 	return 0;
