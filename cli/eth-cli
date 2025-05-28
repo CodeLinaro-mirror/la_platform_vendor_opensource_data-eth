@@ -160,9 +160,9 @@ add_tc() {
         shift
         queue=$1
         # check if the queue is invalid or not.
-        if [ $queue -gt 5 ] || [ $queue -lt 2 ]
+        if [ $queue -gt 6 ] || [ $queue -lt 2 ]
         then
-            echo "The max queue value is >= 2 and <= 5."
+            echo "The max queue value is >= 2 and <= 6."
             return 255
         fi
         shift
