@@ -130,6 +130,9 @@ struct rtl8168_ring {
         struct rtl8168_event event;
 
         void *private;
+
+        void __iomem * db_tx;
+        void __iomem * db_rx;
 };
 
 struct rtl8168_counters;
