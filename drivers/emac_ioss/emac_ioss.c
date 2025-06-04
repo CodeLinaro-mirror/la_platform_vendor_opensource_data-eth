@@ -639,7 +639,7 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
                                             filter_node_next->dst_port.proto &&
                                             filter_node_curr->dst_port.port_num ==
                                             filter_node_next->dst_port.port_num &&
-                                            filter_node_curr->dma_ch != filter_node_next->dma_ch) {
+                                            filter_node_curr->dma_ch == filter_node_next->dma_ch) {
 						list_del(&filter_node_next->node);
 						if (is_last)
 							break;
