@@ -3129,7 +3129,7 @@ int stmmac_thin_resume(struct device *dev)
 	mutex_lock(&priv->lock);
 
 	stmmac_reset_queues_param(priv);
-
+	dma_free_tx_skbufs(priv);
 	stmmac_reinit_rx_buffers(priv);
 	stmmac_clear_descriptors(priv);
 
