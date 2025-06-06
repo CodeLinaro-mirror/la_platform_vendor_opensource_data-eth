@@ -65,6 +65,12 @@
 #define TSN_CHANNEL_TX_DEFAULT	IPA_MUL_CHANNEL_BE0
 #define TSN_CHANNEL_TX_LL	IPA_MUL_CHANNEL_BE3
 
+#define PPPOE_QUEUE_RX_TX_BE_TAGGED	IPA_MUL_QUEUE_BE0
+#define PPPOE_QUEUE_RX_TX_BE	IPA_MUL_QUEUE_BE0
+
+#define PPPOE_CHANNEL_RX_TX_BE_TAGGED	IPA_MUL_CHANNEL_BE2
+#define PPPOE_CHANNEL_RX_TX_BE	IPA_MUL_CHANNEL_BE0
+
 /* QOS Config */
 #define QOS_RX_PCP0_QUEUE	0
 
@@ -133,6 +139,7 @@ struct channel_info {
 	dma_addr_t dma_map_dbaddr;	/* dma mapped address for ntn3 fw to access the db*/
 
 	bool ezmesh_enabled;		/* stores ezmesh enabled infomration */
+	bool pppoe_enabled;		/* stores pppoe enabled infomration */
 	bool tsn_enabled;		/* flag to know if tsn feature is enabled or not*/
 	bool qos_enabled;		/* flag to check if qos is enabled*/
 	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
