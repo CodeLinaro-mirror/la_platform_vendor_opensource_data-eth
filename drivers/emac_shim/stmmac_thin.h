@@ -114,6 +114,7 @@ struct stmmac_priv {
 	struct device *device;
 	struct mac_device_info *hw;
 	int (*ethqos_client_connect)(void *prv, bool is_resume);
+	int (*clks_config)(void *priv, bool high);
 	int (*hwif_quirks)(struct stmmac_priv *priv);
 	int (*add_filter)(struct net_device *ndev);
 	int (*del_filter)(struct net_device *ndev);

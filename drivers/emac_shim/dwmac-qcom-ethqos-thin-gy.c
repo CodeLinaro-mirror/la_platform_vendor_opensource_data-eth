@@ -35,12 +35,11 @@
 
 #define EMAC_HW_v3_0_0 0x30000000
 
-#define SERVER_IP "192.168.7.1"
+#define SERVER_IP "192.168.1.1"
 #define SERVER_PORT 8888
 #define MAX_SIZE 2048
 #define MAX_RECEIVE_RETRIES 10
-#define CONNECT_DELAY 2000
-#define RECEIVE_DELAY 10
+static DECLARE_WAIT_QUEUE_HEAD(conn_wait_queue);
 
 struct client_socket
 {
@@ -67,6 +66,9 @@ struct emac_fe_ev {
 	unsigned long ev;
 };
 
+enum domain_t {
+	POWER_MDIO = 0,
+};
 
 static void emac_fe_ev_wq(struct work_struct *work)
 {
@@ -202,7 +204,7 @@ static void qcom_ethqos_client_receive(struct kthread_work *work) {
 		len = kernel_recvmsg(client_sk.conn_socket, &msg, &vec, max_size, max_size, msg.msg_flags);
 		if (len <= 0) {
 			ETHQOSERR("packet receive failed with error: %d\n",len);
-			msleep(RECEIVE_DELAY);
+			wait_event_timeout(conn_wait_queue, 0, 0.01 * HZ);
 			retries++;
 			if(retries == MAX_RECEIVE_RETRIES) {
 				ETHQOSERR("Exhaust receive retries...\n");
@@ -277,7 +279,7 @@ connect:
 		/*retry mechanish here*/
 		if (client_sk.connect_retry_cnt > 0)
 		{
-			 msleep(CONNECT_DELAY);
+			wait_event_timeout(conn_wait_queue, 0, 0.05 * HZ);
 			 --client_sk.connect_retry_cnt;
 			 goto connect;
 		}
@@ -349,6 +351,56 @@ void qcom_ethqos_client_sock_cleanup(void) {
 	ETHQOSINFO("exit\n");
 }
 
+static int qcom_ethqos_domain_on(struct qcom_ethqos *ethqos, enum domain_t dom)
+{
+	struct device *dev = &ethqos->pdev->dev;
+	int ret = 0;
+
+	ETHQOSDBG("qcom_ethqos_domain_on start\n");
+
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret < 0)
+		dev_err(dev, "poweron(domain=%d) failed.(err=%d)\n", dom, ret);
+
+	return ret;
+}
+
+static int qcom_ethqos_domain_off(struct qcom_ethqos *ethqos, enum domain_t dom)
+{
+	struct device *dev = &ethqos->pdev->dev;
+	int ret = 0;
+
+	ETHQOSDBG("qcom_ethqos_domain_off start\n");
+
+	ret = pm_runtime_put_sync(dev);
+	if (ret < 0)
+		dev_err(dev, "poweroff(domain=%d) failed.(err=%d)\n", dom, ret);
+
+	return ret;
+}
+
+static int qcom_ethqos_domain_transition_d0d1(void *priv, bool high)
+{
+	struct qcom_ethqos *ethqos = priv;
+	int ret = 0;
+
+	if (high) {
+		ret = qcom_ethqos_domain_on(ethqos, POWER_MDIO);
+		if (ret < 0)
+			dev_err(&ethqos->pdev->dev, "Transition from d0 to d1 failed\n");
+		else
+			dev_info(&ethqos->pdev->dev, "Transition from d0 to d1 done\n");
+
+	} else {
+		ret = qcom_ethqos_domain_off(ethqos, POWER_MDIO);
+		if (ret < 0)
+			dev_err(&ethqos->pdev->dev, "Transition from d1 to d0 failed\n");
+		else
+			dev_info(&ethqos->pdev->dev, "Transition from d1 to d0 done\n");
+	}
+
+	return ret;
+}
 
 static inline unsigned int dwmac_qcom_get_eth_type(unsigned char *buf)
 {
@@ -464,11 +516,9 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	struct plat_stmmacenet_data *plat_dat = NULL;
 	struct stmmac_resources stmmac_res;
 	struct qcom_ethqos *ethqos = NULL;
-	int ret;
+	int ret, ret_domain;
 	struct net_device *ndev;
 	struct stmmac_priv *priv;
-
-	ETHQOSINFO("Start GY probe\n");
 
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (ret) {
@@ -484,6 +534,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe start");
 #endif
+	ETHQOSINFO("Start GY probe\n");
 
 	ipc_emac_thin_log_ctxt = ipc_log_context_create(IPCLOG_STATE_PAGES,
 						   "emac", 0);
@@ -567,6 +618,18 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	priv->ethqos_client_connect = qcom_ethqos_client_connect;
 	priv->is_gy_en = true;
+
+	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1")) {
+		if (!pm_runtime_enabled(&ethqos->pdev->dev)) {
+			ret_domain = devm_pm_runtime_enable(&ethqos->pdev->dev);
+			if (ret_domain)
+				ETHQOSERR("Failed : enable the pm runtime : %d",ret_domain);
+			else {
+				priv->clks_config = qcom_ethqos_domain_transition_d0d1;
+				ETHQOSINFO("GVM ETH Power domain loaded successfully.\n");
+			}
+		}
+	}
 	priv->emac_state = EMAC_INIT_ST;
 
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER

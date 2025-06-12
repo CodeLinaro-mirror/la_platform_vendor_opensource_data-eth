@@ -1286,9 +1286,11 @@ static int stmmac_open(struct net_device *dev)
 	priv->dev_opened = true;
 	priv->dev_inited = false;
 
-	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST )
+	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST ) {
 		priv->ethqos_client_connect(priv->plat->bsp_priv,false);
-
+		if(priv->clks_config)
+			priv->clks_config(priv->plat->bsp_priv, true);
+	}
 	if (priv->emac_state > EMAC_INIT_ST)
 		ret = stmmac_dvr_init(dev);
 	if (!ret && priv->emac_state == EMAC_LINK_UP_ST)
@@ -1338,6 +1340,9 @@ static int stmmac_release(struct net_device *dev)
 
 	/* Release and free the Rx/Tx resources */
 	free_dma_desc_resources(priv);
+
+	if(priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, false);
 
 	netif_carrier_off(dev);
 
@@ -2490,6 +2495,7 @@ void stmmac_mac_link_up(struct net_device *ndev)
 		/* Start the ball rolling... */
 		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
+		dev_info(priv->device, "Ethernet is Ready. Link is UP");
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 		if (!priv->boot_kpi) {
 			place_marker("M - Ethernet is Ready. Link is UP");
@@ -3034,7 +3040,8 @@ int stmmac_thin_suspend(struct device *dev)
 	stmmac_stop_dma(priv);
 
 	mutex_unlock(&priv->lock);
-
+	if(priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, false);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_suspend);
@@ -3116,11 +3123,13 @@ int stmmac_thin_resume(struct device *dev)
 		return 0;
 
 	netif_device_attach(ndev);
+	if(priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, true);
 
 	mutex_lock(&priv->lock);
 
 	stmmac_reset_queues_param(priv);
-
+	dma_free_tx_skbufs(priv);
 	stmmac_reinit_rx_buffers(priv);
 	stmmac_clear_descriptors(priv);
 
