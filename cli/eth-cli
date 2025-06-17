@@ -34,6 +34,7 @@ echo "eth_cli.sh is started" > /dev/kmsg
 # handle ID for eth0
 mq0_handle_id=100
 exit_status=0
+exit_code=0
 
 del_tc() {
     # eth_cli.sh del <dev> <mqprio/filter/all>
@@ -50,7 +51,7 @@ del_tc() {
         if [ $exit_status -ne 0 ]
         then
             echo "TC command couldn't be executed successfully, Please check if mqprio configuration is there or not."
-            return 255
+            return $exit_status
         fi
     elif [ "$1" == "filter" ]
     then
@@ -61,7 +62,7 @@ del_tc() {
         if [ $exit_status -ne 0 ]
         then
             echo "TC command couldn't be executed successfully, please refer to help page and retry it."
-            return 255
+            return $exit_status
         fi
     elif [ "$1" == "all" ]
     then
@@ -74,7 +75,7 @@ del_tc() {
         then
             echo "Failed to delete mqprio cbs sfq. Please check if mqprio configuration is there or not. "
             echo "Filter del don't have chance to be executed."
-            return 255
+            return $exit_status
         fi
         # tc filter del dev eth0 egress
         tc_commands="filter del dev $dev_name egress"
@@ -83,7 +84,7 @@ del_tc() {
         if [ $exit_status -ne 0 ]
         then
             echo "TC command couldn't be executed successfully, please refer to help page and retry it."
-            return 255
+            return $exit_status
         fi
     else
         echo "There is no $1 parameter for delete action. Please refer to help page."
@@ -139,10 +140,16 @@ add_tc() {
         then
             echo "TC command couldn't be executed successfully, please refer to help page and retry it."
             echo "Hint: Once the mqprio is already existed, we couldn't configure it again. Please delete it firstly."
-            return 255
+            return $exit_status
         fi
         # Once create mqprio, so adding gptp as well.
         /sbin/tc filter add dev "$dev_name" egress prio 0 u32 match u16 0x88f7 0xffff at -2 action skbedit priority 4
+	exit_status=$?
+        if [ $exit_status -ne 0 ]
+        then
+            echo "TC command couldn't be executed successfully for gptp."
+            return $exit_status
+        fi
     elif [ "$1" == "cbs" ]
     then
         shift
@@ -268,7 +275,7 @@ add_tc() {
         if [ $exit_status -ne 0 ]
         then
             echo "TC command couldn't be executed successfully, please refer to help page and retry it."
-            return 255
+            return $exit_status
         fi
         if [ $sfq -eq 1 ]
         then
@@ -276,6 +283,11 @@ add_tc() {
            tc_commands="qdisc add dev $dev_name parent $cbs_handle_id:$queue sfq"
            echo $tc_commands
            /sbin/tc $tc_commands
+		   if [ $exit_status -ne 0 ]
+		   then
+			echo "TC command couldn't be executed successfully, SFQ is not set."
+			return $exit_status
+           fi
         fi
         return $exit_status
     elif [ "$1" == "filter" ]
@@ -344,15 +356,24 @@ add_tc() {
         exit_status=$?
         if [ $exit_status -ne 0 ]
         then
-            echo "TC command couldn't be executed successfully, please refer to help page and retry it."
-            return 255
+            echo "TC command couldn't be executed successfully, Filters not Applied properly."
+            return $exit_status
         fi
     elif [ "$1" == "clsact" ]
     then
         /sbin/tc qdisc add dev $dev_name clsact
+		exit_status=$?
+        if [ $exit_status -ne 0 ]
+        then
+            echo "TC for clsact not executed properly"
+            return $exit_status
+        fi
     else
         echo "There is no $1 parameter for add action. Please refer to help page."
+		print_usage
+		return 255
     fi
+	return $exit_status
 }
 
 add_default_tc() {
@@ -377,6 +398,8 @@ add_default_tc() {
         /sbin/tc filter add dev eth0 egress prio 0 u32 match ip src 192.168.183.1 action skbedit priority 3
         /sbin/tc filter add dev eth0 egress prio 1 u32 match ip src 192.168.11.2 action skbedit priority 2
         /sbin/tc filter add dev eth0 egress prio 1 u32 match ip src 192.168.139.2 action skbedit priority 2
+
+	return 0
 }
 print_usage() {
     echo "
@@ -389,11 +412,13 @@ Usage:
          200 : cbs handle to the qdisc or class
          3 : selects the queue which index start from 1. [3 here is mapped to Q2]
     eg: eth-cli add eth0 filter prio 2 ipsrc 192.168.114.2 priority 3
+    eg: eth-cli add eth0 filter prio 2 ip6src fe80::255:7bff:feb8:80fa  priority 3
     eg: eth-cli add eth0 clsact
     eth-cli del <dev> <all>
     eth-cli show <dev>
     eth-cli tc_support <dev> <enable|disable>
     "
+    return 255
 }
 
 show_tc() {
@@ -403,21 +428,23 @@ show_tc() {
         return 255
     fi
     local dev_name=$1
+	echo "device name: $dev_name"
     shift
     /sbin/tc -s qdisc show dev $dev_name
     exit_status=$?
     if [ $exit_status -ne 0 ]
     then
         echo "Tc qdisc couldn't be executed successfully."
-        return 255
+        return $exit_status
     fi
     /sbin/tc -s filter show dev $dev_name egress
     exit_status=$?
     if [ $exit_status -ne 0 ]
     then
         echo "TC filter show couldn't be executed successfully."
-        return 255
+        return $exit_status
     fi
+	return $exit_status
 }
 
 tc_support_enable() {
@@ -436,7 +463,7 @@ tc_support_enable() {
         if [ $exit_status -ne 0 ]
         then
             echo "TC support is not enabled"
-        return 255
+        return $exit_status
         fi
     elif  [ $config = "disable" ]
     then
@@ -445,7 +472,7 @@ tc_support_enable() {
         if [ $exit_status -ne 0 ]
         then
             echo "TC support is not disabled"
-        return 255
+        return $exit_status
         fi
     else
         print_usage
@@ -457,9 +484,7 @@ main() {
     if [ $# -lt 1 ]
     then
         print_usage
-        return 255
-    fi
-    if [ "$1" == "add" ]
+    elif [ "$1" == "add" ]
     then
         shift
         add_tc $@
@@ -481,8 +506,14 @@ main() {
     else
         print_usage
     fi
+	exit_code=$?
+	return $exit_code
 }
 
 main $@
+exit_code=$?
+
+echo "exit code = $exit_code"
 
 echo "eth-cli.sh is executed successfully\n" > /dev/kmsg
+exit $exit_code
