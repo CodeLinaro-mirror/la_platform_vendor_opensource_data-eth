@@ -21,10 +21,14 @@
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(3,7,0) */
 #endif /* LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31) */
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0)
+	#define ethtool_keee ethtool_eee
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,19,0)
 	#define TSO_LEGACY_MAX_SIZE		65536
 	#define netif_napi_add_weight		netif_napi_add
 	#define netif_set_tso_max_size		netif_set_gso_max_size
+	#define netif_set_tso_max_segs		netif_set_gso_max_segs
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,15,0)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,12,0)
 	#define PHY_MAC_INTERRUPT		PHY_IGNORE_INTERRUPT
@@ -58,14 +62,18 @@
 	#endif
 
 	#define MDIO_EEE_2_5GT         0x0001  /* 2.5GT EEE cap */
+	#define MDIO_EEE_5GT			0x0002  /* 5GT EEE cap */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,2,0)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,1,0)
 	#define MDIO_AN_10GBT_CTRL_ADV2_5G     0x0080  /* Advertise 2.5GBASE-T */
+	#define MDIO_AN_10GBT_CTRL_ADV5G	0x0100  /* Advertise 5GBASE-T */
 	#define MDIO_AN_10GBT_STAT_LP2_5G      0x0020  /* LP is 2.5GBT capable */
+	#define MDIO_AN_10GBT_STAT_LP5G		0x0040  /* LP is 5GBT capable */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,0,0)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,20,0)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,12,0)
 	#define SPEED_2500				2500
+	#define SPEED_5000				5000
 	#define SPEED_25000				25000
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
 	#ifndef ETHTOOL_LINK_MODE_2500baseT_Full_BIT
@@ -612,12 +620,26 @@
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5,8,0) */
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5,9,0) */
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5,12,0) */
+	#if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,188) || LINUX_VERSION_CODE >= KERNEL_VERSION(5,11,0)
+	#if LINUX_VERSION_CODE < KERNEL_VERSION(5,4,251) || LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0)
+	#if LINUX_VERSION_MAJOR != 4 || LINUX_VERSION_PATCHLEVEL != 19 || LINUX_VERSION_SUBLEVEL < 291
 	static inline void eth_hw_addr_set(struct net_device *dev, const u8 *addr)
 	{
 		memcpy(dev->dev_addr, addr, 6);
 	}
+	#endif /* LINUX_VERSION_MAJOR != 4 || LINUX_VERSION_PATCHLEVEL != 19 || LINUX_VERSION_SUBLEVEL < 291 */
+	#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5,4,251) || LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0) */
+	#endif /*LINUX_VERSION_CODE < KERNEL_VERSION(5,10,188) || LINUX_VERSION_CODE >= KERNEL_VERSION(5,11,0) */
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5,15,0) */
+	static inline void netif_set_gso_max_segs(struct net_device *dev,
+						  unsigned int segs)
+	{
+		/* dev->gso_max_segs is read locklessly from sk_setup_caps() */
+		WRITE_ONCE(dev->gso_max_segs, segs);
+	}
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0) */
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(5,19,0) */
+#endif /* LINUX_VERSION_CODE < KERNEL_VERSION(6,9,0) */
 
 #ifndef FALSE
 	#define TRUE	1

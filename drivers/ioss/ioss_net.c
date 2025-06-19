@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -360,13 +360,13 @@ static int __ioss_net_free_channel(struct ioss_channel *ch)
 	return 0;
 }
 
-static int __alloc_channel_action(struct list_head *node)
+static int __alloc_channel_action(struct list_head *node, void *arg)
 {
 	return __ioss_net_alloc_channel(
 			container_of(node, struct ioss_channel, node));
 }
 
-static void __alloc_channel_revert(struct list_head *node)
+static void __alloc_channel_revert(struct list_head *node, void *arg)
 {
 	(void) __ioss_net_free_channel(
 			container_of(node, struct ioss_channel, node));
@@ -379,7 +379,7 @@ static int ioss_net_alloc_channels(struct ioss_interface *iface)
 	ioss_dev_dbg(idev, "Allocating channels for %s", idev->net_dev->name);
 
 	return ioss_list_iter_action(&iface->valid_channels,
-			__alloc_channel_action, __alloc_channel_revert);
+			__alloc_channel_action, __alloc_channel_revert, NULL);
 }
 
 static int ioss_net_free_channels(struct ioss_interface *iface)
@@ -443,29 +443,34 @@ static int __ioss_net_disable_channel(struct ioss_channel *ch)
 	return 0;
 }
 
-static int __enable_channel_action(struct list_head *node)
+static int __enable_channel_action(struct list_head *node, void *arg)
 {
-	return __ioss_net_enable_channel(
-			container_of(node, struct ioss_channel, node));
+	enum ioss_channel_dir dir = (enum ioss_channel_dir)arg;
+	struct ioss_channel *ch = container_of(node, struct ioss_channel, node);
+
+	return (ch->direction == dir) ? __ioss_net_enable_channel(ch) : 0;
 }
 
-static void __enable_channel_revert(struct list_head *node)
+static void __enable_channel_revert(struct list_head *node, void *arg)
 {
-	(void) __ioss_net_disable_channel(
-			container_of(node, struct ioss_channel, node));
+	enum ioss_channel_dir dir = (enum ioss_channel_dir)arg;
+	struct ioss_channel *ch = container_of(node, struct ioss_channel, node);
+
+	if (ch->direction == dir)
+		(void) __ioss_net_disable_channel(ch);
 }
 
-static int ioss_net_enable_channels(struct ioss_interface *iface)
+static int ioss_net_enable_channels(struct ioss_interface *iface, enum ioss_channel_dir dir)
 {
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	ioss_dev_dbg(idev, "Enabling channels for %s", idev->net_dev->name);
 
 	return ioss_list_iter_action(&iface->valid_channels,
-			__enable_channel_action, __enable_channel_revert);
+			__enable_channel_action, __enable_channel_revert, (void *)dir);
 }
 
-static int ioss_net_disable_channels(struct ioss_interface *iface)
+static int ioss_net_disable_channels(struct ioss_interface *iface, enum ioss_channel_dir dir)
 {
 	int rc = 0;
 	struct ioss_channel *ch;
@@ -473,9 +478,10 @@ static int ioss_net_disable_channels(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Disabling all channels for %s", idev->net_dev->name);
 
-	ioss_for_each_channel(ch, iface)
-		rc |= __ioss_net_disable_channel(ch);
-
+	ioss_for_each_channel(ch, iface) {
+		if (ch->direction == dir)
+			rc |= __ioss_net_disable_channel(ch);
+	}
 	return rc;
 }
 
@@ -548,29 +554,34 @@ static int __ioss_net_teardown_event(struct ioss_channel *ch)
 	return 0;
 }
 
-static int __setup_event_action(struct list_head *node)
+static int __setup_event_action(struct list_head *node, void *arg)
 {
-	return __ioss_net_setup_event(
-			container_of(node, struct ioss_channel, node));
+	enum ioss_channel_dir dir = (enum ioss_channel_dir)arg;
+	struct ioss_channel *ch = container_of(node, struct ioss_channel, node);
+
+	return (ch->direction == dir) ? __ioss_net_setup_event(ch) : 0;
 }
 
-static void __setup_event_revert(struct list_head *node)
+static void __setup_event_revert(struct list_head *node, void *arg)
 {
-	(void) __ioss_net_teardown_event(
-			container_of(node, struct ioss_channel, node));
+	enum ioss_channel_dir dir = (enum ioss_channel_dir)arg;
+	struct ioss_channel *ch = container_of(node, struct ioss_channel, node);
+
+	if (ch->direction == dir)
+		(void) __ioss_net_teardown_event(ch);
 }
 
-static int ioss_net_setup_events(struct ioss_interface *iface)
+static int ioss_net_setup_events(struct ioss_interface *iface, enum ioss_channel_dir dir)
 {
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	ioss_dev_dbg(idev, "Setting up all device events");
 
 	return ioss_list_iter_action(&iface->valid_channels,
-			__setup_event_action, __setup_event_revert);
+		__setup_event_action, __setup_event_revert, (void *)dir);
 }
 
-static int ioss_net_teardown_events(struct ioss_interface *iface)
+static int ioss_net_teardown_events(struct ioss_interface *iface, enum ioss_channel_dir dir)
 {
 	int rc = 0;
 	struct ioss_channel *ch;
@@ -578,8 +589,10 @@ static int ioss_net_teardown_events(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Tearing down all device events");
 
-	ioss_for_each_channel(ch, iface)
-		rc |= __ioss_net_teardown_event(ch);
+	ioss_for_each_channel(ch, iface) {
+		if (ch->direction == dir)
+			rc |= __ioss_net_teardown_event(ch);
+	}
 
 	return rc;
 }
@@ -619,16 +632,34 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		goto err_ipa_register;
 	}
 
-	rc = ioss_net_setup_events(iface);
+	rc = ioss_net_setup_events(iface, IOSS_CH_DIR_TX);
 	if (rc) {
-		ioss_dev_err(idev, "Failed to setup events");
-		goto err_setup_events;
+		ioss_dev_err(idev, "Failed to setup events for Tx");
+		goto err_setup_events_tx;
 	}
 
-	rc = ioss_net_enable_channels(iface);
+	rc = ioss_net_enable_channels(iface, IOSS_CH_DIR_TX);
 	if (rc) {
-		ioss_dev_err(idev, "Failed to enable channels");
-		goto err_enable_channels;
+		ioss_dev_err(idev, "Failed to enable Tx channels");
+		goto err_enable_channels_tx;
+	}
+
+	rc = ioss_ipa_enable_pipes(iface);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to enable IPA pipes");
+		goto err_ipa_enable_pipes;
+	}
+
+	rc = ioss_net_setup_events(iface, IOSS_CH_DIR_RX);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to setup events for Rx");
+		goto err_setup_events_rx;
+	}
+
+	rc = ioss_net_enable_channels(iface, IOSS_CH_DIR_RX);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to enable Rx channels");
+		goto err_enable_channels_rx;
 	}
 
 	if(iface->is_pci_device){
@@ -642,12 +673,20 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 
 	ioss_qos_enable(idev);
 
+	ioss_dev_log(idev, "Brought up %s successfully", idev->net_dev->name);
+
 	return;
 err_disable_pc:
-	ioss_net_disable_channels(iface);
-err_enable_channels:
-	ioss_net_teardown_events(iface);
-err_setup_events:
+	ioss_net_disable_channels(iface, IOSS_CH_DIR_RX);
+err_enable_channels_rx:
+	ioss_net_teardown_events(iface, IOSS_CH_DIR_RX);
+err_setup_events_rx:
+	ioss_ipa_disable_pipes(iface);
+err_ipa_enable_pipes:
+	ioss_net_disable_channels(iface, IOSS_CH_DIR_TX);
+err_enable_channels_tx:
+	ioss_net_teardown_events(iface, IOSS_CH_DIR_TX);
+err_setup_events_tx:
 	ioss_ipa_unregister(iface);
 err_ipa_register:
 	ioss_net_free_channels(iface);
@@ -683,15 +722,34 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 			iface->state = IOSS_IF_ST_ERROR;
 		}
 	}
-	rc = ioss_net_disable_channels(iface);
+
+	rc = ioss_net_disable_channels(iface, IOSS_CH_DIR_RX);
 	if (rc) {
-		ioss_dev_err(idev, "Failed to disable channels");
+		ioss_dev_err(idev, "Failed to disable channels for Rx");
 		iface->state = IOSS_IF_ST_ERROR;
 	}
 
-	rc = ioss_net_teardown_events(iface);
+	rc = ioss_net_teardown_events(iface, IOSS_CH_DIR_RX);
 	if (rc) {
-		ioss_dev_err(idev, "Failed to teardown events");
+		ioss_dev_err(idev, "Failed to teardown events for Rx");
+		iface->state = IOSS_IF_ST_ERROR;
+	}
+
+	rc = ioss_ipa_disable_pipes(iface);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to disable IPA pipes");
+		iface->state = IOSS_IF_ST_ERROR;
+	}
+
+	rc = ioss_net_disable_channels(iface, IOSS_CH_DIR_TX);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to disable channels for Tx");
+		iface->state = IOSS_IF_ST_ERROR;
+	}
+
+	rc = ioss_net_teardown_events(iface, IOSS_CH_DIR_TX);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to teardown events for Tx");
 		iface->state = IOSS_IF_ST_ERROR;
 	}
 
@@ -710,6 +768,8 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 	ioss_ipa_invalidate_channels(iface);
 
 	ioss_qos_remove_channels(iface);
+
+	ioss_dev_log(idev, "Brought down %s successsfully", idev->net_dev->name);
 }
 
 static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)

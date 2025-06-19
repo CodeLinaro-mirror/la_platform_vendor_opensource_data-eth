@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -13,7 +13,7 @@
 #include <ipa_eth.h>
 #include <linux/panic_notifier.h>
 
-#if IPA_ETH_API_VER < 2
+#if IPA_ETH_API_VER < 4
 #error Unsupported IPA interface IPA_ETH_API_VER
 #endif
 
@@ -40,17 +40,13 @@ struct ioss_priv_data {
 
 struct ioss_ch_priv {
 	struct ipa_eth_client_pipe_info ipa_pi;
-#if IPA_ETH_API_VER > 2
 	const struct ipa_eth_dma_ch_config *ipa_ch_config;
-#endif
 };
 
 struct ioss_iface_priv {
 	struct ipa_eth_client ipa_ec;
 	struct ipa_eth_intf_info ipa_ii;
-#if IPA_ETH_API_VER > 2
 	struct ipa_eth_config ipa_config;
-#endif
 };
 
 extern struct ioss_mem_allocator ioss_default_alctr;
@@ -82,6 +78,20 @@ int ioss_ipa_unregister(struct ioss_interface *iface);
 
 int ioss_ipa_validate_channels(struct ioss_interface *iface);
 void ioss_ipa_invalidate_channels(struct ioss_interface *iface);
+
+#if IPA_ETH_API_VER > 4
+int ioss_ipa_enable_pipes(struct ioss_interface *iface);
+int ioss_ipa_disable_pipes(struct ioss_interface *iface);
+#else
+static inline int ioss_ipa_enable_pipes(struct ioss_interface *iface)
+{
+	return 0;
+}
+static inline int ioss_ipa_disable_pipes(struct ioss_interface *iface)
+{
+	return 0;
+}
+#endif
 
 enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_device *idev);
 int ioss_ipa_hal_fill_si(struct ioss_channel *ch);
@@ -117,8 +127,9 @@ static inline void ioss_log_deinit(void)
 #endif
 
 int ioss_list_iter_action(struct list_head *head,
-	int (*action)(struct list_head *node),
-	void (*revert)(struct list_head *node));
+	int (*action)(struct list_head *node, void *arg),
+	void (*revert)(struct list_head *node, void *arg),
+	void *arg);
 
 const char *ioss_if_state_name(enum ioss_interface_state state);
 const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
