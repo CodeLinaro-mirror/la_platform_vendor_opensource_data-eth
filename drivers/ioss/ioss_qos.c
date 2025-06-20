@@ -2469,8 +2469,10 @@ void disable_qos_ipa_channels(struct ioss_device *idev)
 			}
 		}
 
-	if(!count)
+	if(!count) {
+		ret = idrv->qos_ops->clear_qos(idev);
 		return;
+	}
 
 	idev->dev.offline = 1;
 	ioss_iface_queue_refresh(iface, true);
