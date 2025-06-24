@@ -110,6 +110,23 @@ def define_modules(target, variant):
     )
     mod_list.append("{}-defconfig_r8125_ioss".format(kernel_build_variant))
 
+    ddk_module(
+        name = "{}-defconfig_r8152".format(kernel_build_variant),
+        out = "r8152_rtl.ko",
+        srcs = [
+            "drivers/r8152/compatibility.h",
+            "drivers/r8152/r8152_rtl.c",
+        ],
+        kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
+        deps = [
+            "//msm-kernel:all_headers",
+        ],
+        copts = [
+            "-Wno-error",
+        ],
+    )
+    mod_list.append("{}-defconfig_r8152".format(kernel_build_variant))
+
     copy_to_dist_dir(
         name = "{}-defconfig_dataeth_dist".format(kernel_build_variant),
         data = mod_list,
