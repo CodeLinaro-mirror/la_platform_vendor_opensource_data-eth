@@ -616,23 +616,19 @@ static void delete_filter_table(struct list_head *filter_table)
 
 static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type filter)
 {
-	struct list_head *filter_node1, *filter_node2;
-	struct list_head *filter_node3, *filter_node4;
-	struct dma_filter_table *filter_node_curr, *filter_node_next;
+	struct dma_filter_table *filter_node_curr, *filter_node_next, *filter_node_tmp;
 
 	u8 mask_len;
 	bool is_last = false;
 
-	list_for_each_safe(filter_node1, filter_node2, filter_table) {
-		filter_node_curr = to_dma_filter_table(filter_node1);
-		list_for_each_safe(filter_node3, filter_node4, filter_node1) {
-			filter_node_next = to_dma_filter_table(filter_node3);
-			if (list_is_last(filter_node3, filter_table)) {
+	list_for_each_entry(filter_node_curr, filter_table, node) {
+		list_for_each_entry_safe(filter_node_next, filter_node_tmp, &filter_node_curr->node, node) {
+			if (list_is_last(&filter_node_next->node, filter_table)) {
 				is_last = true;
 			} else {
 				is_last = false;
 			}
-			if (!list_is_last(filter_node1, filter_table)) {
+			if (!list_is_last(&filter_node_curr->node, filter_table)) {
 				if (filter == DEST_PORT) {
 					if (filter_node_curr->dst_port.proto ==
                                             filter_node_next->dst_port.proto &&
@@ -741,8 +737,8 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
 						}
 					}
 				}
-				if (filter_node3) {
-					if (list_is_last(filter_node3, filter_table)) {
+				if (&filter_node_next->node) {
+					if (list_is_last(&filter_node_next->node, filter_table)) {
 						break;
 					}
 				} else {
@@ -751,8 +747,8 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
 
 			}
 		}
-		if (filter_node1) {
-			if (list_is_last(filter_node1, filter_table)) {
+		if (&filter_node_curr->node) {
+			if (list_is_last(&filter_node_curr->node, filter_table)) {
 				break;
 			}
 		} else {
