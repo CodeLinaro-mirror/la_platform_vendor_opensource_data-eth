@@ -1248,8 +1248,6 @@ static int stmmac_hw_setup(struct net_device *dev)
 	/* Enable TSO */
 	if (priv->tso)
 		stmmac_enable_tso(priv, priv->ioaddr, 1, chan);
-	netif_set_real_num_rx_queues(dev, priv->plat->rx_queues_to_use);
-	netif_set_real_num_tx_queues(dev, priv->plat->tx_queues_to_use);
 
 	/* Start the ball rolling... */
 	stmmac_start_dma(priv);
@@ -3016,6 +3014,9 @@ int stmmac_thin_suspend(struct device *dev)
 
 	/* Stop TX/RX DMA */
 	stmmac_stop_dma(priv);
+	free_dma_desc_resources(priv);
+
+	netif_carrier_off(ndev);
 
 	mutex_unlock(&priv->lock);
 
@@ -3040,51 +3041,6 @@ static void stmmac_reset_queues_param(struct stmmac_priv *priv)
 	tx_q->mss = 0;
 }
 
-
-static void stmmac_reinit_rx_buffers(struct stmmac_priv *priv)
-{
-
-	int i;
-	struct stmmac_rx_queue *rx_q = &priv->rx_queue;
-
-	pr_info("qcom-ethqos: %s enter", __func__);
-	for (i = 0; i < DMA_RX_SIZE; i++) {
-		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
-
-		if (buf->page) {
-			page_pool_recycle_direct(rx_q->page_pool, buf->page);
-			buf->page = NULL;
-		}
-
-	}
-
-	for (i = 0; i < DMA_RX_SIZE; i++) {
-		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
-		struct dma_desc *p;
-
-		p = rx_q->dma_rx + i;
-		if (!buf->page) {
-			buf->page = page_pool_dev_alloc_pages(rx_q->page_pool);
-			if (!buf->page)
-				goto err_reinit_rx_buffers;
-
-			buf->addr = page_pool_get_dma_addr(buf->page);
-			if(!buf->addr) {
-				pr_err("buf->addr is NULL");
-				goto err_reinit_rx_buffers;
-			}
-		}
-		stmmac_set_desc_addr(priv, p, buf->addr);
-	}
-
-	return;
-
-err_reinit_rx_buffers:
-	pr_err(" error in reinit_rx_buffers");
-		while (--i >= 0)
-			stmmac_free_rx_buffer(priv,i);
-}
-
 /**
  * stmmac_thin_resume - resume callback
  * @dev: device pointer
@@ -3095,6 +3051,7 @@ int stmmac_thin_resume(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	int ret = 0;
 	if (!ndev)
 		return -ENOMEM;
 
@@ -3102,16 +3059,28 @@ int stmmac_thin_resume(struct device *dev)
 	if (!netif_running(ndev))
 		return 0;
 
-	netif_device_attach(ndev);
-
 	mutex_lock(&priv->lock);
 
 	stmmac_reset_queues_param(priv);
-	dma_free_tx_skbufs(priv);
-	stmmac_reinit_rx_buffers(priv);
-	stmmac_clear_descriptors(priv);
+	ret = alloc_dma_desc_resources(priv);
+	if (ret < 0) {
+		netdev_err(priv->dev, "%s: DMA descriptors alloc failed\n",
+			   __func__);
+		goto dma_desc_error;
+	}
 
-	stmmac_hw_setup(ndev);
+	ret = init_dma_desc_rings(ndev, GFP_KERNEL);
+	if (ret < 0) {
+		netdev_err(priv->dev, "%s: DMA descriptors init failed\n",
+			   __func__);
+		goto init_error;
+	}
+
+	ret = stmmac_hw_setup(ndev);
+	if (ret < 0) {
+		netdev_err(priv->dev, "%s: Hw setup failed\n", __func__);
+		goto init_error;
+	}
 
 	if (!priv->tx_coal_timer_disable)
 		stmmac_init_coalesce(priv);
@@ -3123,9 +3092,15 @@ int stmmac_thin_resume(struct device *dev)
 	stmmac_enable_queue(priv);
 
 	stmmac_start_queue(priv);
+	netif_device_attach(ndev);
 	mutex_unlock(&priv->lock);
 
 	return 0;
+init_error:
+	free_dma_desc_resources(priv);
+dma_desc_error:
+	mutex_unlock(&priv->lock);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_resume);
 /*
