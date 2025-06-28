@@ -2,11 +2,14 @@
 
 LOCAL_PATH := $(call my-dir)
 
+ifneq ($(call is-board-platform-in-list, gen5), true)
+ifeq ($(TARGET_USES_GY), true)
+
 # Build/Package only in case of supported target
 ifeq ($(call is-board-platform-in-list, gen4 pineapple), true)
 
 LOCAL_PATH := $(call my-dir)
-ATAETH_SELECT := CONFIG_DATAETH=m
+DATAETH_SELECT := CONFIG_DATAETH=m
 ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm_gy)
 DATAETH_SELECT += CONFIG_EMAC_SHIM=m
 DATAETH_SELECT += CONFIG_EMAC_SHIM_GY=m
@@ -93,3 +96,5 @@ endif
 
 endif # DLKM check
 endif # supported target check
+endif # Product Type Check
+endif # Nord check
