@@ -65,6 +65,7 @@ static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
 
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
+static void stmmac_reset_queues_param(struct stmmac_priv *priv);
 
 #ifdef CONFIG_DEBUG_FS
 static int stmmac_init_fs(struct net_device *dev);
@@ -1106,7 +1107,7 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 
 	/* DMA CSR Channel configuration */
 	stmmac_init_chan(priv, priv->ioaddr, priv->plat->dma_cfg, chan);
-
+	stmmac_disable_dma_irq(priv, priv->ioaddr, chan);
 	/* DMA RX Channel Configuration */
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
 			    rx_q->dma_rx_phy, chan);
@@ -1247,7 +1248,11 @@ static int stmmac_hw_setup(struct net_device *dev)
 	/* Enable TSO */
 	if (priv->tso)
 		stmmac_enable_tso(priv, priv->ioaddr, 1, chan);
+	netif_set_real_num_rx_queues(dev, priv->plat->rx_queues_to_use);
+	netif_set_real_num_tx_queues(dev, priv->plat->tx_queues_to_use);
 
+	/* Start the ball rolling... */
+	stmmac_start_dma(priv);
 	return 0;
 }
 
@@ -2474,8 +2479,6 @@ void stmmac_mac_link_up(struct net_device *ndev)
 
 	priv = netdev_priv(ndev);
 	if (priv->dev_inited) {
-		/* Start the ball rolling... */
-		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 		if (!priv->boot_kpi) {
@@ -2516,6 +2519,7 @@ int stmmac_dvr_init(struct net_device *dev)
 	pr_info("%s: Enter\n", __func__);
 	priv = netdev_priv(dev);
 
+	stmmac_reset_queues_param(priv);
 	mutex_lock(&priv->lock);
 
 	ret = alloc_dma_desc_resources(priv);
@@ -2571,7 +2575,6 @@ int stmmac_dvr_init(struct net_device *dev)
 	stmmac_start_queue(priv);
 
 	priv->dev_inited = true;
-
 	mutex_unlock(&priv->lock);
 
 	return 0;
@@ -2934,8 +2937,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 	}
 
 	/* Disable tx_coal_timer if plat provides callback */
-	priv->tx_coal_timer_disable =
-		plat_dat->get_plat_tx_coal_frames ? true : false;
+	priv->tx_coal_timer_disable = false;
 
 #ifdef CONFIG_DEBUG_FS
 	if (stmmac_init_fs(ndev) < 0)
@@ -3093,7 +3095,10 @@ int stmmac_thin_resume(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	if (!ndev)
+		return -ENOMEM;
 
+	pr_info("%s: Enter\n", __func__);
 	if (!netif_running(ndev))
 		return 0;
 
@@ -3118,7 +3123,6 @@ int stmmac_thin_resume(struct device *dev)
 	stmmac_enable_queue(priv);
 
 	stmmac_start_queue(priv);
-
 	mutex_unlock(&priv->lock);
 
 	return 0;
