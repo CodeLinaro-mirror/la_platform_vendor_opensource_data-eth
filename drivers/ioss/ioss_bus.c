@@ -16,13 +16,6 @@
 struct ioss_device *ioss_devices[MAX_IOSS_DEVICES];
 struct ioss_driver *ioss_drivers[MAX_IOSS_DRIVERS];
 
-
-static struct class *emac_ipa_class;
-static dev_t emac_ipa_dev_num;
-static struct cdev *emac_ipa_cdev;
-static struct device *emac_ipa_dev;
-
-
 static int ioss_panic_notifier(struct notifier_block *nb,
 		unsigned long event, void *ptr)
 {
@@ -166,7 +159,6 @@ static int ioss_bus_probe(struct device *dev)
 {
 	int rc;
 	struct ioss_device *idev = to_ioss_device(dev);
-	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "Initializing device for offload");
 
@@ -221,58 +213,8 @@ static int ioss_bus_probe(struct device *dev)
 		goto err_qos_add;
 	}
 
-	if (iface->auto_resume_disabled) {
-		ioss_dev_cfg(idev, "creating dev char device for auto platform\n");
-
-		rc = alloc_chrdev_region(&emac_ipa_dev_num, 0, 1, "emac_ipa");
-		if (rc) {
-			ioss_dev_err(idev, "alloc_chrdev_region error for node %s\n",
-				  "emac_ipa");
-			goto err_chrdev;
-		}
-
-		emac_ipa_cdev = cdev_alloc();
-		if (!emac_ipa_cdev) {
-			rc = -ENOMEM;
-			ioss_dev_err(idev, "failed to alloc emac_ipa cdev\n");
-			goto fail_alloc_emac_ipa_cdev;
-		}
-
-		cdev_init(emac_ipa_cdev,NULL);
-
-		rc = cdev_add(emac_ipa_cdev,emac_ipa_dev_num,1);
-		if (rc < 0) {
-			ioss_dev_err(idev, "emac_ipa cdev_add err=%d\n", -rc);
-			goto emac_ipa_cdev_add_fail;
-		}
-
-		emac_ipa_class = class_create(THIS_MODULE,"emac_ipa");
-		if (!emac_ipa_class) {
-			rc= -ENODEV;
-			ioss_dev_err(idev, "failed to create emac_ipa class\n");
-			goto fail_create_emac_ipa_class;
-		}
-
-		emac_ipa_dev = device_create(emac_ipa_class, NULL,
-				emac_ipa_dev_num, NULL, "emac_ipa");
-		if (!emac_ipa_dev) {
-			rc = -EINVAL;
-			ioss_dev_err(idev, "failed to create emac_ipa device\n");
-			goto fail_create_emac_ipa_device;
-		}
-	}
-
 	return 0;
 
-fail_create_emac_ipa_device:
-	class_destroy(emac_ipa_class);
-fail_create_emac_ipa_class:
-	cdev_del(emac_ipa_cdev);
-emac_ipa_cdev_add_fail:
-fail_alloc_emac_ipa_cdev:
-	unregister_chrdev_region(emac_ipa_dev_num, 1);
-err_chrdev:
-	ioss_qos_remove_idev(idev);
 err_qos_add:
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
@@ -294,7 +236,6 @@ static void ioss_bus_remove(struct device *dev)
 {
 	int rc;
 	struct ioss_device *idev = to_ioss_device(dev);
-	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "De-initializing device");
 
@@ -303,14 +244,6 @@ static void ioss_bus_remove(struct device *dev)
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
 	ioss_sysfs_remove_idev(idev);
-
-	if(emac_ipa_cdev && iface->auto_resume_disabled)
-	{
-		device_destroy(emac_ipa_class, emac_ipa_dev_num);
-		class_destroy(emac_ipa_class);
-		cdev_del(emac_ipa_cdev);
-		unregister_chrdev_region(emac_ipa_dev_num, 1);
-	}
 
 	rc = ioss_net_unwatch_device(idev);
 	if (rc) {
