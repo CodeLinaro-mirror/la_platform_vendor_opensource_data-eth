@@ -384,6 +384,8 @@ struct ioss_device {
 	struct kobject *qos_tc_params_kobj;
 	struct IOSS_QOS_TABLE ioss_qos_table;
 	struct IOSS_QOS_NEW_NODES ioss_qos_new_nodes;
+	bool qos_commit_in_progress;
+	struct response qos_response;
 };
 
 #define to_ioss_device(device) \
