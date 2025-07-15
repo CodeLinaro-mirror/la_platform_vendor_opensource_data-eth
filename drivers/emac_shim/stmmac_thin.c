@@ -2495,6 +2495,7 @@ void stmmac_mac_link_up(struct net_device *ndev)
 		/* Start the ball rolling... */
 		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
+		dev_info(priv->device, "Ethernet is Ready. Link is UP");
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 		if (!priv->boot_kpi) {
 			place_marker("M - Ethernet is Ready. Link is UP");
