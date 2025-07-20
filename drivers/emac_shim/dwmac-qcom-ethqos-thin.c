@@ -98,7 +98,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 			break;
 		case EMAC_LINK_DOWN:
 			ETHQOSDBG("Link down ev\n");
-			if (priv->emac_state == EMAC_LINK_UP_ST) {
+			if (priv->emac_state > EMAC_INIT_ST) {
 				priv->emac_state = EMAC_HW_UP_ST;
 				stmmac_mac_link_down(priv->dev);
 			}
