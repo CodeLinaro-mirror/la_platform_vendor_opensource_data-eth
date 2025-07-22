@@ -48,6 +48,10 @@
  *  VERSION     : 01-00-24
  *  10 Dec 2021 : 1. Added link partner pause frame count debug counters to ethtool statistics.
  *  VERSION     : 01-00-31
+ *  04 Feb 2022 : 1. Ethtool statistics added to print doorbell SRAM area for all the channels.
+ *  VERSION     : 01-00-41
+ *  22 Mar 2022 : 1. PCI bus info updated for ethtool get driver version
+ *  VERSION     : 01-00-46
  */
 
 #include <linux/etherdevice.h>
@@ -669,6 +673,39 @@ static const struct tc956xmac_stats tc956xmac_gstrings_stats[] = {
 	TC956XMAC_STAT(m3_tx_timeout_port0),
 	TC956XMAC_STAT(m3_tx_timeout_port1),
 	TC956XMAC_STAT(m3_debug_cnt19),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port0[0]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port0[1]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port0[2]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port0[3]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port0[4]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port0[5]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port0[6]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port0[7]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port1[0]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port1[1]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port1[2]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port1[3]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port1[4]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port1[5]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port1[6]),
+	TC956XMAC_STAT(m3_tx_pcie_addr_loc_port1[7]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port0[0]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port0[1]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port0[2]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port0[3]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port0[4]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port0[5]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port0[6]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port0[7]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port1[0]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port1[1]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port1[2]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port1[3]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port1[4]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port1[5]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port1[6]),
+	TC956XMAC_STAT(m3_rx_pcie_addr_loc_port1[7]),
+
 };
 #define TC956XMAC_STATS_LEN ARRAY_SIZE(tc956xmac_gstrings_stats)
 
@@ -779,6 +816,7 @@ static void tc956xmac_ethtool_getdrvinfo(struct net_device *dev,
 				      struct ethtool_drvinfo *info)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
+	struct pci_dev *pdev = to_pci_dev(priv->device);
 	struct tc956x_version *fw_version;
 	int reg = 0;
 	char fw_version_str[32];
@@ -803,6 +841,7 @@ static void tc956xmac_ethtool_getdrvinfo(struct net_device *dev,
 			sizeof(info->driver));
 
 	strlcpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
+	strlcpy(info->bus_info, pci_name(pdev), sizeof(info->bus_info));
 
 	info->n_priv_flags = TC956X_PRIV_FLAGS_STR_LEN;
 }
@@ -1120,6 +1159,22 @@ static void tc956xmac_m3fw_stats_read(struct tc956xmac_priv *priv)
 				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT18 )));
 	priv->xstats.m3_debug_cnt19 = readl(priv->tc956x_SRAM_pci_base_addr + 
 				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT19 )));
+	for (chno = 0; chno < tx_queues_count; chno++) {
+		priv->xstats.m3_tx_pcie_addr_loc_port0[chno] = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(SRAM_TX_PCIE_ADDR_LOC + (chno * 4 )));
+	}
+	for (chno = 0; chno < tx_queues_count; chno++) {
+		priv->xstats.m3_tx_pcie_addr_loc_port1[chno] = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(SRAM_TX_PCIE_ADDR_LOC + (TC956XMAC_CH_MAX * 4) + (chno * 4 )));
+	}
+	for (chno = 0; chno < rx_queues_count; chno++) {
+		priv->xstats.m3_rx_pcie_addr_loc_port0[chno] = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(SRAM_RX_PCIE_ADDR_LOC + (chno * 4 )));
+	}
+	for (chno = 0; chno < rx_queues_count; chno++) {
+		priv->xstats.m3_rx_pcie_addr_loc_port1[chno] = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(SRAM_RX_PCIE_ADDR_LOC + (TC956XMAC_CH_MAX * 4) + (chno * 4 )));
+	}
 
 }
 

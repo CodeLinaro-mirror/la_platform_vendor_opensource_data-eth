@@ -60,6 +60,10 @@ static int buf_sz = DEFAULT_BUFSIZE;
 
 #define	STMMAC_RX_COPYBREAK	256
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+#define MAX_TX_QUEUES 5
+#endif
+
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
@@ -203,7 +207,7 @@ static void stmmac_get_tx_hwtstamp(struct stmmac_priv *priv,
 
 	/* check tx tstamp status */
 	if (stmmac_get_tx_timestamp_status(priv, p)) {
-		stmmac_get_timestamp(priv, p, &ns);
+		stmmac_get_timestamp(priv, p, priv->adv_ts, &ns);
 		found = true;
 	}
 
@@ -237,8 +241,8 @@ static void stmmac_get_rx_hwtstamp(struct stmmac_priv *priv, struct dma_desc *p,
 		return;
 
 	/* Check if timestamp is available */
-	if (stmmac_get_rx_timestamp_status(priv, p, np)) {
-		stmmac_get_timestamp(priv, desc, &ns);
+	if (stmmac_get_rx_timestamp_status(priv, p, np, priv->adv_ts)) {
+		stmmac_get_timestamp(priv, desc, priv->adv_ts, &ns);
 		netdev_dbg(priv->dev, "get valid RX hw timestamp %llu\n", ns);
 		shhwtstamp = skb_hwtstamps(skb);
 		memset(shhwtstamp, 0, sizeof(struct skb_shared_hwtstamps));
@@ -246,44 +250,6 @@ static void stmmac_get_rx_hwtstamp(struct stmmac_priv *priv, struct dma_desc *p,
 	} else  {
 		netdev_dbg(priv->dev, "cannot get RX hw timestamp\n");
 	}
-}
-
-static void stmmac_display_rx_rings(struct stmmac_priv *priv)
-{
-	void *head_rx;
-
-	/* Display RX rings */
-	struct stmmac_rx_queue *rx_q = &priv->rx_queue;
-
-	pr_info("\tRX Queue %u rings\n", priv->queue);
-
-	head_rx = (void *)rx_q->dma_rx;
-
-	/* Display RX ring */
-	stmmac_display_ring(priv, head_rx, DMA_RX_SIZE, true);
-}
-
-static void stmmac_display_tx_rings(struct stmmac_priv *priv)
-{
-	void *head_tx;
-
-	/* Display TX rings */
-	struct stmmac_tx_queue *tx_q = &priv->tx_queue;
-
-	pr_info("\tTX Queue %d rings\n", priv->queue);
-
-	head_tx = (void *)tx_q->dma_tx;
-
-	stmmac_display_ring(priv, head_tx, DMA_TX_SIZE, false);
-}
-
-static void stmmac_display_rings(struct stmmac_priv *priv)
-{
-	/* Display RX ring */
-	stmmac_display_rx_rings(priv);
-
-	/* Display TX ring */
-	stmmac_display_tx_rings(priv);
 }
 
 static int stmmac_set_bfsize(int mtu, int bufsize)
@@ -391,7 +357,7 @@ static void stmmac_free_rx_buffer(struct stmmac_priv *priv, int i)
 	struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
 
 	if (buf->page)
-		page_pool_put_page(rx_q->page_pool, buf->page, false);
+		page_pool_put_full_page(rx_q->page_pool, buf->page, false);
 	buf->page = NULL;
 }
 
@@ -529,9 +495,6 @@ static int init_dma_desc_rings(struct net_device *dev, gfp_t flags)
 	ret = init_dma_tx_desc_rings(dev);
 
 	stmmac_clear_descriptors(priv);
-
-	if (netif_msg_hw(priv))
-		stmmac_display_rings(priv);
 
 	return ret;
 }
@@ -851,10 +814,14 @@ static void stmmac_dma_operation_mode(struct stmmac_priv *priv)
 		txmode = tc;
 		rxmode = SF_DMA_MODE;
 	}
-	pr_info("%s: txmode [%u], rxmode [%u], txfifosz [%u], rxfifosz [%u]\n",
-		__func__, txmode, rxmode, txfifosz, rxfifosz);
+
 	/* configure channel */
 	qmode = priv->plat->rx_queues_cfg[chan].mode_to_use;
+
+	pr_info("%s: txmode [%u] rxmode [%u] txfifosz [%u], rxfifosz [%u] dma_sz [%u] mode = %u\n",
+		__func__, txmode, rxmode, txfifosz, rxfifosz, priv->dma_buf_sz, qmode);
+
+
 	stmmac_dma_rx_mode(priv, priv->ioaddr, rxmode, chan, rxfifosz, qmode);
 	stmmac_set_dma_bfsize(priv, priv->ioaddr, priv->dma_buf_sz, chan);
 
@@ -911,7 +878,7 @@ static int stmmac_tx_clean(struct stmmac_priv *priv, int budget, u32 queue)
 				priv->dev->stats.tx_packets++;
 				priv->xstats.tx_pkt_n++;
 				priv->xstats.q_tx_pkt_n[queue]++;
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 if (priv->dev->stats.tx_packets == 1)
 	place_marker("M - Ethernet first packet transmitted");
 #endif
@@ -1027,24 +994,26 @@ static void stmmac_set_dma_operation_mode(struct stmmac_priv *priv, u32 txmode,
 	stmmac_dma_tx_mode(priv, priv->ioaddr, txmode, chan, txfifosz, txqmode);
 }
 
-static int stmmac_napi_check(struct stmmac_priv *priv, u32 chan)
+static int stmmac_napi_check(struct stmmac_priv *priv, u32 chan, u32 dir)
 {
 	int status = stmmac_dma_interrupt_status(priv, priv->ioaddr,
-						 &priv->xstats, chan);
+						 &priv->xstats, chan, dir);
 	struct stmmac_channel *ch = &priv->channel;
 
 	trace_stmmac_irq_status(chan, status);
 	if (status & handle_rx) {
 		if (napi_schedule_prep(&ch->rx_napi)) {
 			trace_stmmac_disable_irq(chan);
-			stmmac_disable_dma_irq(priv, priv->ioaddr, chan);
+			stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 1, 0);
 			__napi_schedule_irqoff(&ch->rx_napi);
 			status |= handle_tx;
 		}
 	}
 
-	if (status & handle_tx)
+	if (status & handle_tx) {
+		stmmac_disable_dma_irq(priv, priv->ioaddr, chan, 0, 1);
 		napi_schedule_irqoff(&ch->tx_napi);
+	}
 
 	return status;
 }
@@ -1061,7 +1030,7 @@ static void stmmac_dma_interrupt(struct stmmac_priv *priv)
 	u32 chan = priv->queue;
 	int status;
 
-	status = stmmac_napi_check(priv, chan);
+	status = stmmac_napi_check(priv, chan, DMA_DIR_RXTX);
 
 	if (unlikely(status & tx_hard_error_bump_tc)) {
 		/* Try to bump up the dma threshold on this failure */
@@ -1110,6 +1079,9 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 	/* DMA RX Channel Configuration */
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
 			    rx_q->dma_rx_phy, chan);
+
+	pr_info("%s chan = %d dma_rx_phy = 0x%x dma_tx_phy = 0x%x",
+	        __func__, chan, rx_q->dma_rx_phy, tx_q->dma_tx_phy);
 
 	rx_q->rx_tail_addr = rx_q->dma_rx_phy +
 			    (DMA_RX_SIZE * sizeof(struct dma_desc));
@@ -1269,12 +1241,12 @@ static int stmmac_open(struct net_device *dev)
 	int bfsize = 0;
 	int ret = 0;
 
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 	place_marker("M - Ethernet device open");
 #endif
 	/* Extra statistics */
-	dev_info(priv->device, "%s: emac_state = %u\n",
-		 __func__, priv->emac_state);
+	dev_info(priv->device, "%s: emac_state = %u mtu = %d\n",
+		 __func__, priv->emac_state, dev->mtu);
 	memset(&priv->xstats, 0, sizeof(struct stmmac_extra_stats));
 	priv->xstats.threshold = tc;
 
@@ -1307,27 +1279,34 @@ static int stmmac_release(struct net_device *dev)
 	struct stmmac_priv *priv = netdev_priv(dev);
 
 	dev_info(priv->device, "%s Enter\n", __func__);
+
+	if (priv->dev_inited) {
+		/* We should do clean up only when they are inited */
+		stmmac_stop_queue(priv);
+
+		/* if emac_state is EMAC_INIT_ST then below
+		 * cleanup already covered by stmmac_suspend.*/
+		if (priv->emac_state != EMAC_INIT_ST) {
+			stmmac_disable_queue(priv);
+
+			if (!priv->tx_coal_timer_disable)
+				del_timer_sync(&priv->tx_queue.txtimer);
+
+			/* Stop TX/RX DMA and clear the descriptors */
+			stmmac_stop_dma(priv);
+		}
+
+		/* Free the IRQ line */
+		free_irq(dev->irq, dev);
+
+		/* Release and free the Rx/Tx resources */
+		free_dma_desc_resources(priv);
+
+		netif_carrier_off(dev);
+	}
 	priv->dev_inited = false;
 	priv->dev_opened = false;
-
-	stmmac_stop_queue(priv);
-
-	stmmac_disable_queue(priv);
-
-	if (!priv->tx_coal_timer_disable)
-		del_timer_sync(&priv->tx_queue.txtimer);
-
-	/* Free the IRQ line */
-	free_irq(dev->irq, dev);
-
-	/* Stop TX/RX DMA and clear the descriptors */
-	stmmac_stop_dma(priv);
-
-	/* Release and free the Rx/Tx resources */
-	free_dma_desc_resources(priv);
-
-	netif_carrier_off(dev);
-
+	dev_info(priv->device, "%s Exit\n", __func__);
 	return 0;
 }
 
@@ -1607,8 +1586,6 @@ static netdev_tx_t stmmac_tso_xmit(struct sk_buff *skb, struct net_device *dev)
 			__func__, tx_q->cur_tx, tx_q->dirty_tx, first_entry,
 			tx_q->cur_tx, first, nfrags);
 
-		stmmac_display_ring(priv, (void *)tx_q->dma_tx, DMA_TX_SIZE, 0);
-
 		pr_info(">>> frame to be transmitted:\n");
 		print_pkt(skb->data, skb_headlen(skb));
 	}
@@ -1775,17 +1752,6 @@ static netdev_tx_t stmmac_xmit(struct sk_buff *skb, struct net_device *dev)
 	tx_q->cur_tx = entry;
 
 	if (netif_msg_pktdata(priv)) {
-		void *tx_head;
-
-		netdev_dbg(priv->dev,
-			   "%s: curr=%d dirty=%d f=%d, e=%d, first=%p, nfrags=%d",
-			   __func__, tx_q->cur_tx, tx_q->dirty_tx, first_entry,
-			   entry, first, nfrags);
-
-		tx_head = (void *)tx_q->dma_tx;
-
-		stmmac_display_ring(priv, tx_head, DMA_TX_SIZE, false);
-
 		netdev_dbg(priv->dev, ">>> frame to be transmitted: ");
 		print_pkt(skb->data, skb->len);
 	}
@@ -1966,14 +1932,6 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 	}
 
 	trace_stmmac_rx_entry(queue);
-	if (netif_msg_rx_status(priv)) {
-		void *rx_head;
-
-		netdev_dbg(priv->dev, "%s: descriptor ring:\n", __func__);
-		rx_head = (void *)rx_q->dma_rx;
-
-		stmmac_display_ring(priv, rx_head, DMA_RX_SIZE, true);
-	}
 	while (count < limit) {
 		unsigned int prev_len = 0;
 		enum pkt_hash_types hash_type;
@@ -2099,7 +2057,7 @@ read_again:
 		napi_gro_receive(&ch->rx_napi, skb);
 		trace_stmmac_rx_pkt(queue);
 		priv->dev->stats.rx_packets++;
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 	if (priv->dev->stats.rx_packets == 1)
 		place_marker("M - Ethernet first packet received");
 #endif
@@ -2138,7 +2096,7 @@ static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 
 	if (work_done < budget && napi_complete_done(napi, work_done)) {
 		trace_stmmac_enable_irq(chan);
-		stmmac_enable_dma_irq(priv, priv->ioaddr, chan);
+		stmmac_enable_dma_irq(priv, priv->ioaddr, chan, 1, 0);
 	}
 	trace_stmmac_poll_exit(chan, work_done);
 	return work_done;
@@ -2180,7 +2138,7 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
  *   netdev structure and arrange for the device to be reset to a sane state
  *   in order to transmit a new packet.
  */
-static void stmmac_tx_timeout(struct net_device *dev)
+static void stmmac_tx_timeout(struct net_device *dev, unsigned int txqueue)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
@@ -2449,14 +2407,16 @@ void stmmac_mac_link_down(struct net_device *ndev)
 		return;
 
 	priv = netdev_priv(ndev);
-	if (priv->dev_opened)
+	if (priv->dev_opened) {
 		netif_carrier_off(ndev);
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	if (priv->boot_kpi) {
-		place_marker("M - Ethernet is not Ready. Link is DOWN");
-		priv->boot_kpi = false;
-	}
+		stmmac_stop_dma(priv);
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
+		if (priv->boot_kpi) {
+			place_marker("M - Ethernet is not Ready. Link is DOWN");
+			priv->boot_kpi = false;
+		}
 #endif
+	}
 }
 
 void stmmac_mac_link_up(struct net_device *ndev)
@@ -2469,7 +2429,8 @@ void stmmac_mac_link_up(struct net_device *ndev)
 	priv = netdev_priv(ndev);
 	if (priv->dev_opened) {
 		netif_carrier_on(ndev);
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+		stmmac_start_dma(priv);
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 		if (!priv->boot_kpi) {
 			place_marker("M - Ethernet is Ready. Link is UP");
 			priv->boot_kpi = true;
@@ -2535,6 +2496,8 @@ int stmmac_dvr_init(struct net_device *dev)
 	else
 		priv->rx_coal_frames = STMMAC_RX_FRAMES;
 
+	netif_carrier_off(dev);
+
 	/* Request the IRQ lines */
 	if (dev->irq) {
 		ret = request_irq(dev->irq, stmmac_interrupt,
@@ -2599,7 +2562,7 @@ static int stmmac_rings_status_show(struct seq_file *seq, void *v)
 		return 0;
 	}
 
-	stmmac_get_dma_stats(priv, priv->ioaddr, x, ch);
+	//stmmac_get_dma_stats(priv, priv->ioaddr, x, ch);
 
 	seq_printf(seq, "\n***** DMA channel %u dump *****\n", ch);
 	seq_printf(seq, "dma_ch_status(reg offset 0x%X) = 0x%x\n",
@@ -2686,7 +2649,7 @@ static int stmmac_reg_value_dump(struct seq_file *seq, void *v)
 	u32 ch = priv->queue;
 
 	/* dump the reg info in dmesg */
-	stmmac_get_reg(priv, priv->ioaddr, ch);
+//	stmmac_get_reg(priv, priv->ioaddr, ch);
 	return 0;
 }
 
@@ -2747,16 +2710,16 @@ static int stmmac_init_fs(struct net_device *dev)
 		return -ENOMEM;
 	}
 	/* Entry to report DMA RX/TX rings */
-	debugfs_create_file("dump_dma", 0444, priv->dbgfs_dir, dev,
-			    &stmmac_rings_status_fops);
+//	debugfs_create_file("dump_dma", 0444, priv->dbgfs_dir, dev,
+//			    &stmmac_rings_status_fops);
 
 	/* Entry to report RX/TX data path stats */
 	debugfs_create_file("data_stats", 0444, priv->dbgfs_dir, dev,
 			    &stmmac_data_status_fops);
 
 	/* Entry to report RX/TX data path stats */
-	debugfs_create_file("dump_reg", 0444, priv->dbgfs_dir, dev,
-			    &stmmac_reg_info_fops);
+//	debugfs_create_file("dump_reg", 0444, priv->dbgfs_dir, dev,
+//			    &stmmac_reg_info_fops);
 
 	rtnl_unlock();
 
@@ -2770,6 +2733,21 @@ static void stmmac_exit_fs(struct net_device *dev)
 	debugfs_remove_recursive(priv->dbgfs_dir);
 }
 #endif /* CONFIG_DEBUG_FS */
+
+/**
+ *  * stmmac_check_ether_addr - check if the MAC addr is valid
+ *  * @priv: driver private structure
+ *  * Description:
+ *  * it is to verify if the MAC address is valid, in case of failures it
+ *  * generates a random MAC address
+ *  */
+static void stmmac_check_ether_addr(struct stmmac_priv *priv)
+{
+	if (!is_valid_ether_addr(priv->dev->dev_addr)) {
+		eth_hw_addr_random(priv->dev);
+		dev_info(priv->device, "device MAC address %pM\n", priv->dev->dev_addr);
+	}
+}
 
 /**
  * stmmac_dvr_probe
@@ -2792,7 +2770,7 @@ int stmmac_dvr_probe(struct device *device,
 
 	/* Set tx used queue to 4 so NW stack can trigger tx queue selection */
 	ndev = devm_alloc_etherdev_mqs(device, sizeof(struct stmmac_priv),
-				       4, 1);
+				       MAX_TX_QUEUES, 1);
 	if (!ndev)
 		return -ENOMEM;
 
@@ -2823,7 +2801,7 @@ int stmmac_dvr_probe(struct device *device,
 	priv->wq = create_singlethread_workqueue("stmmac_wq");
 	if (!priv->wq) {
 		dev_err(priv->device, "failed to create workqueue\n");
-		return -ENOMEM;
+		goto error_free_ndev;
 	}
 
 	INIT_WORK(&priv->service_task, stmmac_service_task);
@@ -2843,11 +2821,18 @@ int stmmac_dvr_probe(struct device *device,
 	if (ret)
 		goto error_hw_init;
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	stmmac_check_ether_addr(priv);
+#endif
+
 	/* Configure real RX and TX queues */
 	netif_set_real_num_rx_queues(ndev, 1);
 	/* To trigger tx queue number selection other then 0 */
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	netif_set_real_num_tx_queues(ndev, MAX_TX_QUEUES);
+#else
 	netif_set_real_num_tx_queues(ndev, 4);
-
+#endif
 	ndev->netdev_ops = &stmmac_netdev_ops;
 	dev_info(priv->device, "dev opt=0x%X\n", ndev->netdev_ops);
 
@@ -2863,6 +2848,7 @@ int stmmac_dvr_probe(struct device *device,
 	ndev->features |= ndev->hw_features | NETIF_F_HIGHDMA;
 	ndev->watchdog_timeo = msecs_to_jiffies(watchdog);
 #ifdef STMMAC_VLAN_TAG_USED
+	ndev->vlan_features |= ndev->hw_features;
 	/* Both mac100 and gmac support receive VLAN tag detection */
 	ndev->features |= NETIF_F_HW_VLAN_CTAG_RX | NETIF_F_HW_VLAN_STAG_RX;
 	ndev->features |= NETIF_F_HW_VLAN_CTAG_FILTER |
@@ -2921,17 +2907,19 @@ int stmmac_dvr_probe(struct device *device,
 			    __func__);
 #endif
 
-	return ret;
+	return 0;
 
 error_netdev_register:
 	netif_napi_del(&ch->rx_napi);
 	netif_napi_del(&ch->tx_napi);
 error_hw_init:
 	destroy_workqueue(priv->wq);
+error_free_ndev:
+	free_netdev(ndev);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_dvr_probe);
+//EXPORT_SYMBOL_GPL(stmmac_dvr_probe);
 
 /**
  * stmmac_dvr_remove
@@ -2943,28 +2931,25 @@ int stmmac_dvr_remove(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct stmmac_channel *ch = &priv->channel;
 
 	netdev_info(priv->dev, "%s: removing driver", __func__);
 
 #ifdef CONFIG_DEBUG_FS
 	stmmac_exit_fs(ndev);
 #endif
-
-	if (priv->emac_state > EMAC_INIT_ST) {
-		stmmac_stop_dma(priv);
-
-		netif_carrier_off(ndev);
-		unregister_netdev(ndev);
-	}
-
+	netif_carrier_off(ndev);
+	unregister_netdev(ndev);
 	if (priv->plat->stmmac_rst)
 		reset_control_assert(priv->plat->stmmac_rst);
 	destroy_workqueue(priv->wq);
 	mutex_destroy(&priv->lock);
 
+	netif_napi_del(&ch->rx_napi);
+	netif_napi_del(&ch->tx_napi);
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_dvr_remove);
+//EXPORT_SYMBOL_GPL(stmmac_dvr_remove);
 
 /**
  * stmmac_suspend - suspend callback
@@ -2984,11 +2969,12 @@ int stmmac_suspend(struct device *dev)
 	mutex_lock(&priv->lock);
 
 	netif_device_detach(ndev);
-	stmmac_stop_queue(priv);
 
+	netdev_info(priv->dev, "%s: stop queue and dma", __func__);
 	stmmac_disable_queue(priv);
 
-	del_timer_sync(&priv->tx_queue.txtimer);
+	if (!priv->tx_coal_timer_disable)
+		del_timer_sync(&priv->tx_queue.txtimer);
 
 	/* Stop TX/RX DMA */
 	stmmac_stop_dma(priv);
@@ -2997,7 +2983,7 @@ int stmmac_suspend(struct device *dev)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_suspend);
+//EXPORT_SYMBOL_GPL(stmmac_suspend);
 
 /**
  * stmmac_reset_queues_param - reset queue parameters
@@ -3036,7 +3022,11 @@ int stmmac_resume(struct device *dev)
 
 	stmmac_reset_queues_param(priv);
 
-	stmmac_clear_descriptors(priv);
+	dma_free_tx_skbufs(priv);
+
+	dma_free_rx_skbufs(priv);
+
+	init_dma_desc_rings(ndev, GFP_KERNEL);
 
 	stmmac_hw_setup(ndev);
 
@@ -3055,8 +3045,9 @@ int stmmac_resume(struct device *dev)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(stmmac_resume);
+//EXPORT_SYMBOL_GPL(stmmac_resume);
 
+/*
 static int __init stmmac_init(void)
 {
 	return 0;
@@ -3068,6 +3059,7 @@ static void __exit stmmac_exit(void)
 
 module_init(stmmac_init)
 module_exit(stmmac_exit)
+*/
 
 MODULE_DESCRIPTION("STMMAC 10/100/1000 Ethernet device driver");
 MODULE_AUTHOR("Giuseppe Cavallaro <peppe.cavallaro@st.com>");

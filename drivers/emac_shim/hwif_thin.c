@@ -19,6 +19,8 @@ static int stmmac_dwmac4_quirks(struct stmmac_priv *priv)
 }
 
 static const struct stmmac_hwif_entry {
+	u32 min_id;
+	u32 dev_id;
 	const void *desc;
 	const void *dma;
 	const void *mac;
@@ -27,13 +29,22 @@ static const struct stmmac_hwif_entry {
 	int (*quirks)(struct stmmac_priv *priv);
 } stmmac_hw[] = {
 	/* NOTE: New HW versions shall go to the end of this table */
-	{
+	/*{
 		.desc = &dwmac4_desc_ops,
 		.dma = &dwmac4_dma_ops,
 		.mac = &dwmac4_ops,
 		.mode = NULL,
 		.setup = dwmac4_setup,
 		.quirks = stmmac_dwmac4_quirks,
+	},*/
+	{
+		.dev_id = DWXGMAC_ID,
+		.desc = &dwxgmac210_desc_ops,
+		.dma = &dwxgmac210_dma_ops,
+		.mac = &dwxgmac210_ops,
+		.mode = NULL,
+		.setup = dwxgmac2_setup,
+		.quirks = NULL,
 	},
 };
 

@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -21,7 +22,7 @@ static int ioss_pci_add_device(struct pci_dev *pdev, struct ioss *ioss)
 	if (!idev)
 		return -ENOMEM;
 
-	dev_set_name(&idev->dev, "%s", dev_name(idev->dev.parent));
+	dev_set_name(&idev->dev, "%s-ioss", dev_name(idev->dev.parent));
 
 	rc = ioss_bus_register_idev(idev);
 	if (rc) {
@@ -142,8 +143,8 @@ static int ioss_pci_nop_suspend(struct ioss_device *idev)
 	pdev->state_saved = false;
 
 	/* no_d3hot set to avoid pci restore state during pci_pm_resume_noirq()
-	 * and to avoid pci save state during pci_pm_suspend_noirq()
-	 */
+	* and to avoid pci save state during pci_pm_suspend_noirq()
+	*/
 	pdev->no_d3hot = true;
 
 	ioss_dev_dbg(idev, "Device suspend performing nop");
@@ -154,10 +155,9 @@ static int ioss_pci_nop_suspend(struct ioss_device *idev)
 static int ioss_pci_nop_resume(struct ioss_device *idev)
 {
 	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(idev));
-
 	idev->pm_stats.apps_resume++;
-	pdev->no_d3hot = false;
 
+	pdev->no_d3hot = false;
 	ioss_dev_dbg(idev, "Device resume performing nop");
 
 	return 0;

@@ -1,0 +1,51 @@
+load(":define_modules.bzl", "define_modules")
+load("//build/kernel/kleaf:kernel.bzl", "ddk_headers")
+
+define_modules("sdxkova", "perf")
+
+define_modules("sdxkova", "debug")
+
+define_modules("sdxkova.cpe.wkk", "perf")
+define_modules("sdxkova.cpe.wkk", "debug")
+
+define_modules("sdxkova.512", "perf")
+define_modules("sdxkova.512", "debug")
+
+package(
+    default_visibility = [
+      "//visibility:public",
+    ],
+)
+
+ddk_headers(
+    name = "ioss_headers",
+    hdrs = glob([
+        "drivers/ioss/ioss_i.h",
+        "drivers/ioss/ioss_version.h",
+        "drivers/ioss/include/linux/msm/ioss.h",
+        "drivers/ioss/include/linux/msm/ioss_qos.h",
+    ]),
+    includes = [
+        "drivers/ioss",
+        "drivers/ioss/include/linux/msm",
+    ],
+)
+
+ddk_headers(
+    name = "rtl8125_headers",
+    hdrs = glob([
+        "drivers/rtl8125/src/r8125_firmware.h",
+        "drivers/rtl8125/src/r8125_dash.h",
+        "drivers/rtl8125/src/r8125_ptp.h",
+        "drivers/rtl8125/src/r8125.h",
+        "drivers/rtl8125/src/r8125_lib.h",
+        "drivers/rtl8125/src/r8125_realwow.h",
+        "drivers/rtl8125/src/r8125_rss.h",
+        "drivers/rtl8125/src/rtl_eeprom.h",
+        "drivers/rtl8125/src/rtltool.h",
+    ]),
+    includes = [
+        "drivers/rtl8125",
+        "drivers/rtl8125/src",
+    ],
+)

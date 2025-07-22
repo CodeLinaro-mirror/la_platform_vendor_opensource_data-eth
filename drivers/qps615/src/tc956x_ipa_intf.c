@@ -45,6 +45,10 @@
  *  VERSION     : 01-00-08
  *  09 Sep 2021 : Reverted changes related to usage of Port-0 pci_dev for all DMA allocation/mapping for IPA path
  *  VERSION     : 01-00-12
+ *  31 Jan 2022 : 1. Common used macro moved to common.h file.
+ *  VERSION     : 01-00-39
+ *  29 Apr 2022 : 1. Triggering Power saving at Link down after release of offloaded DMA channels
+ *  VERSION     : 01-00-51
  */
 
 #include <linux/dma-mapping.h>
@@ -58,12 +62,6 @@
 
 #define IPA_INTF_MAJOR_VERSION 0
 #define IPA_INTF_MINOR_VERSION 1
-
-/* 0x20004000 to 0x2000401C is for Port0, 0x20004020 to 0x2000403C is for Port1 */
-#define SRAM_TX_PCIE_ADDR_LOC	0x44000
-
-/* 0x20004040 to 0x2000405C is for Port0, 0x20004060 to 0x2000407C is for Port1 */
-#define SRAM_RX_PCIE_ADDR_LOC	0x44040
 
 #define CM3_PCIE_REGION_LOW_BOUND	0x60000000
 #define CM3_PCIE_REGION_UP_BOUND	0xC0000000
@@ -779,7 +777,8 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 {
 	struct tc956xmac_priv *priv;
 	struct mem_ops *mem_ops;
-
+	u32 ch;
+	u32 offload_release_sts = true;
 	int ret = -EINVAL;
 
 	if (!ndev) {
@@ -839,6 +838,30 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 		goto err_invalid_ch_dir;
 	}
 
+	mutex_lock(&priv->port_ld_release_lock);
+	/* Checking whether any Tx channel enabled for offload or not*/
+	for (ch = 0; ch < MAX_TX_QUEUES_TO_USE; ch++) {
+		/* If offload channels are not freed, update the flag, so that power saving API will not be called*/
+		if (priv->plat->tx_dma_ch_owner[ch] == USE_IN_OFFLOADER) {
+			offload_release_sts = false;
+			break;
+		}
+	}
+	/* Checking whether any Rx channel enabled for offload or not*/
+	for (ch = 0; ch < MAX_RX_QUEUES_TO_USE; ch++) {
+		/* If offload channels are not freed, update the flag, so that power saving API will not be called*/
+		if (priv->plat->rx_dma_ch_owner[ch] == USE_IN_OFFLOADER) {
+			offload_release_sts = false;
+			break;
+		}
+	}
+
+	/* If all channels are freed, call API for power saving*/
+	if(priv->port_release == true && offload_release_sts == true) {
+		tc956xmac_link_change_set_power(priv, LINK_DOWN); /* Save, Assert and Disable Reset and Clock */
+	}
+	mutex_unlock(&priv->port_ld_release_lock);
+
 	return 0;
 
 err_invalid_ch_dir:
@@ -886,6 +909,11 @@ int request_event(struct net_device *ndev, struct channel_info *channel, phys_ad
 	dma_addr_t trsl_addr;
 	unsigned long flags;
         dma_addr_t addr;
+
+	if (port0_pdev == NULL) {
+		pr_err("%s: ERROR: Port1 must be binded after Port0\n", __func__);
+		return -ENODEV;
+	}
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -1048,6 +1076,11 @@ EXPORT_SYMBOL_GPL(request_event);
 int release_event(struct net_device *ndev, struct channel_info *channel)
 {
 	struct tc956xmac_priv *priv;
+
+	if (port0_pdev == NULL) {
+		pr_err("%s: ERROR: Port1 must be removed before Port0\n", __func__);
+		return -ENODEV;
+	}
 
 	if (!ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);

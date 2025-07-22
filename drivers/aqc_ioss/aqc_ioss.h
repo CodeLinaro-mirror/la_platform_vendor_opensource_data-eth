@@ -11,18 +11,17 @@
 #include <linux/slab.h>
 #include <linux/device.h>
 #include <linux/pm_wakeup.h>
-
-#include <linux/msm/ioss.h>
+#include "ioss/ioss_i.h"
+#include "ioss/ioss_version.h"
+#include "ioss/include/linux/msm/ioss.h"
 #include <atl_fwd.h>
 #include "aqc_regs.h"
 
 struct aqc_ioss_device {
 	struct atl_nic *nic;
 	struct notifier_block nb;
-	struct aqc_ioss_regs regs_save;
-#if ATL_FWD_API_VERSION > 3
 	struct atl_ext_stats stats;
-#endif
+	struct atl_crash_dump regs_save;
 };
 
 #endif /* _AQC_IOSS_H_ */

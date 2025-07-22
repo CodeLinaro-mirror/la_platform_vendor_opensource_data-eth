@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 20 Jan 2022
+Release Date: 29 Apr 2022
 
-Release Version: V_01-00-37 : Limited-tested version
+Release Version: V_01-00-51 : Limited-tested version
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
@@ -253,6 +253,17 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 
 	If invalid values are passed as kernel module parameter, the default value will be selected.
 	Note: It is required to enable kernel module parameter "mac0_filter_phy_pause/mac1_filter_phy_pause" along with this module parameter to count link partner pause frames.
+
+16. Please use the below command to insert the kernel module for power saving at Link Down state:
+
+	#insmod tc956x_pcie_eth.ko mac_power_save_at_link_down=x
+
+	argument info:
+		mac_power_save_at_link_down: Common for both PORT0 & PORT1
+		x = [0: DISABLE (default), 1: ENABLE]
+
+	If invalid values are passed as kernel module parameter, the default value will be selected.
+
 # Release Versions:
 
 ## TC956X_Host_Driver_20210326_V_01-00:
@@ -442,3 +453,59 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19".
 1. Skip resume_config and reset eMAC if port unavailable (PHY not connected) during suspend-resume.
 2. Restore clock after resume in set_power.
 3. Shifted Queuing Work to end of resume to prevent MSI disable on resume.
+
+## TC956X_Host_Driver_20220124_V_01-00-38:
+
+1. Set Clock control and Reset control register to default value on driver unload.
+
+## TC956X_Host_Driver_20220131_V_01-00-39:
+
+1. Debug dump API supported to dump registers during crash.
+
+## TC956X_Host_Driver_20220202_V_01-00-40:
+
+1. Tx Queue flushed and checked for status after Tx DMA stop.
+
+## TC956X_Host_Driver_20220204_V_01-00-41:
+
+1. DMA channel status cleared only for SW path allocated DMA channels. IPA path DMA channel status clearing is skipped.
+2. Ethtool statistics added to print doorbell SRAM area for all the channels.
+
+## TC956X_Host_Driver_20220214_V_01-00-42:
+
+1. Reset assert and clock disable support during Link Down.
+
+## TC956X_Host_Driver_20220222_V_01-00-43:
+
+1. Supported GPIO configuration save and restoration.
+
+## TC956X_Host_Driver_20220225_V_01-00-44:
+
+1. XPCS module is re-initialized after link-up as MACxPONRST is asserted during link-down.
+2. Disable Rx side EEE LPI before configuring Rx Parser (FRP). Enable the same after Rx Parser configuration.
+
+## TC956X_Host_Driver_20220309_V_01-00-45:
+1. Handling of Non S/W path DMA channel abnormal interrupts in Driver and only TI & RI interrupts handled in FW.
+2. Reading MSI status for checking interrupt status of SW MSI.
+
+## TC956X_Host_Driver_20220322_V_01-00-46:
+1. PCI bus info updated for ethtool get driver version.
+
+## TC956X_Host_Driver_20220405_V_01-00-47:
+1. Disable MSI and flush phy work queue during driver release.
+
+## TC956X_Host_Driver_20220406_V_01-00-48:
+1. Dynamic MTU change supported. Max MTU supported is 2000 bytes.
+
+## TC956X_Host_Driver_20220414_V_01-00-49:
+1. Ignoring error from tc956xmac_hw_setup in tc956xmac_open API.
+
+## TC956X_Host_Driver_20220425_V_01-00-50:
+1. Perform platform remove after MDIO deregistration.
+
+## TC956X_Host_Driver_20220429_V_01-00-51:
+1. Checking for DMA status update as stop after TX DMA stop.
+2. Checking for Tx MTL Queue Read/Write contollers in idle state after TX DMA stop.
+3. Triggering Power saving at Link down after releasing of Offloaded DMA channels.
+4. Added kernel Module parameter for selecting Power saving at Link down and default is disabled.
+5. Added Lock for syncing linkdown, port rlease and release of offloaded DMA channels.
