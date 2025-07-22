@@ -2341,9 +2341,6 @@ static int stmmac_vlan_rx_add_vid(struct net_device *ndev,
 {
 	struct stmmac_priv *priv = netdev_priv(ndev);
 
-	if(priv->is_gy_en)
-		return 0;
-
 	if (vid == 0 || vid > 4095) {
 		dev_info(priv->device, "Invalid vlan id %u\n", vid);
 		return 0;
@@ -2360,9 +2357,6 @@ static int stmmac_vlan_rx_kill_vid(struct net_device *ndev,
 				   __be16 proto, u16 vid)
 {
 	struct stmmac_priv *priv = netdev_priv(ndev);
-
-	if(priv->is_gy_en)
-		return 0;
 
 	if (vid == 0 || vid > 4095) {
 		dev_info(priv->device, "Invalid vlan id %u\n", vid);
