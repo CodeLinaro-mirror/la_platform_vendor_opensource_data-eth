@@ -179,15 +179,16 @@ static void qcom_ethqos_client_receive(struct kthread_work *work) {
 	void *buf;
 	int received_int = -1;
 	int len, ret;
-	int retries=0;
+	int retries = 0;
+	int offset = 0;
 
 	ETHQOSDBG("client_thread start\n");
 
-	if(!client_sk.conn_socket)
+	if (!client_sk.conn_socket)
 		return;
 
 	buf = kzalloc(max_size, GFP_ATOMIC);
-	if(!buf) {
+	if (!buf) {
 		ETHQOSERR("buffer alloc failed\n");
 		return;
 	}
@@ -201,12 +202,12 @@ static void qcom_ethqos_client_receive(struct kthread_work *work) {
 	msg.msg_flags = MSG_DONTWAIT;
 
 	do {
-		len = kernel_recvmsg(client_sk.conn_socket, &msg, &vec, max_size, max_size, msg.msg_flags);
+		len = kernel_recvmsg(client_sk.conn_socket, &msg, &vec, 1, max_size, msg.msg_flags);
 		if (len <= 0) {
 			ETHQOSERR("packet receive failed with error: %d\n",len);
 			wait_event_timeout(conn_wait_queue, 0, 0.01 * HZ);
 			retries++;
-			if(retries == MAX_RECEIVE_RETRIES) {
+			if (retries == MAX_RECEIVE_RETRIES) {
 				ETHQOSERR("Exhaust receive retries...\n");
 				kfree(buf);
 				return;
@@ -216,12 +217,17 @@ static void qcom_ethqos_client_receive(struct kthread_work *work) {
 			break;
 	} while (retries < MAX_RECEIVE_RETRIES);
 
-	memcpy(&received_int, buf, sizeof(int));
-	ETHQOSINFO("Received msg length: %d | received event : %d\n",len,received_int);
+	/* Process each 4-byte chunk as a separate state */
+	while (offset + sizeof(int) <= len) {
+		memcpy(&received_int, buf + offset, sizeof(int));
+		ETHQOSINFO("Received msg length: %d | current offset: %d| received event : %d\n",
+			    len, offset, received_int);
 
-	ret = qcom_ethqos_data_ready_notify(client_sk.ethqos,received_int);
-	if (ret < 0) {
-		ETHQOSERR("thin emac notify failed : %d\n",ret);
+		ret = qcom_ethqos_data_ready_notify(client_sk.ethqos,received_int);
+		if (ret < 0) {
+			ETHQOSERR("thin emac notify failed : %d\n",ret);
+		}
+		offset += sizeof(int);
 	}
 
 	kfree(buf);
