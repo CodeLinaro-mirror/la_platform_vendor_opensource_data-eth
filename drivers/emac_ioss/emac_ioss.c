@@ -638,7 +638,7 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
                                             filter_node_next->dst_port.proto &&
                                             filter_node_curr->dst_port.port_num ==
                                             filter_node_next->dst_port.port_num &&
-                                            filter_node_curr->dma_ch != filter_node_next->dma_ch) {
+                                            filter_node_curr->dma_ch == filter_node_next->dma_ch) {
 						list_del(&filter_node_next->node);
 						if (is_last)
 							break;
@@ -1222,6 +1222,53 @@ static int stmmac_get_cbs_avail_bw(int speed)
 		bw_avail = 0;
 	}
 	return bw_avail;
+}
+
+
+const char* idx_action_to_string(enum idx_action action)
+{
+	switch (action) {
+	case IDX_UNUSED:
+		return "IDX_UNUSED";
+	case IDX_USED:
+		return "IDX_USED";
+	case IDX_CLEAR:
+		return "IDX_CLEAR";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+void dump_qos_priv(struct ioss_device* idev, struct stmmac_priv *priv)
+{
+	int i;
+	ioss_qos_dev_log(idev, "### START PRIV DUMP");
+	ioss_qos_dev_log(idev, "\tpriv->unique_filter_old = %d", priv->unique_filter_old);
+	ioss_qos_dev_log(idev, "\tpriv->unique_filter_new = %d", priv->unique_filter_new);
+	ioss_qos_dev_log(idev, "\tpriv->max_filters_old = %d", priv->max_filters_old);
+	ioss_qos_dev_log(idev, "\tpriv->max_filters_new = %d", priv->max_filters_new);
+
+	for (i = 0; i < MTL_MAX_RX_QUEUES; i++) {
+		ioss_qos_dev_log(idev, "\tpriv->queue_dis[%d] = %d", i, priv->queue_dis[i]);
+	}
+	for (i = 0; i < 32; i++) {
+		ioss_qos_dev_log(idev, "\tpriv->app_filters[%d].action = %s  ,  DMA_CH = %u",
+					i, idx_action_to_string(priv->app_filters[i].action),
+					priv->app_filters[i].dma_ch);
+	}
+
+	for (i = 0; i < MTL_MAX_RX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->is_rx_sw[%d] = %d", i, priv->is_rx_sw[i]);
+	for (i = 0; i < MTL_MAX_TX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->is_tx_sw[%d] = %d", i, priv->is_tx_sw[i]);
+	for (i = 0; i < MTL_MAX_RX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->queue_pcp_map[%d] = %u", i, priv->queue_pcp_map[i]);
+	for (i = 0; i < MTL_MAX_TX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->tx_queue_pcp_map[%d] = %u", i, priv->tx_queue_pcp_map[i]);
+	for (i = 0; i < MTL_MAX_TX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->tx_ch_bw[%d] = %u", i, priv->tx_ch_bw[i]);
+	ioss_qos_dev_log(idev, "END PRIV DUMP ###");
+
 }
 
 static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx)
@@ -1886,7 +1933,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		/* Set action flag to IDX_CLEAR to delete them later */
 		if (priv->unique_filter_new != priv->unique_filter_old) {
 			/*If unique filter changed, need to delete all filters*/
-			for (i = 0; i < priv->max_filters_new; i++) {
+			for (i = 0; i < priv->max_filters_old; i++) {
 				if (priv->app_filters[i].action == IDX_USED)
 					priv->app_filters[i].action = IDX_CLEAR;
 			}
@@ -2069,6 +2116,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	}
 
 	ioss_qos_dev_log(idev, "Response = %d\n", map_info.qos_response_status);
+	dump_qos_priv(idev, priv);
 	return map_info;
 
 	/* check for any other memory leaks*/
@@ -2080,6 +2128,7 @@ err_bw_exhaust:
 			delete_filter_table(&qos_tables.dma_filter_table);
 	delete_route_table(&qos_tables.pcp_route_table);
 	delete_filter_table(&qos_tables.flt_to_app);
+	dump_qos_priv(idev, priv);
 	return map_info;
 }
 
@@ -2152,6 +2201,7 @@ static int stmmac_enable_qos(struct ioss_device *idev)
 			stmmac_enable_qos_filtering(ndev, &qos_tables);
 		} else if (priv->unique_filter_old != PCP) {
 			stmmac_remove_qos_filtering(ndev, priv->unique_filter_old, IDX_USED);
+			stmmac_remove_qos_filtering(ndev, priv->unique_filter_old, IDX_CLEAR);
 		}
 		/*cbs routing*/
 		stmmac_config_qos_cbs(priv, &qos_tables);
@@ -2508,6 +2558,7 @@ static bool is_filter_applied(struct stmmac_priv *priv, enum qos_filter_type fil
 static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_head *qos_rx, struct list_head *qos_tx)
 {
 	size_t i;
+	ssize_t ret;
 	u8 tc_queue   = 0;
 	u8 tc_channel = 0;
 	u8 hw_rxch = idev->qos_rx_channels;
@@ -2516,6 +2567,7 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 	struct sockaddr_storage *ss;
 	const int ROW_BUFFER   =   60;
 	const int TABLE_BUFFER = 4095;
+	const int APPLIED_BUFFER = 1024;
 	struct qos_rx_tc *rx_node;
 	struct qos_routing_rx_hdl *rx_hdl;
 	struct qos_routing_tx *tx_node;
@@ -2529,8 +2581,46 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 	char *table = kzalloc(sizeof(char) * TABLE_BUFFER, GFP_KERNEL);
 	if(!table)
 		goto table_alloc_err;
+	char *applied = kzalloc(sizeof(char) * APPLIED_BUFFER, GFP_KERNEL);
+	if(!applied)
+		goto applied_alloc_err;
 
 	ioss_qos_dev_log(idev, "Enter");
+	scnprintf(row, ROW_BUFFER, "DL TCs: \n");
+	strlcat(table, row, TABLE_BUFFER);
+	list_for_each(ptr, qos_tx) {
+		tx_node = to_qos_routing_tx(ptr);
+		scnprintf(row, ROW_BUFFER,"%s- %u:\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch), tx_node->tc_prio);
+		strlcat(table, row, TABLE_BUFFER);
+
+		scnprintf(row, ROW_BUFFER, "  %saction: %s\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch),
+			  (tx_node->action == IOSS_QOS_HW_PATH)? "HW" : "SW");
+		strlcat(table, row, TABLE_BUFFER);
+
+		scnprintf(row, ROW_BUFFER, "  %sbw: %u:%u\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch),
+			  tx_node->cbs_bw.low_bw, tx_node->cbs_bw.high_bw);
+		strlcat(table, row, TABLE_BUFFER);
+
+		scnprintf(row, ROW_BUFFER, "    bw allocated: %u\n", qos_tables.bw_allocated[tx_node->tc_prio]);
+		strlcat(table, row, TABLE_BUFFER);
+		if (tx_node->action == IOSS_QOS_SW_PATH) {
+			scnprintf(row, ROW_BUFFER, "    handle: %u\n", tx_node->handle);
+			strlcat(table, row, TABLE_BUFFER);
+
+			scnprintf(row, ROW_BUFFER, "    pcp: ");
+			strlcat(table, row, TABLE_BUFFER);
+			for (i = 0; i < tx_node->pcp.len; i++) {
+				scnprintf(row, ROW_BUFFER, "%u ", tx_node->pcp.arr[i]);
+				strlcat(table, row, TABLE_BUFFER);
+			}
+			scnprintf(row, ROW_BUFFER, "\n");
+			strlcat(table, row, TABLE_BUFFER);
+                }
+		find_tc_queue_channel(&qos_tables, tx_node->tc_prio, &tc_queue, &tc_channel, false);
+		scnprintf(row, ROW_BUFFER, "  %squeue: %u\n  %schannel: %u\n",
+			  TX_TC_SKIP_PREFIX(tx_node, hw_txch), tc_queue, TX_TC_SKIP_PREFIX(tx_node, hw_txch), tc_channel);
+		strlcat(table, row, TABLE_BUFFER);
+	}
 
 	scnprintf(row, ROW_BUFFER, "UL TCs: \n");
 	strlcat(table, row, TABLE_BUFFER);
@@ -2571,7 +2661,8 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 					  QOS_ROW_PREFIX(priv, VLAN_ID, &rx_hdl->vlan_ids.arr[i]),
 					  rx_hdl->vlan_ids.arr[i]);
 				strlcat(table, row, TABLE_BUFFER);
-				rx_hdl->hdl_committed = is_filter_applied(priv, VLAN_ID, &rx_hdl->vlan_ids.arr[i]);
+				if (!rx_hdl->hdl_committed)
+					rx_hdl->hdl_committed = is_filter_applied(priv, VLAN_ID, &rx_hdl->vlan_ids.arr[i]);
 			}
 
 			scnprintf(row, ROW_BUFFER, "    %ssrc:\n", TC_SKIP_PREFIX(rx_node, hw_rxch));
@@ -2584,7 +2675,8 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						QOS_ROW_PREFIX(priv, SRC_IP, &rx_hdl->src.arr[i]),
 						&(((struct sockaddr_in *)ss)->sin_addr),
 						rx_hdl->src.arr[i].mask_length);
-					rx_hdl->hdl_committed = is_filter_applied(priv, SRC_IP, &rx_hdl->src.arr[i]);
+					if (!rx_hdl->hdl_committed)
+						rx_hdl->hdl_committed = is_filter_applied(priv, SRC_IP, &rx_hdl->src.arr[i]);
 				}
 				else if (ss->ss_family == AF_INET6) {
 					scnprintf(row, ROW_BUFFER, "    %s%s- %pI6/%u\n",
@@ -2592,7 +2684,8 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						QOS_ROW_PREFIX(priv, SRC_IP, &rx_hdl->src.arr[i]),
 						&(((struct sockaddr_in6 *)ss)->sin6_addr),
 						rx_hdl->src.arr[i].mask_length);
-					rx_hdl->hdl_committed = is_filter_applied(priv, SRC_IP, &rx_hdl->src.arr[i]);
+					if (!rx_hdl->hdl_committed)
+						rx_hdl->hdl_committed = is_filter_applied(priv, SRC_IP, &rx_hdl->src.arr[i]);
 				}
 				else {
 					scnprintf(row, ROW_BUFFER, "    %s%s- [%s/%u]\n",
@@ -2600,7 +2693,8 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						QOS_ROW_PREFIX(priv, SRC_PORT, &rx_hdl->src.arr[i]),
 						rx_hdl->src.arr[i].proto,
 						rx_hdl->src.arr[i].port_num);
-					rx_hdl->hdl_committed = is_filter_applied(priv, SRC_PORT, &rx_hdl->src.arr[i]);
+					if (!rx_hdl->hdl_committed)
+						rx_hdl->hdl_committed = is_filter_applied(priv, SRC_PORT, &rx_hdl->src.arr[i]);
 				}
 
 				strlcat(table, row, TABLE_BUFFER);
@@ -2616,7 +2710,8 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						QOS_ROW_PREFIX(priv, DEST_IP, &rx_hdl->dst.arr[i]),
 						&(((struct sockaddr_in *)ss)->sin_addr),
 						rx_hdl->dst.arr[i].mask_length);
-					rx_hdl->hdl_committed = is_filter_applied(priv, DEST_IP, &rx_hdl->dst.arr[i]);
+					if (!rx_hdl->hdl_committed)
+						rx_hdl->hdl_committed = is_filter_applied(priv, DEST_IP, &rx_hdl->dst.arr[i]);
 				}
 				else if (ss->ss_family == AF_INET6) {
 					scnprintf(row, ROW_BUFFER, "    %s%s- %pI6/%u\n",
@@ -2624,7 +2719,8 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						QOS_ROW_PREFIX(priv, DEST_IP, &rx_hdl->dst.arr[i]),
 						&(((struct sockaddr_in6 *)ss)->sin6_addr),
 						rx_hdl->dst.arr[i].mask_length);
-					rx_hdl->hdl_committed = is_filter_applied(priv, DEST_IP, &rx_hdl->dst.arr[i]);
+					if (!rx_hdl->hdl_committed)
+						rx_hdl->hdl_committed = is_filter_applied(priv, DEST_IP, &rx_hdl->dst.arr[i]);
 				}
 				else {
 					scnprintf(row, ROW_BUFFER, "    %s%s- [%s/%u]\n",
@@ -2632,7 +2728,8 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						QOS_ROW_PREFIX(priv, DEST_PORT, &rx_hdl->dst.arr[i]),
 						rx_hdl->dst.arr[i].proto,
 						rx_hdl->dst.arr[i].port_num);
-					rx_hdl->hdl_committed = is_filter_applied(priv, DEST_PORT, &rx_hdl->dst.arr[i]);
+					if (!rx_hdl->hdl_committed)
+						rx_hdl->hdl_committed = is_filter_applied(priv, DEST_PORT, &rx_hdl->dst.arr[i]);
 				}
 
 				strlcat(table, row, TABLE_BUFFER);
@@ -2651,7 +2748,8 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						rx_hdl->smac.arr[i][4],
 						rx_hdl->smac.arr[i][5]);
 				strlcat(table, row, TABLE_BUFFER);
-				rx_hdl->hdl_committed = is_filter_applied(priv, SRC_MAC,  &rx_hdl->smac.arr[i]);
+				if (!rx_hdl->hdl_committed)
+					rx_hdl->hdl_committed = is_filter_applied(priv, SRC_MAC,  &rx_hdl->smac.arr[i]);
 			}
 
 			scnprintf(row, ROW_BUFFER, "    %sdmac:\n", TC_SKIP_PREFIX(rx_node, hw_rxch));
@@ -2667,51 +2765,16 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						rx_hdl->dmac.arr[i][4],
 						rx_hdl->dmac.arr[i][5]);
 				strlcat(table, row, TABLE_BUFFER);
-				rx_hdl->hdl_committed = is_filter_applied(priv, DEST_MAC, &rx_hdl->dmac.arr[i]);
+				if (!rx_hdl->hdl_committed)
+					rx_hdl->hdl_committed = is_filter_applied(priv, DEST_MAC, &rx_hdl->dmac.arr[i]);
 			}
 			if (rx_hdl->pcp.len)
 				rx_hdl->hdl_committed = true;
 		}
 	}
 
-	scnprintf(row, ROW_BUFFER, "DL TCs: \n");
-	strlcat(table, row, TABLE_BUFFER);
-	list_for_each(ptr, qos_tx) {
-		tx_node = to_qos_routing_tx(ptr);
-		scnprintf(row, ROW_BUFFER,"%s- %u:\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch), tx_node->tc_prio);
-		strlcat(table, row, TABLE_BUFFER);
-
-		scnprintf(row, ROW_BUFFER, "  %saction: %s\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch),
-			  (tx_node->action == IOSS_QOS_HW_PATH)? "HW" : "SW");
-		strlcat(table, row, TABLE_BUFFER);
-
-		scnprintf(row, ROW_BUFFER, "  %sbw: %u:%u\n", TX_TC_SKIP_PREFIX(tx_node, hw_txch),
-			  tx_node->cbs_bw.low_bw, tx_node->cbs_bw.high_bw);
-		strlcat(table, row, TABLE_BUFFER);
-
-		scnprintf(row, ROW_BUFFER, "    bw allocated: %u\n", qos_tables.bw_allocated[tx_node->tc_prio]);
-		strlcat(table, row, TABLE_BUFFER);
-		if (tx_node->action == IOSS_QOS_SW_PATH) {
-			scnprintf(row, ROW_BUFFER, "    handle: %u\n", tx_node->handle);
-			strlcat(table, row, TABLE_BUFFER);
-
-			scnprintf(row, ROW_BUFFER, "    pcp: ");
-			strlcat(table, row, TABLE_BUFFER);
-			for (i = 0; i < tx_node->pcp.len; i++) {
-				scnprintf(row, ROW_BUFFER, "%u ", tx_node->pcp.arr[i]);
-				strlcat(table, row, TABLE_BUFFER);
-			}
-			scnprintf(row, ROW_BUFFER, "\n");
-			strlcat(table, row, TABLE_BUFFER);
-                }
-		find_tc_queue_channel(&qos_tables, tx_node->tc_prio, &tc_queue, &tc_channel, false);
-		scnprintf(row, ROW_BUFFER, "  %squeue: %u\n  %schannel: %u\n",
-			  TX_TC_SKIP_PREFIX(tx_node, hw_txch), tc_queue, TX_TC_SKIP_PREFIX(tx_node, hw_txch), tc_channel);
-		strlcat(table, row, TABLE_BUFFER);
-	}
-
 	scnprintf(row, ROW_BUFFER, "Applied: ");
-	strlcat(table, row, TABLE_BUFFER);
+	strlcat(applied, row, APPLIED_BUFFER);
 	list_for_each(ptr, qos_rx) {
 		rx_node = to_qos_rx_tc(ptr);
 		rx_flow_hdl = &rx_node->hdl_node;
@@ -2719,7 +2782,7 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 			rx_hdl = to_qos_routing_rx_hdl(hdl_ptr);
 			if (rx_hdl->hdl_committed) {
 				scnprintf(row, ROW_BUFFER, "%u ", rx_hdl->hdl);
-				strlcat(table, row, TABLE_BUFFER);
+				strlcat(applied, row, APPLIED_BUFFER);
 			}
 		}
 	}
@@ -2727,17 +2790,22 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 		tx_node = to_qos_routing_tx(ptr);
 		if (tx_node->committed && tx_node->action == IOSS_QOS_SW_PATH) {
 			scnprintf(row, ROW_BUFFER, "%u ", tx_node->handle);
-			strlcat(table, row, TABLE_BUFFER);
+			strlcat(applied, row, APPLIED_BUFFER);
 		}
 	}
 	scnprintf(row, ROW_BUFFER, "\n");
-	strlcat(table, row, TABLE_BUFFER);
+	strlcat(applied, row, APPLIED_BUFFER);
+
+	ret = sysfs_emit(buf, "%s%s\n", applied, table);
 
 	kfree(row);
 	kfree(table);
+	kfree(applied);
+	return ret;
 
-	return snprintf(buf, TABLE_BUFFER, "%s\n", table);
-
+applied_alloc_err:
+	ioss_qos_dev_err(NULL, "Applied buffer allocation failed");
+	kfree(table);
 table_alloc_err:
 	ioss_qos_dev_err(NULL, "Table buffer allocation failed");
 	kfree(row);
