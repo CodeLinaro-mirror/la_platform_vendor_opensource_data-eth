@@ -762,7 +762,6 @@ static struct platform_driver qcom_ethqos_driver = {
 	.shutdown = qcom_ethqos_shutdown,
 	.driver = {
 		.name           = DRV_NAME,
-		.pm		= &qcom_ethqos_pm_ops,
 		.of_match_table = of_match_ptr(qcom_ethqos_match),
 	},
 };
