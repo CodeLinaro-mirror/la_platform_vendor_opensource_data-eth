@@ -64,6 +64,17 @@ del_tc() {
             echo "TC command couldn't be executed successfully, please refer to help page and retry it."
             return $exit_status
         fi
+    elif [ "$1" == "clsact" ]
+    then
+	# tc qdisc del dev eth0 clsact
+        tc_commands="qdisc del dev $dev_name clsact"
+        /sbin/tc $tc_commands
+        exit_status=$?
+        if [ $exit_status -ne 0 ]
+        then
+            echo "TC command couldn't be executed successfully, please refer to help page and retry it."
+            return $exit_status
+        fi
     elif [ "$1" == "all" ]
     then
         shift
@@ -79,6 +90,15 @@ del_tc() {
         fi
         # tc filter del dev eth0 egress
         tc_commands="filter del dev $dev_name egress"
+        /sbin/tc $tc_commands
+        exit_status=$?
+        if [ $exit_status -ne 0 ]
+        then
+            echo "TC command couldn't be executed successfully, please refer to help page and retry it."
+            return $exit_status
+        fi
+        # tc qdisc del dev eth0 clsact
+        tc_commands="qdisc del dev $dev_name clsact"
         /sbin/tc $tc_commands
         exit_status=$?
         if [ $exit_status -ne 0 ]
@@ -414,6 +434,7 @@ Usage:
     eg: eth-cli add eth0 filter prio 2 ipsrc 192.168.114.2 priority 3
     eg: eth-cli add eth0 filter prio 2 ip6src fe80::255:7bff:feb8:80fa  priority 3
     eg: eth-cli add eth0 clsact
+    eg: eth-cli del eth0 clsact
     eth-cli del <dev> <all>
     eth-cli show <dev>
     eth-cli tc_support <dev> <enable|disable>
