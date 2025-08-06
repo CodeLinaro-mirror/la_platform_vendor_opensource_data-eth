@@ -16,6 +16,8 @@
 #include <linux/slab.h>
 #include <linux/poll.h>
 #include <linux/iommu.h>
+#include <linux/if_vlan.h>
+
 
 #include <linux/etherdevice.h>
 #include <linux/rtnetlink.h>
@@ -27,6 +29,8 @@
 #include<linux/tcp.h>
 #include<linux/inet.h>
 #include<linux/kthread.h>
+#include <linux/netdevice.h>
+#include <linux/notifier.h>
 
 #include "stmmac_thin.h"
 #include "stmmac_platform_thin.h"
@@ -49,9 +53,13 @@ struct client_socket
 	struct kthread_worker kworker;
 	struct task_struct *task;
 	struct kthread_work init_client;
+	struct kthread_worker poll_worker;
 	struct kthread_work read_data;
+	struct kthread_work poll_work;
+	struct task_struct *poll_task;
 
 	int connect_retry_cnt;
+	int poll_active;
 };
 struct client_socket client_sk;
 bool pending_data;
@@ -61,6 +69,22 @@ void *ipc_emac_thin_log_ctxt;
 struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx = {0};
 struct qcom_ethqos *pethqos;
 
+struct vlan_info {
+	int vlan_status;
+	int vid;
+	int gvm_link_state;
+};
+
+struct vlan_info client_vlan;
+
+enum {
+	HEALTH_MONITOR = 1,
+	DEL_GVM_THIN_VLAN = 2,
+	ADD_GVM_THIN_VLAN = 3,
+	ADD_ALL_GVM_THIN_VLAN = 4,
+	GVM_REMOVE = 5
+};
+
 struct emac_fe_ev {
 	struct list_head list;
 	unsigned long ev;
@@ -69,6 +93,17 @@ struct emac_fe_ev {
 enum domain_t {
 	POWER_MDIO = 0,
 };
+
+enum link_state {
+	IDLE,
+	UP_SENT,
+	DOWN_SENT
+};
+
+static enum link_state state = IDLE;
+static DEFINE_SPINLOCK(state_lock);
+
+static void qcom_ethqos_client_poll(struct kthread_work *work);
 
 static void emac_fe_ev_wq(struct work_struct *work)
 {
@@ -107,6 +142,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 				   !priv->dev_inited) {
 				ETHQOSINFO("init driver on HW up\n");
 				stmmac_dvr_init(priv->dev);
+				priv->add_filter(priv->dev);
 			}
 			break;
 		case EMAC_HW_DOWN:
@@ -160,7 +196,7 @@ static int qcom_ethqos_data_ready_notify(struct qcom_ethqos *ethqos, int ev) {
 
 	emac_ev = kzalloc(sizeof(struct emac_fe_ev), GFP_ATOMIC);
 	if (!emac_ev) {
-		ETHQOSERR("emac_fe_ev alloc failed");
+		ETHQOSERR("emac_fe_ev alloc failed\n");
 		return -ENOMEM;
 	}
 	emac_ev->ev = ev;
@@ -171,6 +207,35 @@ static int qcom_ethqos_data_ready_notify(struct qcom_ethqos *ethqos, int ev) {
 	queue_work(ethqos->wq, &ethqos->emac_fe_work);
 	return 0;
 }
+
+void qcom_ethqos_client_sock_cleanup(void) {
+
+	ETHQOSINFO("entry\n");
+	kthread_cancel_work_sync(&client_sk.read_data);
+	kthread_cancel_work_sync(&client_sk.init_client);
+	kthread_flush_work(&client_sk.init_client);
+	kthread_flush_work(&client_sk.read_data);
+
+	if(client_sk.conn_socket)
+	{
+		kernel_sock_shutdown(client_sk.conn_socket,SHUT_RDWR);
+	}
+
+	if(client_sk.conn_socket)
+	{
+		sock_release(client_sk.conn_socket);
+		client_sk.conn_socket = NULL;
+	}
+
+	if(client_sk.server)
+	{
+		kfree(client_sk.server);
+		client_sk.server = NULL;
+	}
+
+	ETHQOSINFO("exit\n");
+}
+
 
 static void qcom_ethqos_client_receive(struct kthread_work *work) {
 	struct msghdr msg;
@@ -234,7 +299,7 @@ static void qcom_ethqos_client_data_ready(struct sock *sk) {
 }
 
 void qcom_ethqos_client_data_recieved(struct sock *sk) {
-	ETHQOSDBG("Recieved before connect");
+	ETHQOSDBG("Recieved before connect\n");
 	pending_data = true;
 }
 
@@ -279,7 +344,7 @@ connect:
 		/*retry mechanish here*/
 		if (client_sk.connect_retry_cnt > 0)
 		{
-			wait_event_timeout(conn_wait_queue, 0, 0.05 * HZ);
+			wait_event_timeout(conn_wait_queue, 0, 2 * HZ);
 			 --client_sk.connect_retry_cnt;
 			 goto connect;
 		}
@@ -321,34 +386,183 @@ int qcom_ethqos_client_connect(void *prv, bool is_resume) {
 	return 0;
 }
 
+int send_with_retry(struct vlan_info vlan)
+{
+	struct msghdr msg;
+	struct kvec vec;
+	int retries = 0;
+	int ret = 0;
 
-void qcom_ethqos_client_sock_cleanup(void) {
+	vec.iov_base = &vlan;
+	vec.iov_len = sizeof(vlan);
+	msg.msg_name = NULL;
+	msg.msg_namelen = 0;
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
+	msg.msg_flags = MSG_DONTWAIT;
 
-	ETHQOSINFO("entry\n");
+	while (retries < MAX_RECEIVE_RETRIES) {
+		if (client_sk.conn_socket) {
+			ret = kernel_sendmsg(client_sk.conn_socket, &msg, &vec, 1, sizeof(vlan));
+			if (ret < 0) {
+				if (ret == -EPIPE || ret == -ECONNRESET || ret == -ECONNABORTED) {
+					ETHQOSINFO(" lost connection!!!\n");
+					qcom_ethqos_client_sock_cleanup();
+					qcom_ethqos_client_connect(client_sk.ethqos, false);
+				}
+				ETHQOSINFO("send failed, retrying...ret = %d\n", ret);
+			} else if (vlan.vlan_status != HEALTH_MONITOR) {
+				ETHQOSINFO("gvm sent vlan state %d, vid = %d\n", vlan.vlan_status, vlan.vid);
+			return 0;
+			}
+		}
+		retries++;
+		wait_event_timeout(conn_wait_queue, 0, 0.001 * HZ);
+	}
+	return -1;
+}
 
-	kthread_cancel_work_sync(&client_sk.read_data);
-	kthread_cancel_work_sync(&client_sk.init_client);
-	kthread_flush_work(&client_sk.init_client);
-	kthread_flush_work(&client_sk.read_data);
+static int netdev_event_listener(struct notifier_block *nb, unsigned long event, void *data)
+{
+	struct net_device *netdev = netdev_notifier_info_to_dev(data);
+	unsigned long flags;
 
-	if(client_sk.conn_socket)
-	{
-		kernel_sock_shutdown(client_sk.conn_socket,SHUT_RDWR);
+	if (!netdev || !netdev->dev.parent || !netdev->dev.parent->driver)
+		return NOTIFY_DONE;
+
+	if (netdev->priv_flags & IFF_802_1Q_VLAN) {
+		ETHQOSDBG("Skipping VLAN interface: %s\n", netdev->name);
+		return NOTIFY_DONE;
 	}
 
-	if(client_sk.conn_socket)
-	{
-		sock_release(client_sk.conn_socket);
-		client_sk.conn_socket = NULL;
+	if (strcmp(netdev->dev.parent->driver->name, DRV_NAME) != 0)
+		return NOTIFY_DONE;
+
+	ETHQOSDBG("driver name = %s\n", netdev->dev.parent->driver->name);
+	spin_lock_irqsave(&state_lock, flags);
+	switch (event) {
+		case NETDEV_UP:
+			if (state != UP_SENT) {
+				ETHQOSINFO("thin driver interface is UP\n");
+				client_vlan.gvm_link_state = EMAC_LINK_UP;
+				client_vlan.vlan_status = ADD_ALL_GVM_THIN_VLAN;
+				client_vlan.vid = 0;
+				send_with_retry(client_vlan);
+				state = UP_SENT;
+			}
+			break;
+		case NETDEV_DOWN:
+			if (state != DOWN_SENT) {
+				ETHQOSINFO("thin driver interface is DOWN\n");
+				client_vlan.gvm_link_state = EMAC_LINK_DOWN;
+				client_vlan.vid = 0;
+				client_vlan.vlan_status = DEL_GVM_THIN_VLAN;
+				send_with_retry(client_vlan);
+				state = DOWN_SENT;
+			}
+			break;
+		default:
+			break;
+	}
+	spin_unlock_irqrestore(&state_lock, flags);
+	return NOTIFY_OK;
+}
+
+static struct notifier_block netdev_notifier = {
+	.notifier_call = netdev_event_listener,
+};
+
+static int qcom_ethqos_add_filter(struct net_device *ndev)
+{
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	enum emac_ctrl_fe_filter_types filter_type;
+	union emac_ctrl_fe_filter filter;
+	int ret = -EPERM;
+
+	if (priv->emac_state < EMAC_HW_UP_ST) {
+		ETHQOSINFO("emac HW is not ready for adding filter\n");
+		return ret;
 	}
 
-	if(client_sk.server)
-	{
-		kfree(client_sk.server);
-		client_sk.server = NULL;
+	switch (priv->filter_type) {
+	case VLAN_TYPE:
+		filter_type = VLAN_FILTER;
+		filter.vlan_id = priv->vid;
+		client_vlan.vlan_status = ADD_GVM_THIN_VLAN;
+		client_vlan.vid = priv->vid;
+		client_vlan.gvm_link_state = EMAC_LINK_UP;
+		ret = send_with_retry(client_vlan);
+		ETHQOSINFO("vlan %d is UP\n", priv->vid);
+		break;
+	default:
+		ETHQOSINFO("Wrong filter type %d\n", priv->filter_type);
+		break;
+	}
+	return ret;
+}
+
+static int qcom_ethqos_del_filter(struct net_device *ndev)
+{
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	enum emac_ctrl_fe_filter_types filter_type;
+	union emac_ctrl_fe_filter filter;
+	int ret = -EPERM;
+
+	if (priv->emac_state < EMAC_HW_UP_ST) {
+		ETHQOSINFO("emac HW is not ready for deleting filter\n");
+		return ret;
 	}
 
-	ETHQOSINFO("exit\n");
+	if (priv->filter_type == VLAN_TYPE) {
+		filter_type = VLAN_FILTER;
+		filter.vlan_id = priv->vid;
+		ETHQOSINFO("vlan %d is DOWN\n", priv->vid);
+		client_vlan.vlan_status = DEL_GVM_THIN_VLAN;
+		client_vlan.vid = priv->vid;
+		client_vlan.gvm_link_state = EMAC_LINK_UP;
+		return send_with_retry(client_vlan);
+	}
+	return ret;
+}
+
+static void qcom_ethqos_client_poll(struct kthread_work *work)
+{
+	struct vlan_info vlan;
+	vlan.vlan_status = HEALTH_MONITOR;
+	vlan.vid = 0;
+	vlan.gvm_link_state = 0;
+
+	while (client_sk.poll_active) {
+		if (client_sk.conn_socket) {
+			ETHQOSDBG("Sending health monitor\n");
+			send_with_retry(vlan);
+		}
+		wait_event_timeout(conn_wait_queue, 0, 1 * HZ);
+	}
+}
+
+void qcom_ethqos_client_poll_worker_start(void)
+{
+	ETHQOSINFO("Starting poll worker thread\n");
+	client_sk.poll_active = 1;
+	kthread_init_worker(&client_sk.poll_worker);
+	client_sk.poll_task = kthread_run(kthread_worker_fn, &client_sk.poll_worker, "eth_poll_worker");
+	if (IS_ERR(client_sk.poll_task)) {
+		ETHQOSERR("Failed to create poll worker thread\n");
+		return;
+	}
+
+	kthread_init_work(&client_sk.poll_work, qcom_ethqos_client_poll);
+	kthread_queue_work(&client_sk.poll_worker, &client_sk.poll_work);
+
+	return;
+}
+
+static int qcom_ethqos_is_genpd_on(struct device *dev)
+{
+	struct generic_pm_domain *genpd = pd_to_genpd(dev->pm_domain);
+
+	return (genpd->status == GENPD_STATE_ON);
 }
 
 static int qcom_ethqos_domain_on(struct qcom_ethqos *ethqos, enum domain_t dom)
@@ -357,11 +571,11 @@ static int qcom_ethqos_domain_on(struct qcom_ethqos *ethqos, enum domain_t dom)
 	int ret = 0;
 
 	ETHQOSDBG("qcom_ethqos_domain_on start\n");
-
+	if(!qcom_ethqos_is_genpd_on(dev)){
 	ret = pm_runtime_resume_and_get(dev);
 	if (ret < 0)
 		dev_err(dev, "poweron(domain=%d) failed.(err=%d)\n", dom, ret);
-
+	}
 	return ret;
 }
 
@@ -371,11 +585,11 @@ static int qcom_ethqos_domain_off(struct qcom_ethqos *ethqos, enum domain_t dom)
 	int ret = 0;
 
 	ETHQOSDBG("qcom_ethqos_domain_off start\n");
-
+	if(qcom_ethqos_is_genpd_on(dev)){
 	ret = pm_runtime_put_sync(dev);
 	if (ret < 0)
 		dev_err(dev, "poweroff(domain=%d) failed.(err=%d)\n", dom, ret);
-
+	}
 	return ret;
 }
 
@@ -617,13 +831,15 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv = netdev_priv(ndev);
 
 	priv->ethqos_client_connect = qcom_ethqos_client_connect;
+	priv->add_filter = qcom_ethqos_add_filter;
+	priv->del_filter = qcom_ethqos_del_filter;
 	priv->is_gy_en = true;
 
 	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1")) {
 		if (!pm_runtime_enabled(&ethqos->pdev->dev)) {
 			ret_domain = devm_pm_runtime_enable(&ethqos->pdev->dev);
 			if (ret_domain)
-				ETHQOSERR("Failed : enable the pm runtime : %d",ret_domain);
+				ETHQOSERR("Failed : enable the pm runtime : %d\n",ret_domain);
 			else {
 				priv->clks_config = qcom_ethqos_domain_transition_d0d1;
 				ETHQOSINFO("GVM ETH Power domain loaded successfully.\n");
@@ -631,6 +847,8 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		}
 	}
 	priv->emac_state = EMAC_INIT_ST;
+	qcom_ethqos_client_poll_worker_start();
+	register_netdevice_notifier(&netdev_notifier);
 
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe end");
@@ -649,6 +867,10 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 {
 	struct qcom_ethqos *ethqos;
 	int ret;
+	struct vlan_info vlan;
+	vlan.vlan_status = GVM_REMOVE;
+	vlan.vid = 0;
+	vlan.gvm_link_state = 2;
 
 	if (of_device_is_compatible(pdev->dev.of_node,
 				    "qcom,emac-thin-smmu-embedded")) {
@@ -661,6 +883,11 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 		return -ENODEV;
 
 	ETHQOSINFO("Enter\n");
+	unregister_netdevice_notifier(&netdev_notifier);
+	send_with_retry(vlan);
+	client_sk.poll_active = 0;
+	kthread_cancel_work_sync(&client_sk.poll_work);
+	kthread_flush_work(&client_sk.poll_work);
 	qcom_ethqos_client_sock_cleanup();
 	destroy_workqueue(ethqos->wq);
 	ret = stmmac_thin_pltfr_remove(pdev);
@@ -771,13 +998,11 @@ static int __init qcom_ethqos_init_module(void)
 	int ret = 0;
 
 	ETHQOSINFO("\n");
-
 	ret = platform_driver_register(&qcom_ethqos_driver);
 	if (ret < 0) {
-		ETHQOSINFO("qcom-ethqos: Driver registration failed");
+		ETHQOSINFO("qcom-ethqos: Driver registration failed\n");
 		return ret;
 	}
-
 	ETHQOSINFO("EMAC THIN driver registered \n");
 
 	return ret;
