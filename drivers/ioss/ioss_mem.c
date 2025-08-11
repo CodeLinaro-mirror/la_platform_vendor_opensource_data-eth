@@ -4,7 +4,6 @@
  */
 
 #include <linux/iommu.h>
-#include <linux/qcom-iommu-util.h>
 
 #include "ioss_i.h"
 
@@ -57,16 +56,6 @@ static void *llcc_mem_alloc(struct ioss_device *idev,
 
 	if (!tcm_mem || tcm_in_use || size > tcm_mem->mem_size)
 		return NULL;
-
-	/* If SMMU S1 bypass is enabled, we do not have to map/remap TCM to device. */
-	rc = qcom_iommu_get_mappings_configuration(domain);
-	if ((rc > 0) && (rc & QCOM_IOMMU_MAPPING_CONF_S1_BYPASS)) {
-		ioss_dev_log(idev, "SMMU is in S1 bypass. Skipping TCM DMA mapping.");
-
-		tcm_in_use = true;
-		*daddr = tcm_mem->phys_addr;
-		return tcm_mem->virt_addr;
-	}
 
 	/* Use dma_map_resource() to map TCM so that a valid IOVA is allocated
 	 * iommu_unmap followed byiommu_map is used to map TCM memory as normal memory

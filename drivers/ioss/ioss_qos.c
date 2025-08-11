@@ -5,9 +5,7 @@
 #include <linux/inet.h>
 #include <linux/of.h>
 
-#include "ioss.h"
-#include "ioss_qos.h"
-
+#include "include/linux/msm/ioss.h"
 #include "ioss_i.h"
 
 #define __create_sysfs(idev, qos_kobj, qos_node, uid, gid, qos_sysfs_err) \

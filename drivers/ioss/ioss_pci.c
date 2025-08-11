@@ -7,8 +7,6 @@
 #include <linux/device.h>
 #include <linux/platform_device.h>
 
-#include <linux/msm_pcie.h>
-
 #include "ioss_i.h"
 
 static int ioss_pci_add_device(struct pci_dev *pdev, struct ioss *ioss)
@@ -136,16 +134,23 @@ void ioss_pci_stop(struct ioss *ioss)
 static int ioss_pci_nop_suspend(struct ioss_device *idev)
 {
 	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(idev));
+	int rc;
 
 	idev->pm_stats.apps_suspend++;
 
 	/* state_saved unset to avoid pci state restore that will reset MSI-X */
-	pdev->state_saved = false;
 
 	/* no_d3hot set to avoid pci restore state during pci_pm_resume_noirq()
 	* and to avoid pci save state during pci_pm_suspend_noirq()
 	*/
-	pdev->no_d3hot = true;
+
+	rc = pci_save_state(pdev);
+	if (rc) {
+		ioss_dev_log(idev,"pci_save_state failed = %d ",rc);
+		return rc;
+	}
+
+	pci_d3cold_disable(pdev);
 
 	ioss_dev_dbg(idev, "Device suspend performing nop");
 
@@ -157,7 +162,9 @@ static int ioss_pci_nop_resume(struct ioss_device *idev)
 	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(idev));
 	idev->pm_stats.apps_resume++;
 
-	pdev->no_d3hot = false;
+	pci_restore_state(pdev);
+	pci_d3cold_enable(pdev);
+
 	ioss_dev_dbg(idev, "Device resume performing nop");
 
 	return 0;
@@ -303,22 +310,15 @@ void ioss_pci_restore_pm_ops(struct ioss_device *idev)
 
 int ioss_pci_enable_pc(struct ioss_device *idev)
 {
-	int rc;
 	struct device *dev = ioss_idev_to_real(idev);
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 
-	rc = msm_pcie_pm_control(MSM_PCIE_ENABLE_PC,
-		pci_dev->bus->number, pci_dev, NULL, MSM_PCIE_CONFIG_INVALID);
-
-	if (rc) {
-		ioss_dev_err(idev,
-			"Failed to enable MSM PCIe power collapse");
-		return rc;
-	}
+	pci_restore_state(pci_dev);
+	pci_d3cold_enable(pci_dev);
 
 	ioss_dev_log(idev, "Enabled MSM PCIe power collapse");
 
-	return rc;
+	return 0;
 }
 
 int ioss_pci_disable_pc(struct ioss_device *idev)
@@ -327,14 +327,13 @@ int ioss_pci_disable_pc(struct ioss_device *idev)
 	struct device *dev = ioss_idev_to_real(idev);
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 
-	rc = msm_pcie_pm_control(MSM_PCIE_DISABLE_PC,
-		pci_dev->bus->number, pci_dev, NULL, MSM_PCIE_CONFIG_INVALID);
+        rc = pci_save_state(pci_dev);
 
 	if (rc) {
-		ioss_dev_log(idev,
-			"Failed to disable MSM PCIe power collapse");
+		ioss_dev_log(idev,"pci_save_state failed = %d ",rc);
 		return rc;
 	}
+	pci_d3cold_disable(pci_dev);
 
 	ioss_dev_log(idev, "Disabled MSM PCIe power collapse");
 
