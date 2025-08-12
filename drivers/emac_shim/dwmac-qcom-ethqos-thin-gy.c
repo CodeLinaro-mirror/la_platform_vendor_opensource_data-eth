@@ -210,6 +210,9 @@ static int qcom_ethqos_data_ready_notify(struct qcom_ethqos *ethqos, int ev) {
 
 void qcom_ethqos_client_sock_cleanup(void) {
 
+	if (!client_sk.conn_socket)
+		return;
+
 	ETHQOSINFO("entry\n");
 	kthread_cancel_work_sync(&client_sk.read_data);
 	kthread_cancel_work_sync(&client_sk.init_client);
@@ -949,6 +952,7 @@ static int qcom_ethqos_suspend(struct device *dev)
 	if (!ret) {
 		ethqos->suspended = true;
 		priv->emac_state = EMAC_INIT_ST;
+		qcom_ethqos_client_sock_cleanup();
 	}
 
 	priv->boot_kpi = false;
@@ -977,6 +981,9 @@ static int qcom_ethqos_resume(struct device *dev)
 		ETHQOSINFO(" Resume not possible\n");
 		return 0;
 	}
+
+	if (ethqos->suspended)
+		qcom_ethqos_client_connect(client_sk.ethqos, false);
 
 	ETHQOSDBG("<--Resume Exit\n");
 	return ret;
