@@ -616,29 +616,25 @@ static void delete_filter_table(struct list_head *filter_table)
 
 static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type filter)
 {
-	struct list_head *filter_node1, *filter_node2;
-	struct list_head *filter_node3, *filter_node4;
-	struct dma_filter_table *filter_node_curr, *filter_node_next;
+	struct dma_filter_table *filter_node_curr, *filter_node_next, *filter_node_tmp;
 
 	u8 mask_len;
 	bool is_last = false;
 
-	list_for_each_safe(filter_node1, filter_node2, filter_table) {
-		filter_node_curr = to_dma_filter_table(filter_node1);
-		list_for_each_safe(filter_node3, filter_node4, filter_node1) {
-			filter_node_next = to_dma_filter_table(filter_node3);
-			if (list_is_last(filter_node3, filter_table)) {
+	list_for_each_entry(filter_node_curr, filter_table, node) {
+		list_for_each_entry_safe(filter_node_next, filter_node_tmp, &filter_node_curr->node, node) {
+			if (list_is_last(&filter_node_next->node, filter_table)) {
 				is_last = true;
 			} else {
 				is_last = false;
 			}
-			if (!list_is_last(filter_node1, filter_table)) {
+			if (!list_is_last(&filter_node_curr->node, filter_table)) {
 				if (filter == DEST_PORT) {
 					if (filter_node_curr->dst_port.proto ==
                                             filter_node_next->dst_port.proto &&
                                             filter_node_curr->dst_port.port_num ==
                                             filter_node_next->dst_port.port_num &&
-                                            filter_node_curr->dma_ch != filter_node_next->dma_ch) {
+                                            filter_node_curr->dma_ch == filter_node_next->dma_ch) {
 						list_del(&filter_node_next->node);
 						if (is_last)
 							break;
@@ -741,8 +737,8 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
 						}
 					}
 				}
-				if (filter_node3) {
-					if (list_is_last(filter_node3, filter_table)) {
+				if (&filter_node_next->node) {
+					if (list_is_last(&filter_node_next->node, filter_table)) {
 						break;
 					}
 				} else {
@@ -751,8 +747,8 @@ static bool is_param_unique(struct list_head *filter_table, enum qos_filter_type
 
 			}
 		}
-		if (filter_node1) {
-			if (list_is_last(filter_node1, filter_table)) {
+		if (&filter_node_curr->node) {
+			if (list_is_last(&filter_node_curr->node, filter_table)) {
 				break;
 			}
 		} else {
@@ -1222,6 +1218,53 @@ static int stmmac_get_cbs_avail_bw(int speed)
 		bw_avail = 0;
 	}
 	return bw_avail;
+}
+
+
+const char* idx_action_to_string(enum idx_action action)
+{
+	switch (action) {
+	case IDX_UNUSED:
+		return "IDX_UNUSED";
+	case IDX_USED:
+		return "IDX_USED";
+	case IDX_CLEAR:
+		return "IDX_CLEAR";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+void dump_qos_priv(struct ioss_device* idev, struct stmmac_priv *priv)
+{
+	int i;
+	ioss_qos_dev_log(idev, "### START PRIV DUMP");
+	ioss_qos_dev_log(idev, "\tpriv->unique_filter_old = %d", priv->unique_filter_old);
+	ioss_qos_dev_log(idev, "\tpriv->unique_filter_new = %d", priv->unique_filter_new);
+	ioss_qos_dev_log(idev, "\tpriv->max_filters_old = %d", priv->max_filters_old);
+	ioss_qos_dev_log(idev, "\tpriv->max_filters_new = %d", priv->max_filters_new);
+
+	for (i = 0; i < MTL_MAX_RX_QUEUES; i++) {
+		ioss_qos_dev_log(idev, "\tpriv->queue_dis[%d] = %d", i, priv->queue_dis[i]);
+	}
+	for (i = 0; i < 32; i++) {
+		ioss_qos_dev_log(idev, "\tpriv->app_filters[%d].action = %s  ,  DMA_CH = %u",
+					i, idx_action_to_string(priv->app_filters[i].action),
+					priv->app_filters[i].dma_ch);
+	}
+
+	for (i = 0; i < MTL_MAX_RX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->is_rx_sw[%d] = %d", i, priv->is_rx_sw[i]);
+	for (i = 0; i < MTL_MAX_TX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->is_tx_sw[%d] = %d", i, priv->is_tx_sw[i]);
+	for (i = 0; i < MTL_MAX_RX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->queue_pcp_map[%d] = %u", i, priv->queue_pcp_map[i]);
+	for (i = 0; i < MTL_MAX_TX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->tx_queue_pcp_map[%d] = %u", i, priv->tx_queue_pcp_map[i]);
+	for (i = 0; i < MTL_MAX_TX_QUEUES; i++)
+		ioss_qos_dev_log(idev, "\tpriv->tx_ch_bw[%d] = %u", i, priv->tx_ch_bw[i]);
+	ioss_qos_dev_log(idev, "END PRIV DUMP ###");
+
 }
 
 static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct list_head *qos_rx, struct list_head *qos_tx)
@@ -1886,7 +1929,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 		/* Set action flag to IDX_CLEAR to delete them later */
 		if (priv->unique_filter_new != priv->unique_filter_old) {
 			/*If unique filter changed, need to delete all filters*/
-			for (i = 0; i < priv->max_filters_new; i++) {
+			for (i = 0; i < priv->max_filters_old; i++) {
 				if (priv->app_filters[i].action == IDX_USED)
 					priv->app_filters[i].action = IDX_CLEAR;
 			}
@@ -2069,6 +2112,7 @@ static struct response stmmac_prepare_qos_info(struct ioss_device *idev, struct 
 	}
 
 	ioss_qos_dev_log(idev, "Response = %d\n", map_info.qos_response_status);
+	dump_qos_priv(idev, priv);
 	return map_info;
 
 	/* check for any other memory leaks*/
@@ -2080,6 +2124,7 @@ err_bw_exhaust:
 			delete_filter_table(&qos_tables.dma_filter_table);
 	delete_route_table(&qos_tables.pcp_route_table);
 	delete_filter_table(&qos_tables.flt_to_app);
+	dump_qos_priv(idev, priv);
 	return map_info;
 }
 
@@ -2152,6 +2197,7 @@ static int stmmac_enable_qos(struct ioss_device *idev)
 			stmmac_enable_qos_filtering(ndev, &qos_tables);
 		} else if (priv->unique_filter_old != PCP) {
 			stmmac_remove_qos_filtering(ndev, priv->unique_filter_old, IDX_USED);
+			stmmac_remove_qos_filtering(ndev, priv->unique_filter_old, IDX_CLEAR);
 		}
 		/*cbs routing*/
 		stmmac_config_qos_cbs(priv, &qos_tables);
