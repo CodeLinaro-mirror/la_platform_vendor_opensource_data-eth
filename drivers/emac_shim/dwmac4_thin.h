@@ -191,7 +191,6 @@
 					 DMA_CHAN_INTR_ENA_RBUE)
 
 /* DMA default interrupt mask for 4.00 */
-#define DMA_CHAN_INTR_DEFAULT_MASK	(DMA_CHAN_INTR_NORMAL | \
-					 DMA_CHAN_INTR_ABNORMAL)
+#define DMA_CHAN_INTR_DEFAULT_MASK	(0)
 
 #endif /* __DWMAC4_THIN_H__ */
