@@ -3,7 +3,7 @@
  *
  * tc956x_xpcs.h
  *
- * Copyright (C) 2021 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2022 Toshiba Electronic Devices & Storage Corporation
  *
  *
  * This program is free software; you can redistribute it and/or modify
@@ -35,6 +35,8 @@
  *  VERSION     : 01-00-02
  *  26 Oct 2021 : 1. Added EEE macros for PHY and MAC Controlled Mode.
  *  VERSION     : 01-00-19
+ *  25 Feb 2022 : 1. Helper function added for XPCS Rx LPI enable/disable
+ *  VERSION     : 01-00-44
  */
 
 #ifndef __TC956X_XPCS_H__
@@ -46,13 +48,14 @@
 #endif
 
 /*XPCS registers*/
-#define XGMAC_SR_MII_CTRL			0x7C0000
+#define XGMAC_SR_MII_CTRL				0x7C0000
 #define XGMAC_VR_MII_AN_CTRL			0x7e0004
 #define XGMAC_VR_MII_DIG_CTRL1			0x7e0000
 #define XGMAC_SR_XS_PCS_CTRL1			0xC0000
 #define XGMAC_SR_XS_PCS_STS1			0xC0004
 #define XGMAC_SR_XS_PCS_CTRL2			0xC001C
 #define XGMAC_SR_XS_PCS_EEE_ABL			0xC0050
+#define XGMAC_SR_XS_PCS_STS2			0xC0020
 #define XGMAC_VR_XS_PCS_DIG_CTRL1		0xe0000
 #define XGMAC_VR_XS_PCS_EEE_MCTRL0		0xe0018
 #define XGMAC_VR_XS_PCS_EEE_MCTRL1		0xe002c
@@ -86,29 +89,30 @@
 #define XGMAC_TRN_LPI				0x1
 
 /*XPCS Register value*/
-#define XGMAC_PCS_MODE_MASK			0xFFFFFFF9
-#define XGMAC_SGMII_MODE			0x00000004
-#define XGMAC_TX_CFIG_INTR_EN_MASK		0xFFFFFFF6	/*Mask TX_CONFIG & MII_AN_INTR_EN*/
-#define XGMAC_MII_AN_INTR_EN			0x00000001	/*MII_AN_INTR_EN*/
-#define XGMAC_MAC_AUTO_SW_EN			0x00000200	/*MAC_AUTO_SW*/
-#define XGMAC_AN_37_ENABLE			0x00001000	/*AN_EN*/
-#define XGMAC_PCS_TYPE_SEL			0xFFFFFFF0	/*PCS_TYPE_SEL: 0x0000*/
-#define XGMAC_USXG_EN				0x00000200	/*USXG_EN enable*/
-#define XGMAC_USXG_MODE				0x00001c00	/*USXG_MODE: 0x000*/
-#define XGMAC_VR_RST				0x00008000	/*set VR_RST*/
-#define XGMAC_USXG_AN_STS_SPEED_MASK		0x00001c00	/*USXGMII autonegotiated speed*/
-#define XGMAC_USXG_AN_STS_DUPLEX_MASK		0x00002000	/*USXGMII autonegtiated duplex*/
-#define XGMAC_USXG_AN_STS_LINK_MASK		0x00004000	/*USXGMII link status*/
-#define XGMAC_SGM_STS_LINK_MASK			0x00000010	/*SGMII link status*/
-#define XGMAC_SGM_STS_DUPLEX			0x00000002	/*SGMII autonegotiated duplex*/
-#define XGMAC_SGM_STS_SPEED_MASK		0x0000000c	/*SGMII autonegotiated speed*/
-#define XGMAC_SOFT_RST				0x00008000	/*SOFT RST*/
-#define XGMAC_C37_AN_COMPL			0x00000001	/*C37 Autoneg complete*/
-#define XGMAC_SR_MII_CTRL_SPEED			0x00002060	/* SR_MII_CTRL Reg SPEED SS13, SS6, SS5 */
-#define XGMAC_SR_MII_CTRL_SPEED_10G		0x00002040	/* SR_MII_CTRL SPEED: 10G */
-#define XGMAC_SR_MII_CTRL_SPEED_5G		0x00002020	/* SR_MII_CTRL SPEED: 5G */
-#define XGMAC_SR_MII_CTRL_SPEED_2_5G		0x00000020	/* SR_MII_CTRL SPEED: 5G */
-#define XGMAC_USRA_RST				0x400		/* USRA_RST */
+#define XGMAC_PCS_MODE_MASK				0xFFFFFFF9
+#define XGMAC_SGMII_MODE				0x00000004
+#define XGMAC_TX_CFIG_INTR_EN_MASK		0xFFFFFFF6/*Mask TX_CONFIG & MII_AN_INTR_EN*/
+#define XGMAC_MII_AN_INTR_EN			0x00000001/*MII_AN_INTR_EN*/
+#define XGMAC_MAC_AUTO_SW_EN			0x00000200/*MAC_AUTO_SW*/
+#define XGMAC_AN_37_ENABLE				0x00001000/*AN_EN*/
+#define XGMAC_PCS_TYPE_SEL				0xFFFFFFF0/*PCS_TYPE_SEL: 0x0000*/
+#define XGMAC_USXG_EN					0x00000200/*USXG_EN enable*/
+#define XGMAC_USXG_MODE					0x00001c00/*USXG_MODE: 0x000*/
+#define XGMAC_VR_RST					0x00008000/*set VR_RST*/
+#define XGMAC_USXG_AN_STS_SPEED_MASK	0x00001c00/*USXGMII autonegotiated speed*/
+#define XGMAC_USXG_AN_STS_DUPLEX_MASK	0x00002000/*USXGMII autonegtiated duplex*/
+#define XGMAC_USXG_AN_STS_LINK_MASK		0x00004000/*USXGMII link status*/
+#define XGMAC_SGM_STS_LINK_MASK			0x00000010/*SGMII link status*/
+#define XGMAC_SGM_STS_DUPLEX			0x00000002/*SGMII autonegotiated duplex*/
+#define XGMAC_SGM_STS_SPEED_MASK		0x0000000c/*SGMII autonegotiated speed*/
+#define XGMAC_SOFT_RST					0x00008000/*SOFT RST*/
+#define XGMAC_C37_AN_COMPL				0x00000001/*C37 Autoneg complete*/
+#define XGMAC_SR_MII_CTRL_SPEED			0x00002060/* SR_MII_CTRL Reg SPEED SS13, SS6, SS5 */
+#define XGMAC_SR_MII_CTRL_SPEED_10G		0x00002040/* SR_MII_CTRL SPEED: 10G */
+#define XGMAC_SR_MII_CTRL_SPEED_5G		0x00002020/* SR_MII_CTRL SPEED: 5G */
+#define XGMAC_SR_MII_CTRL_SPEED_2_5G	0x00000020/* SR_MII_CTRL SPEED: 5G */
+#define XGMAC_USRA_RST					0x400/* USRA_RST */
+#define XGMAC_EEE_LRX_EN			BIT(1)		/* LPI Rx Enable */
 
 
 
@@ -123,5 +127,5 @@ u32 tc956x_xpcs_read(void __iomem *xpcsaddr, u32 pcs_reg_num);
 u32 tc956x_xpcs_write(void __iomem *xpcsaddr, u32 pcs_reg_num, u32 value);
 void tc956x_xpcs_ctrl_ane(struct tc956xmac_priv *priv, bool ane);
 int tc956x_xpcs_init(struct tc956xmac_priv *priv, void __iomem *xpcsaddr);
-
+void tc956x_xpcs_ctrl0_lrx(struct tc956xmac_priv *priv, bool lrx);
 #endif /* __TC956X_XPCS_H__ */
