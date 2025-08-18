@@ -1787,13 +1787,12 @@ void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qo
 			for (i = 0; i <= PCP_MAX_VALUE; i++) {
 				if (qos_table_info->queue_to_pcp_map[queue] & BIT(i)) {
 					stmmac_pfc_tx_flow_ctrl(priv, i);
-					ioss_qos_dev_log(NULL, "[iemac qos] Enable PFC for prio = %d", i);
 				}
 			}
 			/* Copy new pcp_map to priv */
 			priv->queue_pcp_map[queue] = qos_table_info->queue_to_pcp_map[queue];
-			ioss_qos_dev_log(NULL, "[iemac qos]: Install pcp routing pcp = %d, queue = %d\n",
-							getbitpos(qos_table_info->queue_to_pcp_map[queue]), queue);
+			ioss_qos_dev_log(NULL, "[iemac qos]: Install pcp routing pcp = 0x%01x, queue = %d\n",
+						qos_table_info->queue_to_pcp_map[queue], queue);
 		}
 
 			stmmac_map_mtl_to_dma(priv, priv->hw, queue, qos_table_info->queue_to_ch_map[queue]);
