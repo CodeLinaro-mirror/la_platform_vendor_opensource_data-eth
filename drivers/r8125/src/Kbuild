@@ -15,6 +15,6 @@ r8125-y := r8125_n.o \
 		rtl_eeprom.o \
 		rtltool.o \
 		r8125_rss.o \
-		r8125_lib.o \
-		r8125_firmware.o
+		r8125_firmware.o \
+		r8125_fiber.o
 

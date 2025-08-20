@@ -1,15 +1,16 @@
 load(":define_modules.bzl", "define_modules")
 load("//build/kernel/kleaf:kernel.bzl", "ddk_headers")
 
-define_modules("sdxkova", "perf")
-
-define_modules("sdxkova", "debug")
-
-define_modules("sdxkova.cpe.wkk", "perf")
-define_modules("sdxkova.cpe.wkk", "debug")
-
-define_modules("sdxkova.512", "perf")
-define_modules("sdxkova.512", "debug")
+define_modules("pineapple", "consolidate")
+define_modules("pineapple", "perf")
+define_modules("sun", "consolidate")
+define_modules("sun", "perf")
+define_modules("blair", "consolidate")
+define_modules("blair", "perf")
+define_modules("parrot", "consolidate")
+define_modules("parrot", "perf")
+define_modules("monaco", "consolidate")
+define_modules("monaco", "perf")
 
 package(
     default_visibility = [
@@ -18,34 +19,20 @@ package(
 )
 
 ddk_headers(
-    name = "ioss_headers",
+    name = "r8125_headers",
     hdrs = glob([
-        "drivers/ioss/ioss_i.h",
-        "drivers/ioss/ioss_version.h",
-        "drivers/ioss/include/linux/msm/ioss.h",
-        "drivers/ioss/include/linux/msm/ioss_qos.h",
+        "drivers/r8125/src/r8125_firmware.h",
+        "drivers/r8125/src/r8125_dash.h",
+        "drivers/r8125/src/r8125_ptp.h",
+        "drivers/r8125/src/r8125.h",
+        "drivers/r8125/src/r8125_realwow.h",
+        "drivers/r8125/src/r8125_rss.h",
+        "drivers/r8125/src/rtl_eeprom.h",
+        "drivers/r8125/src/rtltool.h",
+		"drivers/r8125/src/r8125_fiber.h",
     ]),
     includes = [
-        "drivers/ioss",
-        "drivers/ioss/include/linux/msm",
-    ],
-)
-
-ddk_headers(
-    name = "rtl8125_headers",
-    hdrs = glob([
-        "drivers/rtl8125/src/r8125_firmware.h",
-        "drivers/rtl8125/src/r8125_dash.h",
-        "drivers/rtl8125/src/r8125_ptp.h",
-        "drivers/rtl8125/src/r8125.h",
-        "drivers/rtl8125/src/r8125_lib.h",
-        "drivers/rtl8125/src/r8125_realwow.h",
-        "drivers/rtl8125/src/r8125_rss.h",
-        "drivers/rtl8125/src/rtl_eeprom.h",
-        "drivers/rtl8125/src/rtltool.h",
-    ]),
-    includes = [
-        "drivers/rtl8125",
-        "drivers/rtl8125/src",
+        "drivers/r8125",
+        "drivers/r8125/src",
     ],
 )

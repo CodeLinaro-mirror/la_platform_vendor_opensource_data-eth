@@ -8,11 +8,11 @@ M ?= $(shell pwd)
 
 r8125-y	:= r8125_n.o \
 		r8125_firmware.o \
-		r8125_lib.o \
 		r8125_ptp.o \
 		r8125_rss.o \
 		rtl_eeprom.o \
-		rtltool.o
+		rtltool.o \
+		r8125_fiber.o
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 

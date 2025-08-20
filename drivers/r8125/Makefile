@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 ################################################################################
 #
-# r8125 is the Linux device driver released for Realtek 2.5Gigabit Ethernet
+# r8125 is the Linux device driver released for Realtek 2.5 Gigabit Ethernet
 # controllers with PCI-Express interface.
 #
-# Copyright(c) 2022 Realtek Semiconductor Corp. All rights reserved.
+# Copyright(c) 2025 Realtek Semiconductor Corp. All rights reserved.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
@@ -26,50 +26,34 @@
 ################################################################################
 
 ################################################################################
-# This product is covered by one or more of the following patents:
-# US6,570,884, US6,115,776, and US6,327,625.
+#  This product is covered by one or more of the following patents:
+#  US6,570,884, US6,115,776, and US6,327,625.
 ################################################################################
 
-CC		:= gcc
-LD		:= ld
-ARCH		:= $(shell uname -m | sed 's/i.86/i386/')
-KSRC		:= /lib/modules/$(shell uname -r)/build
-CONFIG_FILE	:= $(KSRC)/include/linux/autoconf.h
-KMISC		:= /lib/modules/$(shell uname -r)/kernel/drivers/net/
+KFLAG := 2$(shell uname -r | sed -ne 's/^2\.[4]\..*/4/p')x
 
+all: clean modules install
 
-ifeq ($(ARCH),x86_64)
-   MODCFLAGS	+= -mcmodel=kernel -mno-red-zone
+modules:
+ifeq ($(KFLAG),24x)
+	$(MAKE) -C src/ -f Makefile_linux24x modules
+else
+	$(MAKE) -C src/ modules
 endif
-
-#standard flags for module builds
-MODCFLAGS	+= -DLINUX -D__KERNEL__ -DMODULE -O2 -pipe -Wall
-MODCFLAGS	+= -I$(KSRC)/include -I.
-MODCFLAGS	+= -DMODVERSIONS -DEXPORT_SYMTAB -include $(KSRC)/include/linux/modversions.h
-SOURCE		:= r8125_n.c rtl_eeprom.c rtltool.c
-OBJS		:= $(SOURCE:.c=.o)
-
-
-SMP		:= $(shell $(CC) $(MODCFLAGS) -E -dM $(CONFIG_FILE) | \
-   grep CONFIG_SMP | awk '{print $$3}')
-
-ifneq ($(SMP),1)
-   SMP		:= 0
-endif
-
-ifeq ($(SMP),1)
-   MODCFLAGS	+= -D__SMP__
-endif
-
-modules: $(OBJS)
-	$(LD) -r $^ -o r8125.o
-	strip --strip-debug r8125.o
-
-%.o: %.c
-	$(CC) $(MODCFLAGS) -c $< -o $@
 
 clean:
-	rm *.o -f
+ifeq ($(KFLAG),24x)
+	$(MAKE) -C src/ -f Makefile_linux24x clean
+else
+	$(MAKE) -C src/ clean
+endif
 
 install:
-	install -m 744 -c r8125.o $(KMISC)
+ifeq ($(KFLAG),24x)
+	$(MAKE) -C src/ -f Makefile_linux24x install
+else
+	$(MAKE) -C src/ install
+endif
+
+
+
