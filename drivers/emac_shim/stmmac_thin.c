@@ -1291,7 +1291,7 @@ static int stmmac_open(struct net_device *dev)
 		if(priv->clks_config)
 			priv->clks_config(priv->plat->bsp_priv, true);
 	}
-	if (priv->emac_state > EMAC_INIT_ST)
+	if (priv->emac_state > EMAC_INIT_ST && !priv->dev_inited)
 		ret = stmmac_dvr_init(dev);
 	if (!ret && priv->emac_state == EMAC_LINK_UP_ST)
 		stmmac_mac_link_up(dev);
