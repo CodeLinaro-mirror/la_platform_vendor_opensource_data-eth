@@ -228,7 +228,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 		if (ioss_ipa_fill_pipe_info(ch, &cp->ipa_pi)) {
 			ioss_dev_err(idev, "Failed to fill pipe info");
-			return -EFAULT;
+			goto err_ioss_pipe_info;
 		}
 
 		list_add_tail(&cp->ipa_pi.link, &ec->pipe_list);
@@ -239,13 +239,13 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	if (ipa_eth_client_conn_pipes(ec)) {
 		ioss_dev_err(idev, "Failed to connect pipes");
-		return -EINVAL;
+		goto err_ipa_conn_pipes;
 	}
 
 	/* vote for bw */
 	if (ioss_ipa_vote_bw(iface)) {
 		ioss_dev_err(idev, "Failed to vote for bandwidth");
-		return -EINVAL;
+		goto err_ipa_vote_bw;
 	}
 
 	/* Retrieve output from conn_pipes call */
@@ -266,10 +266,31 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	if (ipa_eth_client_reg_intf(ii)) {
 		ioss_dev_err(idev, "Failed to register interface");
-		return -EINVAL;
+		goto err_ipa_reg_intf;
 	}
 
 	return 0;
+
+err_ipa_reg_intf:
+	ioss_for_each_channel(ch, iface) {
+		ch->event.paddr = 0;
+		ch->event.data = 0;
+	}
+err_ipa_vote_bw:
+	if (ipa_eth_client_disconn_pipes(ec))
+		ioss_dev_err(idev, "Failed to disconnect pipes");
+err_ipa_conn_pipes:
+	ioss_for_each_channel(ch, iface) {
+		struct ioss_ch_priv *cp = ch->ioss_priv;
+
+		ioss_ipa_clear_pipe_info(&cp->ipa_pi);
+		memset(&cp->ipa_pi, 0, sizeof(cp->ipa_pi));
+	}
+err_ioss_pipe_info:
+	memset(ii, 0, sizeof(*ii));
+	memset(ec, 0, sizeof(*ec));
+
+	return -EINVAL;
 }
 
 int ioss_ipa_unregister(struct ioss_interface *iface)
