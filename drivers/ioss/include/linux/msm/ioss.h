@@ -386,6 +386,7 @@ struct ioss_device {
 	struct IOSS_QOS_NEW_NODES ioss_qos_new_nodes;
 	bool qos_commit_in_progress;
 	struct response qos_response;
+	bool qos_request_pending;
 };
 
 #define to_ioss_device(device) \

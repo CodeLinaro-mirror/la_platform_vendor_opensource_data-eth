@@ -2397,6 +2397,22 @@ static void ioss_qos_send_ts_status(struct ioss_device *idev)
 		ioss_qos_dev_err(idev, "Failed to send uevent: %d", ret);
 }
 
+static int __ioss_qos_request(struct ioss_device *idev)
+{
+	struct ioss_driver *idrv;
+
+	idev->qos_request_pending = false;
+
+	idrv = to_ioss_driver(idev->dev.driver);
+	if (!idrv)
+		return -EINVAL;
+
+	if (!idrv->qos_ops || !idrv->qos_ops->request_qos)
+		return -EINVAL;
+
+	return idrv->qos_ops->request_qos(idev);
+}
+
 static int __ioss_qos_enable(struct ioss_device *idev)
 {
 	int ret;
@@ -2427,6 +2443,8 @@ int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 	if (!iface)
 		return -EINVAL;
 
+	idev->qos_request_pending = true;
+
 	if (do_ipa_reconnect) {
 		idev->dev.offline = 1;
 		ioss_iface_queue_refresh(iface, true);
@@ -2444,7 +2462,7 @@ int enable_qos_ipa_channels(struct ioss_device *idev, struct response resp)
 		ioss_qos_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 	}
 	else {
-		ret = idrv->qos_ops->request_qos(idev);
+		ret = __ioss_qos_request(idev);
 		ret = __ioss_qos_enable(idev);
 		idev->qos_commit_in_progress = false;
 	}
@@ -2501,7 +2519,7 @@ int ioss_qos_reconfigure(struct ioss_device *idev)
 		return -EINVAL;
 
 	ret = idrv->qos_ops->clear_qos_cache(idev);
-	ret = idrv->qos_ops->request_qos(idev);
+	ret = __ioss_qos_request(idev);
 
 	return ret;
 }
@@ -2552,7 +2570,8 @@ void ioss_qos_refresh(struct ioss_device *idev)
 	u8 tx_qos_channels = 0;
 
 	if (list_empty(&idev->ioss_qos_table.qos_rx_committed_table)
-	    && list_empty(&idev->ioss_qos_table.qos_tx_committed_table)) {
+	    && list_empty(&idev->ioss_qos_table.qos_tx_committed_table)
+	    && !idev->qos_request_pending) {
 		ioss_qos_dev_log(idev, "Nothing to commit - skipping");
 		return;
 	}
@@ -2650,9 +2669,10 @@ void ioss_qos_refresh(struct ioss_device *idev)
 
 	ioss_alloc_qos_ch(idev, res);
 
-	if (!idrv->qos_ops->request_qos)
+	if (__ioss_qos_request(idev)) {
+		ioss_qos_dev_err(idev, "__ioss_qos_request failed");
 		return;
-	idrv->qos_ops->request_qos(idev);
+	}
 
 	idev->qos_enabled = true;
 
