@@ -1313,7 +1313,8 @@ static int stmmac_release(struct net_device *dev)
 	u32 ch = priv->queue;
 	int filter_del;
 
-	dev_info(priv->device, "%s Enter\n", __func__);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	priv->dev_inited = false;
 	priv->dev_opened = false;
 
@@ -1325,6 +1326,7 @@ static int stmmac_release(struct net_device *dev)
 			pr_info("qcom-ethqos-thin: Filter delete successful");
 	}
 
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_stop_queue(priv);
 
 	stmmac_disable_queue(priv);
@@ -1341,6 +1343,7 @@ static int stmmac_release(struct net_device *dev)
 
 	/* Release and free the Rx/Tx resources */
 	free_dma_desc_resources(priv);
+	}
 
 	if(priv->is_gy_en && priv->clks_config)
 		priv->clks_config(priv->plat->bsp_priv, false);
@@ -3022,10 +3025,12 @@ int stmmac_thin_suspend(struct device *dev)
 	if (!ndev || !netif_running(ndev))
 		return 0;
 
-	netdev_info(priv->dev, "%s: Enter", __func__);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	mutex_lock(&priv->lock);
-
 	netif_device_detach(ndev);
+
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_stop_queue(priv);
 
 	stmmac_disable_queue(priv);
@@ -3034,11 +3039,12 @@ int stmmac_thin_suspend(struct device *dev)
 
 	/* Stop TX/RX DMA */
 	stmmac_stop_dma(priv);
+	}
 
 	mutex_unlock(&priv->lock);
 	if(priv->is_gy_en && priv->clks_config)
 		priv->clks_config(priv->plat->bsp_priv, false);
-	netdev_info(priv->dev, "%s: Exit", __func__);
+	dev_info(priv->device, "%s: Exit\n", __func__);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_suspend);
@@ -3119,13 +3125,15 @@ int stmmac_thin_resume(struct device *dev)
 	if (!netif_running(ndev))
 		return 0;
 
-	netdev_info(priv->dev, "%s: Enter", __func__);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	if (priv->is_gy_en && priv->clks_config)
 		priv->clks_config(priv->plat->bsp_priv, true);
 
 	mutex_lock(&priv->lock);
 	netif_device_attach(ndev);
 
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_reset_queues_param(priv);
 	dma_free_tx_skbufs(priv);
 	stmmac_reinit_rx_buffers(priv);
@@ -3143,10 +3151,10 @@ int stmmac_thin_resume(struct device *dev)
 	stmmac_enable_queue(priv);
 
 	stmmac_start_queue(priv);
+	}
 
 	mutex_unlock(&priv->lock);
-	netdev_info(priv->dev, "%s: Exit", __func__);
-
+	dev_info(priv->device, "%s: Exit\n", __func__);
 
 	return 0;
 }
