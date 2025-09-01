@@ -177,6 +177,30 @@ def define_modules(target, variant):
     )
     mod_list.append("{}-defconfig_atlantic_fwd".format(kernel_build_variant))
 
+    ddk_module(
+        name = "{}-defconfig_aqc_ioss".format(kernel_build_variant),
+        out = "aqc_ioss.ko",
+        srcs = [
+            "drivers/aqc_ioss/aqc_ioss.c",
+            "drivers/aqc_ioss/aqc_ioss.h",
+            "drivers/aqc_ioss/aqc_regs.c",
+            "drivers/aqc_ioss/aqc_regs.h",
+        ],
+        kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
+        deps = [
+            ":atlantic_fwd_headers",
+            ":ioss_headers",
+            "//msm-kernel:all_headers",
+            "//build_dir/target-aarch64_cortex-a53_musl/linux-sdx85/dataipa-1.0:include_headers",
+            ":{}-defconfig_ioss".format(kernel_build_variant),
+            ":{}-defconfig_atlantic_fwd".format(kernel_build_variant),
+        ],
+        copts = [
+            "-Wno-error",
+        ],
+    )
+    mod_list.append("{}-defconfig_aqc_ioss".format(kernel_build_variant))
+
     copy_to_dist_dir(
         name = "{}-defconfig_dataeth_dist".format(kernel_build_variant),
         data = mod_list,
