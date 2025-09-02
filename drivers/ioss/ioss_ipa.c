@@ -112,7 +112,7 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 			sizeof(*si->data_buff_list), GFP_KERNEL);
 	if (!sm) {
 		ioss_dev_err(idev,
-			"Kmalloc failed for data buff list");
+			"Kcalloc failed for data buff list");
 		return -EINVAL;
 	}
 	si->fix_buffer_size = ch->config.buff_size;
@@ -133,6 +133,7 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	if (ioss_ipa_hal_fill_si(ch)) {
 		ioss_dev_err(idev,
 			"Failed to fill IPA pipe setup info");
+		kfree(si->data_buff_list);
 		return -EINVAL;
 	}
 
@@ -281,7 +282,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
-	/* connect pipes */
+	/* disconnect pipes */
 	rc = ipa_eth_client_disconn_pipes(ec);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to disconnect pipes");
