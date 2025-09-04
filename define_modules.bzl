@@ -127,6 +127,80 @@ def define_modules(target, variant):
     )
     mod_list.append("{}-defconfig_r8152".format(kernel_build_variant))
 
+    ddk_module(
+        name = "{}-defconfig_atlantic_fwd".format(kernel_build_variant),
+        out = "atlantic_fwd.ko",
+        srcs = [
+            "drivers/atlantic_fwd/atl_compat.c",
+            "drivers/atlantic_fwd/atl_ethtool.c",
+            "drivers/atlantic_fwd/atl_fw.c",
+            "drivers/atlantic_fwd/atl_hw.c",
+            "drivers/atlantic_fwd/atl_hw_ptp.c",
+            "drivers/atlantic_fwd/atl_hwmon.c",
+            "drivers/atlantic_fwd/atl_main.c",
+            "drivers/atlantic_fwd/atl_ptp.c",
+            "drivers/atlantic_fwd/atl_ring.c",
+            "drivers/atlantic_fwd/atl_trace.c",
+            "drivers/atlantic_fwd/atl2_fw.c",
+            "drivers/atlantic_fwd/atl_fwd.c",
+        ],
+
+        conditional_srcs = {
+            "CONFIG_ATLFWD_FWD_NETLINK": {
+                True: [
+                    "drivers/atlantic_fwd/atl_fwdnl.c",
+                    "drivers/atlantic_fwd/atl_fwdnl_params.h",
+                    "drivers/atlantic_fwd/atl_fwdnl_params.c",
+                ],
+            },
+
+            "CONFIG_MACSEC": {
+                True: [
+                    "drivers/atlantic_fwd/macsec/macsec_api.h",
+                    "drivers/atlantic_fwd/macsec/macsec_api.c",
+                    "drivers/atlantic_fwd/macsec/macsec_struct.h",
+                    "drivers/atlantic_fwd/macsec/MSS_Egress_registers.h",
+                    "drivers/atlantic_fwd/macsec/MSS_Ingress_registers.h",
+                    "drivers/atlantic_fwd/atl_macsec.c",
+                ],
+            },
+        },
+        kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
+        deps = [
+            ":atlantic_fwd_headers",
+            "//msm-kernel:all_headers",
+        ],
+        copts = [
+            "-Wno-error",
+            "-DCONFIG_ATLFWD_FWD",
+        ],
+    )
+    mod_list.append("{}-defconfig_atlantic_fwd".format(kernel_build_variant))
+
+    ddk_module(
+        name = "{}-defconfig_aqc_ioss".format(kernel_build_variant),
+        out = "aqc_ioss.ko",
+        srcs = [
+            "drivers/aqc_ioss/aqc_ioss.c",
+            "drivers/aqc_ioss/aqc_ioss.h",
+            "drivers/aqc_ioss/aqc_regs.c",
+            "drivers/aqc_ioss/aqc_regs.h",
+        ],
+        kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
+        deps = [
+            ":atlantic_fwd_headers",
+            ":ioss_headers",
+            "//msm-kernel:all_headers",
+            "//build_dir/target-aarch64_cortex-a53_musl/linux-sdx85/dataipa-1.0:include_headers",
+            ":{}-defconfig_ioss".format(kernel_build_variant),
+            ":{}-defconfig_atlantic_fwd".format(kernel_build_variant),
+        ],
+        copts = [
+            "-Wno-error",
+        ],
+    )
+    mod_list.append("{}-defconfig_aqc_ioss".format(kernel_build_variant))
+
     copy_to_dist_dir(
         name = "{}-defconfig_dataeth_dist".format(kernel_build_variant),
         data = mod_list,
