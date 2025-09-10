@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -737,6 +737,8 @@ static void ioss_refresh_work(struct work_struct *work)
 	if (!net_dev)
 		return;
 
+	mutex_lock(&idev->refresh_lock);
+
 	ioss_dev_dbg(idev, "Refreshing interface %s", idev->net_dev->name);
 
 	iface->link_speed = __fetch_ethtool_link_speed(net_dev);
@@ -749,6 +751,8 @@ static void ioss_refresh_work(struct work_struct *work)
 
 	ioss_dev_log(idev,
 		"Interface %s state is %s", idev->net_dev->name, if_st_s(iface));
+
+	mutex_unlock(&idev->refresh_lock);
 }
 
 int ioss_net_watch_device(struct ioss_device *idev)
@@ -787,7 +791,10 @@ int ioss_net_unwatch_device(struct ioss_device *idev)
 
 	ioss_dev_log(idev, "Unwatching interface %s", idev->net_dev->name);
 
+	mutex_lock(&idev->refresh_lock);
 	idev->unbinding = true;
+	mutex_unlock(&idev->refresh_lock);
+
 	ioss_iface_queue_refresh(iface, true);
 
 	rc = unregister_netdevice_notifier(&iface->net_dev_nb);

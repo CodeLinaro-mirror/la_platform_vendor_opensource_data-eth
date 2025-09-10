@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -243,7 +243,6 @@ static void ioss_bus_remove(struct device *dev)
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
-	ioss_sysfs_remove_idev(idev);
 
 	rc = ioss_net_unwatch_device(idev);
 	if (rc) {
@@ -254,6 +253,8 @@ static void ioss_bus_remove(struct device *dev)
 	if (rc) {
 		ioss_dev_err(idev, "Failed to close device");
 	}
+
+	ioss_sysfs_remove_idev(idev);
 
 	ioss_unregister_panic_notifier(idev);
 	ioss_pci_restore_pm_ops(idev);
@@ -479,6 +480,8 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 
 	ioss_qos_init(idev);
 
+	mutex_init(&idev->refresh_lock);
+
 	return idev;
 }
 
@@ -511,6 +514,8 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 			break;
 		}
 	}
+
+	mutex_destroy(&idev->refresh_lock);
 
 	kfree_sensitive(idev);
 }
