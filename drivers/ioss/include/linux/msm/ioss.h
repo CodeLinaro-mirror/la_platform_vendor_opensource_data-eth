@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -387,6 +387,7 @@ struct ioss_device {
 	bool qos_commit_in_progress;
 	struct response qos_response;
 	bool qos_request_pending;
+	struct mutex refresh_lock;
 };
 
 #define to_ioss_device(device) \
