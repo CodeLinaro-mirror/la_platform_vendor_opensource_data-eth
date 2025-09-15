@@ -1286,15 +1286,16 @@ static int stmmac_open(struct net_device *dev)
 	priv->dev_opened = true;
 	priv->dev_inited = false;
 
+	if (priv->emac_state > EMAC_INIT_ST && !priv->dev_inited)
+		ret = stmmac_dvr_init(dev);
+	if (!ret && priv->emac_state == EMAC_LINK_UP_ST)
+		stmmac_mac_link_up(dev);
+
 	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST ) {
 		priv->ethqos_client_connect(priv->plat->bsp_priv,false);
 		if(priv->clks_config)
 			priv->clks_config(priv->plat->bsp_priv, true);
 	}
-	if (priv->emac_state > EMAC_INIT_ST && !priv->dev_inited)
-		ret = stmmac_dvr_init(dev);
-	if (!ret && priv->emac_state == EMAC_LINK_UP_ST)
-		stmmac_mac_link_up(dev);
 
 	dev_info(priv->device, "%s: ret = %d\n", __func__, ret);
 	return ret;
@@ -3021,6 +3022,7 @@ int stmmac_thin_suspend(struct device *dev)
 	if (!ndev || !netif_running(ndev))
 		return 0;
 
+	netdev_info(priv->dev, "%s: Enter", __func__);
 	mutex_lock(&priv->lock);
 
 	netif_device_detach(ndev);
@@ -3036,6 +3038,7 @@ int stmmac_thin_suspend(struct device *dev)
 	mutex_unlock(&priv->lock);
 	if(priv->is_gy_en && priv->clks_config)
 		priv->clks_config(priv->plat->bsp_priv, false);
+	netdev_info(priv->dev, "%s: Exit", __func__);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_suspend);
@@ -3116,11 +3119,12 @@ int stmmac_thin_resume(struct device *dev)
 	if (!netif_running(ndev))
 		return 0;
 
-	netif_device_attach(ndev);
-	if(priv->is_gy_en && priv->clks_config)
+	netdev_info(priv->dev, "%s: Enter", __func__);
+	if (priv->is_gy_en && priv->clks_config)
 		priv->clks_config(priv->plat->bsp_priv, true);
 
 	mutex_lock(&priv->lock);
+	netif_device_attach(ndev);
 
 	stmmac_reset_queues_param(priv);
 	dma_free_tx_skbufs(priv);
@@ -3141,6 +3145,8 @@ int stmmac_thin_resume(struct device *dev)
 	stmmac_start_queue(priv);
 
 	mutex_unlock(&priv->lock);
+	netdev_info(priv->dev, "%s: Exit", __func__);
+
 
 	return 0;
 }
