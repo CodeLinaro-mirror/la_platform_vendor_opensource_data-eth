@@ -104,6 +104,7 @@ static enum link_state state = IDLE;
 static DEFINE_SPINLOCK(state_lock);
 
 static void qcom_ethqos_client_poll(struct kthread_work *work);
+int send_with_retry(struct vlan_info vlan);
 
 static void emac_fe_ev_wq(struct work_struct *work)
 {
@@ -111,6 +112,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 						  emac_fe_work);
 	struct stmmac_priv *priv = qcom_ethqos_thin_get_priv(ethqos);
 	struct emac_fe_ev *emac_ev;
+	struct vlan_info vlan;
 
 	ETHQOSINFO("Enter - cur state [%u]\n", priv->emac_state);
 	do {
@@ -137,6 +139,10 @@ static void emac_fe_ev_wq(struct work_struct *work)
 			if (ethqos->suspended &&
 			    !stmmac_thin_resume(priv->device)) {
 				ETHQOSINFO("resume on HW up\n");
+				vlan.vlan_status = ADD_ALL_GVM_THIN_VLAN;
+				vlan.vid = 0;
+				vlan.gvm_link_state = EMAC_LINK_UP;
+				send_with_retry(vlan);
 				ethqos->suspended = false;
 			} else if (priv->dev_opened &&
 				   !priv->dev_inited) {
@@ -165,7 +171,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 			break;
 		case EMAC_LINK_DOWN:
 			ETHQOSDBG("Link down ev\n");
-			if (priv->emac_state == EMAC_LINK_UP_ST) {
+			if (priv->emac_state > EMAC_INIT_ST) {
 				priv->emac_state = EMAC_HW_UP_ST;
 				stmmac_mac_link_down(priv->dev);
 			}
@@ -879,7 +885,7 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 	struct vlan_info vlan;
 	vlan.vlan_status = GVM_REMOVE;
 	vlan.vid = 0;
-	vlan.gvm_link_state = 2;
+	vlan.gvm_link_state = EMAC_LINK_DOWN;
 
 	if (of_device_is_compatible(pdev->dev.of_node,
 				    "qcom,emac-thin-smmu-embedded")) {
@@ -930,6 +936,10 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
 	int ret;
+	struct vlan_info vlan;
+	vlan.vlan_status = DEL_GVM_THIN_VLAN;
+	vlan.vid = 0;
+	vlan.gvm_link_state = EMAC_LINK_DOWN;
 
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-thin-smmu-embedded")) {
 		ETHQOSDBG("smmu return\n");
@@ -952,6 +962,7 @@ static int qcom_ethqos_suspend(struct device *dev)
 	if (!ret) {
 		ethqos->suspended = true;
 		priv->emac_state = EMAC_INIT_ST;
+		send_with_retry(vlan);
 		qcom_ethqos_client_sock_cleanup();
 	}
 
@@ -966,9 +977,10 @@ static int qcom_ethqos_resume(struct device *dev)
 	struct qcom_ethqos *ethqos;
 	int ret = 0;
 
-	ETHQOSDBG("Resume Enter\n");
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-thin-smmu-embedded"))
 		return 0;
+
+	ETHQOSINFO("Resume Enter\n");
 
 	ethqos = get_stmmac_bsp_priv(dev);
 
