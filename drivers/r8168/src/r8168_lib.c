@@ -38,9 +38,6 @@
 #include "r8168.h"
 #include "r8168_lib.h"
 
-void __iomem * db_tx;
-void __iomem * db_rx;
-
 static void
 rtl8168_map_to_asic(struct rtl8168_private *tp,
                     struct rtl8168_ring *ring,
@@ -487,7 +484,7 @@ int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
                 return -EIO;
 
         if (ring->direction == RTL8168_CH_DIR_TX) {
-                db_tx = doorbell;
+                ring->db_tx = doorbell;
 
                 /*
                 * IPA tx interrupt is handled by sw path. But if driver
@@ -497,7 +494,7 @@ int rtl8168_request_event(struct rtl8168_ring *ring, unsigned long flags,
 
                 goto out;
         } else
-                db_rx = doorbell;
+                ring->db_rx = doorbell;
 
         message_id = 0;
 
@@ -555,17 +552,17 @@ void rtl8168_release_event(struct rtl8168_ring *ring)
 
         /* unmap doorbell address */
         if (ring->direction == RTL8168_CH_DIR_TX)
-                doorbell = db_tx;
+                doorbell = ring->db_tx;
         else
-                doorbell = db_rx;
+                doorbell = ring->db_rx;
 
         if (doorbell)
                 iounmap(doorbell);
 
         if (ring->direction == RTL8168_CH_DIR_TX)
-                db_tx = NULL;
+                ring->db_tx = NULL;
         else
-                db_rx = NULL;
+                ring->db_rx = NULL;
 
         /*
         * IPA tx interrupt is handled by sw path.
@@ -880,14 +877,20 @@ void rtl8168_init_lib_ring(struct rtl8168_private *tp)
 
 void rtl8168_lib_tx_interrupt(struct rtl8168_private *tp)
 {
-        if (tp->lib_tx_ring[1].enabled && db_tx)
-                writel_relaxed(1, db_tx);
+        struct rtl8168_ring *ring;
+
+        ring = &tp->lib_tx_ring[1];
+        if (ring->enabled && ring->db_tx)
+                writel_relaxed(1, ring->db_tx);
 }
 
 void rtl8168_lib_rx_interrupt(struct rtl8168_private *tp)
 {
-        if (tp->lib_rx_ring[1].enabled && db_rx)
-                writel_relaxed(1, db_rx);
+        struct rtl8168_ring *ring;
+
+        ring = &tp->lib_rx_ring[1];
+        if (ring->enabled && ring->db_rx)
+                writel_relaxed(1, ring->db_rx);
 }
 
 /*
