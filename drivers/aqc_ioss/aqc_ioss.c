@@ -186,7 +186,7 @@ static int aqc_ioss_request_channel(struct ioss_channel *ch)
 		break;
 	default:
 		ioss_dev_err(ioss_ch_dev(ch), "Unsupported direction %d", ch->direction);
-		kzfree(mem_ops);
+		kfree_sensitive(mem_ops);
 		return -EINVAL;
 	}
 
@@ -236,7 +236,7 @@ err_add_buff:
 err_add_desc:
 	atl_fwd_release_ring(ring);
 err_ring:
-	kzfree(mem_ops);
+	kfree_sensitive(mem_ops);
 
 	ch->id = -1;
 	ch->private = NULL;
@@ -262,7 +262,7 @@ static int aqc_ioss_release_channel(struct ioss_channel *ch)
 	ioss_channel_del_desc_mem(ch, ring->hw.descs);
 
 	atl_fwd_release_ring(ring);
-	kzfree(mem_ops);
+	kfree_sensitive(mem_ops);
 
 	ch->id = -1;
 	ch->private = NULL;
@@ -333,7 +333,7 @@ static int aqc_ioss_request_event(struct ioss_channel *ch)
 err_intr_mod:
 	atl_fwd_release_event(event);
 err_req_event:
-	kzfree(event);
+	kfree_sensitive(event);
 err_alloc:
 	ioss_channel_unmap_event(ch);
 
@@ -349,7 +349,7 @@ static int aqc_ioss_release_event(struct ioss_channel *ch)
 		&ch->event.daddr, ch->event.data);
 
 	atl_fwd_release_event(event);
-	kzfree(event);
+	kfree_sensitive(event);
 	ioss_channel_unmap_event(ch);
 
 	return 0;
@@ -524,21 +524,18 @@ static int aqc_ioss_disable_event(struct ioss_channel *ch)
 static int aqc_ioss_save_regs(struct ioss_device *idev,
 		void **regs, size_t *size)
 {
-	size_t num_regs;
+	int alloc_size, ret = 0;
 	struct aqc_ioss_device *aqdev = idev->private;
-	struct aqc_ioss_regs *regs_save = &aqdev->regs_save;
 
-	memset(regs_save, 0, sizeof(*regs_save));
+	ret = atl_get_ext_stats(idev->net_dev, &aqdev->stats);
+	if (ret)
+		ioss_dev_err(idev, "Failed to save AQC device statistics");
 
-	num_regs = aqc_regs_save(aqdev->nic->hw.regs, regs_save);
-	if (!num_regs)
-		return -EFAULT;
-
-	if (regs)
-		*regs = regs_save;
-
-	if (size)
-		*size = sizeof(*regs_save);
+	ret = atl_get_crash_dump(idev->net_dev, &aqdev->regs_save);
+	if (ret == sizeof(struct atl_crash_dump) ) {
+		ioss_dev_err(idev, "Failed to save crashdump");
+		return ret;
+	}
 
 	return 0;
 }
@@ -558,7 +555,6 @@ static u64 __get_stats_data(const char *name, u64 data[], const u8 *strings_data
 	return 0;
 }
 
-#if ATL_FWD_API_VERSION > 3
 static int aqc_ioss_device_statistics(struct ioss_device *idev,
 					struct ioss_device_stats *statistics)
 {
@@ -584,69 +580,6 @@ static int aqc_ioss_device_statistics(struct ioss_device *idev,
 
 	return ret;
 }
-#else
-static int aqc_ioss_device_statistics(struct ioss_device *idev,
-					struct ioss_device_stats *statistics)
-{
-	u64 *data;
-	u8 *strings;
-	int strings_count = 0;
-	struct ethtool_stats stats;
-	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
-
-	if (ops == NULL || ops->get_sset_count == NULL ||
-				ops->get_ethtool_stats == NULL ||
-				ops->get_strings == NULL)
-		return -EOPNOTSUPP;
-
-	strings_count = ops->get_sset_count(idev->net_dev, ETH_SS_STATS);
-
-	data = kcalloc(strings_count, sizeof(u64), GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
-
-	strings = kcalloc(strings_count, ETH_GSTRING_LEN, GFP_KERNEL);
-	if (!strings) {
-		kfree(data);
-		return -ENOMEM;
-	}
-
-	memset(&stats, 0, sizeof(stats));
-	stats.n_stats = strings_count;
-
-	rtnl_lock();
-	ops->get_ethtool_stats(idev->net_dev, &stats, data);
-	rtnl_unlock();
-
-	ops->get_strings(idev->net_dev, ETH_SS_STATS, strings);
-
-	statistics->emac_rx_packets =
-		__get_stats_data("rx_ether_pkts", data, strings, strings_count);
-	statistics->emac_tx_packets =
-		__get_stats_data("tx_ether_pkts", data, strings, strings_count);
-
-	statistics->emac_rx_bytes =
-		__get_stats_data("rx_ether_octets", data, strings, strings_count);
-	statistics->emac_tx_bytes =
-		__get_stats_data("tx_ether_octets", data, strings, strings_count);
-
-	statistics->emac_rx_errors =
-		__get_stats_data("rx_ether_crc_align_errs", data, strings, strings_count);
-
-	statistics->emac_rx_drops =
-		__get_stats_data("rx_ether_drops", data, strings, strings_count);
-
-	statistics->emac_rx_pause_frames =
-		__get_stats_data("rx_pause", data, strings, strings_count);
-	statistics->emac_tx_pause_frames =
-		__get_stats_data("tx_pause", data, strings, strings_count);
-
-	kfree(data);
-	kfree(strings);
-
-	return 0;
-}
-#endif
 
 static int aqc_ioss_channel_statistics(struct ioss_channel *ch,
 					 struct ioss_channel_stats *statistics)

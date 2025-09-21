@@ -24,7 +24,7 @@ struct stmmac_stats {
 };
 
 #define STMMAC_STAT(m)	\
-	{ #m, FIELD_SIZEOF(struct stmmac_extra_stats, m),	\
+	{ #m, sizeof_field(struct stmmac_extra_stats, m),	\
 	offsetof(struct stmmac_priv, xstats.m)}
 
 static const struct stmmac_stats stmmac_gstrings_stats[] = {
@@ -82,6 +82,7 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(q_rx_pkt_n[1]),
 	STMMAC_STAT(q_rx_pkt_n[2]),
 	STMMAC_STAT(q_rx_pkt_n[3]),
+	STMMAC_STAT(q_rx_pkt_n[4]),
 	STMMAC_STAT(normal_irq_n),
 	STMMAC_STAT(rx_normal_irq_n),
 	STMMAC_STAT(napi_poll),

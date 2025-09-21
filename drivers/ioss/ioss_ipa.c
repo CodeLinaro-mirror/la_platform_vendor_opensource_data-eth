@@ -1,10 +1,46 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/etherdevice.h>
+#include <linux/string.h>
 
 #include "ioss_i.h"
+
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+#include <soc/qcom/boot_stats.h>
+#endif
+
+#define to_ipa_dir(ioss_dir) \
+	((ioss_dir == IOSS_CH_DIR_TX)? IPA_ETH_PIPE_DIR_TX : IPA_ETH_PIPE_DIR_RX)
+
+#define to_ioss_dir(ipa_dir) \
+	((ipa_dir == IPA_ETH_PIPE_DIR_TX) ? IOSS_CH_DIR_TX : IOSS_CH_DIR_RX)
+
+static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type ioss_type)
+{
+	static const enum ipa_eth_pipe_traffic_type ipa_map[IOSS_TRAFFIC_TYPE_MAX] = {
+		[IOSS_TRAFFIC_BE] = IPA_ETH_PIPE_BEST_EFFORT,
+		[IOSS_TRAFFIC_BE_TAGGED] = IPA_ETH_PIPE_BEST_EFFORT_VLAN,
+		[IOSS_TRAFFIC_QOS]	=	IPA_ETH_PIPE_TRAFFIC_TYPE_QOS,
+		[IOSS_TRAFFIC_LL] = IPA_ETH_PIPE_LOW_LATENCY,
+	};
+
+	return ipa_map[ioss_type];
+}
+
+static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa_type)
+{
+	static const enum ioss_traffic_type ioss_map[IPA_ETH_PIPE_TRAFFIC_TYPE_MAX] = {
+		[IPA_ETH_PIPE_BEST_EFFORT] = IOSS_TRAFFIC_BE,
+		[IPA_ETH_PIPE_LOW_LATENCY] = IOSS_TRAFFIC_LL,
+		[IPA_ETH_PIPE_BEST_EFFORT_VLAN] = IOSS_TRAFFIC_BE_TAGGED,
+		[IPA_ETH_PIPE_TRAFFIC_TYPE_QOS]	=	IOSS_TRAFFIC_QOS,
+	};
+
+	return ioss_map[ipa_type];
+}
 
 static void ioss_ipa_notify_cb(void *priv,
 					enum ipa_dp_evt_type evt,
@@ -13,16 +49,32 @@ static void ioss_ipa_notify_cb(void *priv,
 	struct ioss_channel *ch = priv;
 	struct sk_buff *skb = (struct sk_buff *)data;
 	struct ioss_interface *iface = ch->iface;
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+	struct rtnl_link_stats64 netdev_stats;
+#endif
+	struct ioss_device *idev = ioss_ch_dev(ch);
 
 	if (evt != IPA_RECEIVE)
 		return;
 
 	iface->exception_stats.rx_packets++;
+
+#ifdef CONFIG_MSM_BOOT_TIME_MARKER
+	if(iface->exception_stats.rx_packets == 1) {
+		memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
+		dev_get_stats(ioss_iface_to_netdev(iface), &netdev_stats);
+		if (netdev_stats.rx_packets == 1)
+			update_marker("M - Ethernet first packet received");
+	}
+#endif
+
 	iface->exception_stats.rx_bytes += skb->len;
 
 	skb->protocol = eth_type_trans(skb, ioss_iface_to_netdev(iface));
 
-	if (netif_rx_ni(skb) == NET_RX_DROP)
+	ioss_dev_op(idev, update_skb, ch, skb);
+
+	if (netif_rx(skb) == NET_RX_DROP)
 		iface->exception_stats.rx_drops++;
 }
 
@@ -35,8 +87,9 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	struct ipa_eth_pipe_setup_info *si = &pi->info;
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
-	pi->dir = (ch->direction == IOSS_CH_DIR_TX) ?
-			IPA_ETH_PIPE_DIR_TX : IPA_ETH_PIPE_DIR_RX;
+	pi->dir = to_ipa_dir(ch->direction);
+	pi->traffic_type = to_ipa_traffic_type(ch->traffic_type);
+	pi->tc_bmap = ch->tc_mapping;
 
 	desc_mem = list_first_entry_or_null(
 			&ch->desc_mem, typeof(*desc_mem), node);
@@ -48,7 +101,11 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	si->is_transfer_ring_valid = true;
 	si->transfer_ring_base = desc_mem->daddr;
 	si->transfer_ring_sgt = &desc_mem->sgt;
-	si->transfer_ring_size = desc_mem->size;
+
+	if (ch->multi_rx_queues)
+		si->transfer_ring_size = desc_mem->size*2;
+	else
+		si->transfer_ring_size = desc_mem->size;
 
 	si->data_buff_list_size = ch->config.ring_size;
 	si->data_buff_list = sm = kcalloc(si->data_buff_list_size,
@@ -82,87 +139,10 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	return 0;
 }
 
-#if IPA_ETH_API_VER < 2
-static void ioss_ipa_fill_eth_hdrs(struct ioss_interface *iface)
-{
-	struct net_device *net_dev = ioss_iface_to_netdev(iface);
-
-	struct ioss_iface_priv *ifp = iface->ioss_priv;
-	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
-
-	union ioss_ipa_eth_hdr *hdr_v4 = &ifp->ipa_hdr_v4;
-	union ioss_ipa_eth_hdr *hdr_v6 = &ifp->ipa_hdr_v6;
-
-	struct ipa_eth_hdr_info *hi_v4 = &ii->hdr[0];
-	struct ipa_eth_hdr_info *hi_v6 = &ii->hdr[1];
-
-	/* IPv4 */
-	memcpy(hdr_v4->l2.h_source, net_dev->dev_addr, ETH_ALEN);
-	hdr_v4->l2.h_proto = htons(ETH_P_IP);
-
-	hi_v4->hdr = (u8 *)hdr_v4;
-	hi_v4->hdr_len = ETH_HLEN;
-	hi_v4->hdr_type = IPA_HDR_L2_ETHERNET_II;
-
-	/* IPv6 */
-	memcpy(hdr_v6->l2.h_source, net_dev->dev_addr, ETH_ALEN);
-	hdr_v6->l2.h_proto = htons(ETH_P_IPV6);
-
-	hi_v6->hdr = (u8 *)hdr_v6;
-	hi_v6->hdr_len = ETH_HLEN;
-	hi_v6->hdr_type = IPA_HDR_L2_ETHERNET_II;
+static void ioss_ipa_clear_pipe_info(struct ipa_eth_client_pipe_info *pi) {
+	struct ipa_eth_pipe_setup_info *si = &pi->info;
+	kfree(si->data_buff_list);
 }
-
-static void ioss_ipa_fill_vlan_hdrs(struct ioss_interface *iface)
-{
-	struct net_device *net_dev = ioss_iface_to_netdev(iface);
-
-	struct ioss_iface_priv *ifp = iface->ioss_priv;
-	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
-
-	union ioss_ipa_eth_hdr *hdr_v4 = &ifp->ipa_hdr_v4;
-	union ioss_ipa_eth_hdr *hdr_v6 = &ifp->ipa_hdr_v6;
-
-	struct ipa_eth_hdr_info *hi_v4 = &ii->hdr[0];
-	struct ipa_eth_hdr_info *hi_v6 = &ii->hdr[1];
-
-	/* IPv4 */
-	memcpy(hdr_v4->vlan.h_source, net_dev->dev_addr, ETH_ALEN);
-	hdr_v4->vlan.h_vlan_proto = htons(ETH_P_8021Q);
-	hdr_v4->vlan.h_vlan_encapsulated_proto = htons(ETH_P_IP);
-
-	hi_v4->hdr = (u8 *)hdr_v4;
-	hi_v4->hdr_len = VLAN_ETH_HLEN;
-	hi_v4->hdr_type = IPA_HDR_L2_802_1Q;
-
-	/* IPv6 */
-	memcpy(hdr_v6->vlan.h_source, net_dev->dev_addr, ETH_ALEN);
-	hdr_v6->vlan.h_vlan_proto = htons(ETH_P_8021Q);
-	hdr_v6->vlan.h_vlan_encapsulated_proto = htons(ETH_P_IPV6);
-
-	hi_v6->hdr = (u8 *)hdr_v6;
-	hi_v6->hdr_len = VLAN_ETH_HLEN;
-	hi_v6->hdr_type = IPA_HDR_L2_802_1Q;
-}
-
-static int ioss_ipa_fill_hdrs(struct ioss_interface *iface)
-{
-	bool ipa_vlan_mode = false;
-	struct ioss_device *idev = ioss_iface_dev(iface);
-
-	if (ipa_is_vlan_mode(IPA_VLAN_IF_EMAC, &ipa_vlan_mode)) {
-		ioss_dev_err(idev, "Failed to get IPA vlan mode");
-		return -EINVAL;
-	}
-
-	if (ipa_vlan_mode)
-		ioss_ipa_fill_vlan_hdrs(iface);
-	else
-		ioss_ipa_fill_eth_hdrs(iface);
-
-	return 0;
-}
-#endif
 
 static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 {
@@ -189,49 +169,49 @@ static int ioss_ipa_vote_bw(struct ioss_interface *iface)
 	return 0;
 }
 
-#if IPA_ETH_API_VER < 2
-static int __ioss_ipa_msg(struct net_device *net_dev, bool connect)
+#if IPA_ETH_API_VER > 4
+int ioss_ipa_enable_pipes(struct ioss_interface *iface)
 {
-	struct ipa_ecm_msg msg;
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_client *ec = &ifp->ipa_ec;
+	struct ioss_device *idev = ioss_iface_dev(iface);
 
-	memset(&msg, 0, sizeof(msg));
-	snprintf(msg.name, sizeof(msg.name), "%s", net_dev->name);
-	msg.ifindex = net_dev->ifindex;
+	if (ipa_eth_client_enable_pipes(ec)) {
+		ioss_dev_err(idev, "Failed to enable pipes");
+		return -EINVAL;
+	}
+	ioss_dev_dbg(idev, "Enabled IPA pipes");
 
-	return connect ?
-		ipa_eth_client_conn_evt(&msg) :
-		ipa_eth_client_disconn_evt(&msg);
+	return 0;
 }
 
-static int ioss_ipa_msg_connect(struct net_device *net_dev)
+int ioss_ipa_disable_pipes(struct ioss_interface *iface)
 {
-	return __ioss_ipa_msg(net_dev, true);
-}
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_client *ec = &ifp->ipa_ec;
+	struct ioss_device *idev = ioss_iface_dev(iface);
 
-static int ioss_ipa_msg_disconnect(struct net_device *net_dev)
-{
-	return __ioss_ipa_msg(net_dev, false);
+	if (ipa_eth_client_disable_pipes(ec)) {
+		ioss_dev_err(idev, "Failed to disable pipes");
+		return -EINVAL;
+	}
+	ioss_dev_dbg(idev, "Disabled IPA pipes");
+
+	return 0;
 }
 #endif
 
 int ioss_ipa_register(struct ioss_interface *iface)
 {
 	int i;
-#if IPA_ETH_API_VER < 2
-	int ch_count;
-#endif
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
 	struct ioss_channel *ch;
-#if IPA_ETH_API_VER < 2
-	struct net_device *net_dev = ioss_iface_to_netdev(iface);
-#endif
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	ec->priv = iface;
 	ec->inst_id = iface->instance_id;
-	ec->traffic_type = IPA_ETH_PIPE_BEST_EFFORT;
 	ec->client_type = ioss_ipa_hal_get_ctype(idev);
 
 	if (ec->client_type == IPA_ETH_CLIENT_MAX) {
@@ -241,9 +221,6 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	INIT_LIST_HEAD(&ec->pipe_list);
 
-#if IPA_ETH_API_VER < 2
-	ch_count = 0;
-#endif
 	ioss_for_each_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
@@ -255,32 +232,11 @@ int ioss_ipa_register(struct ioss_interface *iface)
 		}
 
 		list_add_tail(&cp->ipa_pi.link, &ec->pipe_list);
-#if IPA_ETH_API_VER < 2
-		ch_count++;
-#endif
 	}
-#if IPA_ETH_API_VER < 2
-	ii->pipe_hdl_list_size = ch_count;
-
-	ii->pipe_hdl_list = kcalloc(ii->pipe_hdl_list_size,
-				sizeof(*ii->pipe_hdl_list), GFP_KERNEL);
-	if (!ii->pipe_hdl_list) {
-		ioss_dev_err(idev, "Failed to alloc pipe hdl list");
-		return -EINVAL;
-	}
-
-	ii->netdev_name = net_dev->name;
-
-	if (ioss_ipa_fill_hdrs(iface)) {
-		ioss_dev_err(idev, "Failed to fill partial headers");
-		return -EINVAL;
-	}
-#endif
 
 	/* connect pipes */
-#if IPA_ETH_API_VER >= 2
 	ec->net_dev = ioss_iface_to_netdev(iface);
-#endif
+
 	if (ipa_eth_client_conn_pipes(ec)) {
 		ioss_dev_err(idev, "Failed to connect pipes");
 		return -EINVAL;
@@ -302,29 +258,16 @@ int ioss_ipa_register(struct ioss_interface *iface)
 		ch->event.paddr = si->db_pa;
 		ch->event.data = si->db_val;
 
-#if IPA_ETH_API_VER < 2
-		ii->pipe_hdl_list[i++] = pi->pipe_hdl;
-#endif
 	}
 
 	/* register interface */
-#if IPA_ETH_API_VER >= 2
 	ii->client = ec;
 	ii->is_conn_evt = true;
-#endif
 
 	if (ipa_eth_client_reg_intf(ii)) {
 		ioss_dev_err(idev, "Failed to register interface");
 		return -EINVAL;
 	}
-
-#if IPA_ETH_API_VER < 2
-	/* send ecm msg */
-	if (ioss_ipa_msg_connect(net_dev)) {
-		ioss_dev_err(idev, "Failed to send connect message");
-		return -EINVAL;
-	}
-#endif
 
 	return 0;
 }
@@ -336,11 +279,6 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	struct ioss_iface_priv *ifp = iface->ioss_priv;
 	struct ipa_eth_client *ec = &ifp->ipa_ec;
 	struct ipa_eth_intf_info *ii = &ifp->ipa_ii;
-#if IPA_ETH_API_VER < 2
-	union ioss_ipa_eth_hdr *hdr_v4 = &ifp->ipa_hdr_v4;
-	union ioss_ipa_eth_hdr *hdr_v6 = &ifp->ipa_hdr_v6;
-	struct net_device *net_dev = ioss_iface_to_netdev(iface);
-#endif
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	/* connect pipes */
@@ -357,19 +295,6 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 		return rc;
 	}
 
-#if IPA_ETH_API_VER < 2
-	/* send ecm msg */
-	rc = ioss_ipa_msg_disconnect(net_dev);
-	if (rc) {
-		ioss_dev_err(idev, "Failed to send disconnect message");
-		return rc;
-	}
-
-	memset(hdr_v4, 0, sizeof(*hdr_v4));
-	memset(hdr_v6, 0, sizeof(*hdr_v6));
-
-	kfree(ii->pipe_hdl_list);
-#endif
 	memset(ii, 0, sizeof(*ii));
 
 	ioss_for_each_channel(ch, iface) {
@@ -377,6 +302,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 
 		ch->event.paddr = 0;
 		ch->event.data = 0;
+		ioss_ipa_clear_pipe_info(&cp->ipa_pi);
 
 		memset(&cp->ipa_pi, 0, sizeof(cp->ipa_pi));
 	}
@@ -384,4 +310,132 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 	memset(ec, 0, sizeof(*ec));
 
 	return 0;
+}
+
+static bool channel_match_ipa_config(struct ioss_channel *ch, const char *ipa_config)
+{
+	int i;
+
+	if (!ipa_config)
+		return false;
+
+	/* A channel config (ex. legacy) that does not explicitly list any compatible IPA configs
+	 * is assumed to be compatible only with the default IPA config.
+	 */
+	if (!ch->num_ipa_configs)
+		return !strcmp(ipa_config, DEFAULT_IPA_CONFIG);
+
+	for (i = 0; i < ch->num_ipa_configs; i++)
+		if (!strcmp(ipa_config, ch->ipa_configs[i]))
+			return true;
+
+	return false;
+}
+
+static bool validate_channel(struct ioss_channel *ch,
+		enum ioss_channel_dir dir, enum ioss_traffic_type traffic)
+{
+	if (ch->direction != dir)
+		return false;
+
+	if (traffic == IOSS_TRAFFIC_QOS) {
+		ch->traffic_type = IOSS_TRAFFIC_QOS;
+		return true;
+	}
+
+	if (ch->traffic_type != traffic)
+		return false;
+
+	return channel_match_ipa_config(ch, ch->iface->ipa_config);
+}
+
+/* Recursively select channels as per the channel config list provided by IPA */
+static int ioss_ipa_validate_one_channel(struct ioss_interface *iface, struct ipa_eth_dma_ch_config *ch_list, int num_channels)
+{
+	int ret = -ENOENT;
+	enum ioss_channel_dir dir;
+	enum ioss_traffic_type traffic;
+	struct ioss_channel *ch, *tmp_ch;
+	const char *ipa_config = iface->ipa_config;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	if (!num_channels)
+		return 0;
+
+	dir = to_ioss_dir(ch_list->dir);
+	traffic = to_ioss_traffic(ch_list->traffic_type);
+
+	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
+		struct ioss_ch_priv *ch_priv = ch->ioss_priv;
+
+		if (!validate_channel(ch, dir, traffic))
+			continue;
+
+		ioss_dev_log(idev, "Selected channel '%s' for %s '%s' traffic",
+			ch->name, ioss_ch_dir_name(dir), ioss_traffic_name(traffic));
+
+		list_move(&ch->node, &iface->valid_channels);
+
+		ret = ioss_ipa_validate_one_channel(iface, ch_list + 1, num_channels - 1);
+		if (!ret)
+			ch_priv->ipa_ch_config = ch_list; /* for debug purposes */
+		else
+			list_move(&ch->node, &iface->invalid_channels);
+
+		return ret;
+	}
+
+	ioss_dev_err(idev,
+		"Failed to find (%u more needed) a matching channel for IPA DMA config: "
+		"dir=%u traffic=%u config='%s'",
+		num_channels, dir, traffic, ipa_config);
+
+	return ret;
+}
+
+int ioss_ipa_validate_channels(struct ioss_interface *iface)
+{
+	int ret;
+	int required_channels = 0;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	u32 inst_id = iface->instance_id;
+	enum ipa_eth_client_type ct = ioss_ipa_hal_get_ctype(idev);
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_config *ipa_config = &ifp->ipa_config;
+
+	iface->ipa_config = NULL;
+
+	memset(ipa_config, 0, sizeof(*ipa_config));
+
+	ret = ipa_eth_get_config_type(ct, inst_id, ipa_config);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to get IPA config for %u.%u", ct, inst_id);
+		return ret;
+	}
+
+	iface->ipa_config = ipa_config->config;
+
+	ioss_dev_log(idev,
+			"IPA config for %u.%u is '%s' and uses %u channels",
+			ct, inst_id, ipa_config->config, ipa_config->num_dma_channel);
+
+	ioss_ipa_invalidate_channels(iface);
+
+	required_channels = ipa_config->num_dma_channel;
+	if (!strcmp(ipa_config->config, "qos"))
+		required_channels = 2;
+
+	return ioss_ipa_validate_one_channel(
+			iface, ipa_config->dma_config, required_channels);
+}
+
+void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
+{
+	struct ioss_channel *ch, *tmp_ch;
+
+	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
+		ioss_dev_log(ioss_iface_dev(iface), "Ch : %d, id : %d, dir : %d, traffic : %d, tc_mapping : %d",
+			     ch->channel_num, ch->id, ch->direction, ch->traffic_type, ch->tc_mapping);
+		list_move(&ch->node, &iface->invalid_channels);
+	}
 }

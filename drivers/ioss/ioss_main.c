@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -23,13 +24,13 @@ static int ioss_parse_dt(struct ioss *ioss)
 		return -EFAULT;
 
 	rc  = of_property_read_u32(node,
-			"qcom,max-ddr-bandwidth", &ioss->max_ddr_bandwidth);
+			"qcom,line_rate_for_llcc", &ioss->line_rate_for_llcc);
 	if (rc)
 		ioss_log_dbg(NULL, "No DDR bandwidth limit specified in DT");
 
-	if (ioss->max_ddr_bandwidth)
+	if (ioss->line_rate_for_llcc)
 		ioss_log_dbg(NULL, "DDR bandwidth limit set to %u",
-				ioss->max_ddr_bandwidth);
+				ioss->line_rate_for_llcc);
 
 	return 0;
 }
@@ -45,6 +46,11 @@ static void ioss_ipa_ready_notif(void *userdata)
 	if (ioss_pci_start(ioss)) {
 		set_bit(IOSS_ST_ERROR, &ioss->status);
 		ioss_log_err(NULL, "Failed to start PCI sub-system");
+		return;
+	}
+	if (ioss_plat_start(ioss)) {
+		set_bit(IOSS_ST_ERROR, &ioss->status);
+		ioss_log_err(NULL, "Failed to start Platform sub-system");
 		return;
 	}
 }
@@ -114,8 +120,8 @@ err:
 	if (ioss->wq)
 		destroy_workqueue(ioss->wq);
 
-	kzfree(ioss->ioss_priv);
-	kzfree(ioss);
+	kvfree_sensitive(ioss->ioss_priv, ksize(ioss->ioss_priv));
+	kvfree_sensitive(ioss, ksize(ioss));
 
 	platform_set_drvdata(pdev, NULL);
 	np->data = NULL;
@@ -131,13 +137,17 @@ static int ioss_remove(struct platform_device *pdev)
 
 	ipa_eth_unregister_ready_cb(&ioss_priv->ipa_ready);
 
+	ioss_log_msg(NULL, "Call IOSS PCI stop");
 	/* Safe to call even if ioss_pci_start() was not called */
 	ioss_pci_stop(ioss);
 
+	/* Safe to call even if ioss_pci_start() was not called */
+	ioss_plat_stop(ioss);
+	ioss_log_msg(NULL, "Done IOSS Platform stop");
 	destroy_workqueue(ioss->wq);
 
-	kzfree(ioss->ioss_priv);
-	kzfree(ioss);
+	kvfree_sensitive(ioss->ioss_priv, ksize(ioss->ioss_priv));
+	kvfree_sensitive(ioss,  ksize(ioss));
 
 	platform_set_drvdata(pdev, NULL);
 	np->data = NULL;
@@ -172,21 +182,13 @@ static int __init ioss_module_init(void)
 	int rc;
 
 	rc = ioss_log_init();
-	if (rc) {
+	if (rc)
 		pr_err("Failed to initialize IOSS logging\n");
-		return rc;
-	}
 
 	rc = bus_register(&ioss_bus);
 	if (rc) {
 		ioss_log_err(NULL, "Failed to register IOSS bus");
 		goto err_bus;
-	}
-
-	rc = ioss_debugfs_init();
-	if (rc) {
-		ioss_log_err(NULL, "Failed to create the debugfs directory");
-		goto err_debugfs;
 	}
 
 	rc = platform_driver_register(&ioss_drv);
@@ -198,11 +200,8 @@ static int __init ioss_module_init(void)
 	return 0;
 
 err_platform:
-	ioss_debugfs_exit();
-err_debugfs:
 	bus_unregister(&ioss_bus);
 err_bus:
-	ioss_log_deinit();
 	return rc;
 }
 module_init(ioss_module_init);
@@ -210,7 +209,6 @@ module_init(ioss_module_init);
 static void __exit ioss_module_exit(void)
 {
 	platform_driver_unregister(&ioss_drv);
-	ioss_debugfs_exit();
 	bus_unregister(&ioss_bus);
 	ioss_log_deinit();
 }

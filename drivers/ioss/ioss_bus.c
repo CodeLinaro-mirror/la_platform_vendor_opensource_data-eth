@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
 #include "ioss_i.h"
+#include "ioss_qos.h"
+#include <linux/cdev.h>
 
 /* Wake lock duration to allow the device to settle after a resume */
 #define IOSS_RESUME_SETTLE_MS 5000
@@ -12,6 +15,13 @@
 
 struct ioss_device *ioss_devices[MAX_IOSS_DEVICES];
 struct ioss_driver *ioss_drivers[MAX_IOSS_DRIVERS];
+
+
+static struct class *emac_ipa_class;
+static dev_t emac_ipa_dev_num;
+static struct cdev *emac_ipa_cdev;
+static struct device *emac_ipa_dev;
+
 
 static int ioss_panic_notifier(struct notifier_block *nb,
 		unsigned long event, void *ptr)
@@ -50,6 +60,7 @@ static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 	struct device *real_dev = dev->parent;
 	struct ioss_driver *idrv = to_ioss_driver(drv);
 	struct ioss_device *idev = to_ioss_device(dev);
+	int rc;
 
 	if (dev->type != &ioss_idev_type)
 		return false;
@@ -60,17 +71,36 @@ static int ioss_bus_match(struct device *dev, struct device_driver *drv)
 	 * matching the device driver with the IOSS driver. Otherwise use a
 	 * simple name matching against the IOSS driver name.
 	 */
-	return idrv->match ?
+	rc = idrv->match ?
 			idrv->match(real_dev) :
 			!strcmp(idrv->name, real_dev->driver->name);
+
+	ioss_dev_dbg(idev, "Matching against %s, rc = %d, real_dev->driver->name =%s", idrv->name, rc, real_dev->driver->name);
+
+	return rc;
 }
 
 static ssize_t show_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, char *user_buf)
 {
-	struct net_device *net_dev = to_net_dev(dev);
-	struct ioss_interface *iface = ioss_netdev_to_iface(net_dev);
-	struct ioss_device *idev = ioss_iface_dev(iface);
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+	struct ioss_device *idev = NULL;
+
+	if (!dev)
+		return -EINVAL;
+
+	net_dev = to_net_dev(dev);
+	if (!net_dev)
+		return -EINVAL;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return -EINVAL;
 
 	return snprintf(user_buf, PAGE_SIZE, "%d\n", idev->dev.offline);
 }
@@ -78,22 +108,56 @@ static ssize_t show_suspend_ipa_offload(struct device *dev,
 static ssize_t store_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, const char *user_buf, size_t size)
 {
-	struct net_device *net_dev = to_net_dev(dev);
-	struct ioss_interface *iface = ioss_netdev_to_iface(net_dev);
-	struct ioss_device *idev = ioss_iface_dev(iface);
+	int ret = 0;
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+	struct ioss_device *idev = NULL;
 	bool input;
+
+	if (!dev)
+		return -EINVAL;
+
+	net_dev = to_net_dev(dev);
+	if (!net_dev)
+		return -EINVAL;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if (!idev)
+		return -EINVAL;
 
 	if (kstrtobool(user_buf, &input) < 0)
 		return -EINVAL;
 
 	idev->dev.offline = input;
 
+	if (!input && idev->qos_enabled) {
+		ret = ioss_qos_reconfigure(idev);
+		if (ret)
+			ioss_dev_err(idev, "ioss_qos_reconfigure failed on resume");
+	}
+
 	ioss_iface_queue_refresh(iface, true);
+
+	if (!input && idev->qos_enabled) {
+		ret = ioss_qos_enable(idev);
+		if (ret)
+			ioss_dev_err(idev, "enable_qos failed on resume");
+	}
 
 	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
 	return size;
 }
+
+/* By default assign port #0 to have LLCC enabled. Only one port can get LLCC. */
+static int enable_tcm_eth = 1;
+
+module_param(enable_tcm_eth, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+MODULE_PARM_DESC(enable_tcm_eth, "Enable use of LLCC TCM memory for Ethernet port: Value 1 = eth0, 2 = eth1, 0 = disabled");
 
 static DEVICE_ATTR(suspend_ipa_offload, S_IWUSR | S_IRUGO,
 		show_suspend_ipa_offload, store_suspend_ipa_offload);
@@ -102,8 +166,13 @@ static int ioss_bus_probe(struct device *dev)
 {
 	int rc;
 	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "Initializing device for offload");
+
+	if ((enable_tcm_eth == 1 && strnstr(dev_name(dev), "emac0", strlen(dev_name(dev)))) ||
+	    (enable_tcm_eth == 2 && strnstr(dev_name(dev), "emac1", strlen(dev_name(dev)))))
+		idev->llcc_enabled = true;
 
 	device_init_wakeup(dev, true);
 
@@ -133,16 +202,83 @@ static int ioss_bus_probe(struct device *dev)
 		goto err_watch;
 	}
 
+	rc = ioss_sysfs_add_idev(idev);
+	if (rc) {
+		ioss_dev_err(idev, "Unable to add idev to sysfs");
+		goto err_add_sysfs;
+	}
+
 	rc = sysfs_create_file(&idev->net_dev->dev.kobj,
 				&dev_attr_suspend_ipa_offload.attr);
 	if (rc) {
 		ioss_dev_err(idev, "unable to create suspend_ipa_offload node");
-		goto err_sysfs;
+		goto err_create_sysfs;
+	}
+
+	rc = ioss_qos_add_idev(idev);
+	if (rc) {
+		ioss_dev_err(idev, "QoS add failed");
+		goto err_qos_add;
+	}
+
+	if (iface->auto_resume_disabled) {
+		ioss_dev_cfg(idev, "creating dev char device for auto platform\n");
+
+		rc = alloc_chrdev_region(&emac_ipa_dev_num, 0, 1, "emac_ipa");
+		if (rc) {
+			ioss_dev_err(idev, "alloc_chrdev_region error for node %s\n",
+				  "emac_ipa");
+			goto err_chrdev;
+		}
+
+		emac_ipa_cdev = cdev_alloc();
+		if (!emac_ipa_cdev) {
+			rc = -ENOMEM;
+			ioss_dev_err(idev, "failed to alloc emac_ipa cdev\n");
+			goto fail_alloc_emac_ipa_cdev;
+		}
+
+		cdev_init(emac_ipa_cdev,NULL);
+
+		rc = cdev_add(emac_ipa_cdev,emac_ipa_dev_num,1);
+		if (rc < 0) {
+			ioss_dev_err(idev, "emac_ipa cdev_add err=%d\n", -rc);
+			goto emac_ipa_cdev_add_fail;
+		}
+
+		emac_ipa_class = class_create("emac_ipa");
+		if (!emac_ipa_class) {
+			rc= -ENODEV;
+			ioss_dev_err(idev, "failed to create emac_ipa class\n");
+			goto fail_create_emac_ipa_class;
+		}
+
+		emac_ipa_dev = device_create(emac_ipa_class, NULL,
+				emac_ipa_dev_num, NULL, "emac_ipa");
+		if (!emac_ipa_dev) {
+			rc = -EINVAL;
+			ioss_dev_err(idev, "failed to create emac_ipa device\n");
+			goto fail_create_emac_ipa_device;
+		}
 	}
 
 	return 0;
 
-err_sysfs:
+fail_create_emac_ipa_device:
+	class_destroy(emac_ipa_class);
+fail_create_emac_ipa_class:
+	cdev_del(emac_ipa_cdev);
+emac_ipa_cdev_add_fail:
+fail_alloc_emac_ipa_cdev:
+	unregister_chrdev_region(emac_ipa_dev_num, 1);
+err_chrdev:
+	ioss_qos_remove_idev(idev);
+err_qos_add:
+	sysfs_remove_file(&idev->net_dev->dev.kobj,
+			&dev_attr_suspend_ipa_offload.attr);
+err_create_sysfs:
+	ioss_sysfs_remove_idev(idev);;
+err_add_sysfs:
 	ioss_net_unwatch_device(idev);
 err_watch:
 	ioss_dev_op(idev, close_device, idev);
@@ -154,33 +290,41 @@ err_notifier:
 	return rc;
 }
 
-static int ioss_bus_remove(struct device *dev)
+static void ioss_bus_remove(struct device *dev)
 {
 	int rc;
 	struct ioss_device *idev = to_ioss_device(dev);
+	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "De-initializing device");
 
+	ioss_qos_remove_idev(idev);
+
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
+	ioss_sysfs_remove_idev(idev);
+
+	if(emac_ipa_cdev && iface->auto_resume_disabled)
+	{
+		device_destroy(emac_ipa_class, emac_ipa_dev_num);
+		class_destroy(emac_ipa_class);
+		cdev_del(emac_ipa_cdev);
+		unregister_chrdev_region(emac_ipa_dev_num, 1);
+	}
 
 	rc = ioss_net_unwatch_device(idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to unwatch device");
-		return rc;
 	}
 
 	rc = ioss_dev_op(idev, close_device, idev);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to close device");
-		return rc;
 	}
 
 	ioss_unregister_panic_notifier(idev);
 	ioss_pci_restore_pm_ops(idev);
 	device_init_wakeup(dev, false);
-
-	return 0;
 }
 
 static int __ioss_bus_suspend_idev(struct device *dev, pm_message_t state)
@@ -200,6 +344,11 @@ static int __ioss_bus_resume_idev(struct device *dev)
 	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "Resuming device");
+
+	if (iface->auto_resume_disabled) {
+		ioss_dev_log(idev, "Auto resume of device disabled let eth PM call IOSS enable");
+		return 0;
+	}
 
 	if (dev->offline) {
 		dev->offline = 0;
@@ -375,8 +524,6 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	}
 
 	if (!dev->driver || !dev->driver->pm) {
-		ioss_log_err(NULL,
-			"Driver %s does not support PM callbacks", dev_name(dev));
 		return NULL;
 	}
 
@@ -390,11 +537,14 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 
 	idev->root = ioss;
 
-	INIT_LIST_HEAD(&idev->interface.channels);
+	INIT_LIST_HEAD(&idev->interface.valid_channels);
+	INIT_LIST_HEAD(&idev->interface.invalid_channels);
 
 	idev->dev.parent = dev;
 	idev->dev.bus = &ioss_bus;
 	idev->dev.type = &ioss_idev_type;
+
+	ioss_qos_init(idev);
 
 	return idev;
 }
@@ -406,13 +556,21 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 	struct ioss_interface *iface = &idev->interface;
 
 	/* Free channels */
-	list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
+	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
 		list_del(&ch->node);
-		kzfree(ch->ioss_priv);
-		kzfree(ch);
+		kfree(ch->ipa_configs);
+		kfree_sensitive(ch->ioss_priv);
+		kfree_sensitive(ch);
 	}
 
-	kzfree(iface->ioss_priv);
+	list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
+		list_del(&ch->node);
+		kfree(ch->ipa_configs);
+		kfree_sensitive(ch->ioss_priv);
+		kfree_sensitive(ch);
+	}
+
+	kfree_sensitive(iface->ioss_priv);
 
 	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
 		if (ioss_devices[i] == idev) {
@@ -421,13 +579,12 @@ void ioss_bus_free_idev(struct ioss_device *idev)
 		}
 	}
 
-	kzfree(idev);
+	kfree_sensitive(idev);
 }
 
 int ioss_bus_register_idev(struct ioss_device *idev)
 {
 	if (ioss_of_parse(idev)) {
-		ioss_dev_err(idev, "Failed to parse devicetree");
 		return -EINVAL;
 	}
 

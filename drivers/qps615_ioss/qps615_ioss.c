@@ -1,4 +1,6 @@
-/* Copyright (c) 2021 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
+ * Copyright (c) 2021 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -15,6 +17,12 @@
 #include <linux/msm/ioss.h>
 #include "tc956x_ipa_intf.h"
 #include "tc956xmac.h"
+
+struct qps615_ioss_device {
+	struct ioss_device *idev;
+	struct tc956xmac_priv *_priv;
+	struct tc956x_regs regs_save;
+};
 
 static void *qps615_ioss_dma_alloc(struct ioss_device *idev,
 			       size_t size, dma_addr_t *daddr, gfp_t gfp,
@@ -70,13 +78,30 @@ static void qps615_ioss_free_buf(struct net_device *ndev, void *buf, size_t size
 
 static int qps615_ioss_open_device(struct ioss_device *idev)
 {
-	/* any event registration with toshiba */
+	struct qps615_ioss_device *qps615dev;
+
+	ioss_dev_dbg(idev, "%s", __func__);
+
+	qps615dev = kzalloc(sizeof(*qps615dev), GFP_KERNEL);
+	if (!qps615dev)
+		return -ENOMEM;
+
+	qps615dev->idev = idev;
+	qps615dev->_priv = netdev_priv(idev->net_dev);
+
+	idev->private = qps615dev;
+
 	return 0;
 }
 
 static int qps615_ioss_close_device(struct ioss_device *idev)
 {
-	/* any event registration with toshiba */
+	struct qps615_ioss_device *qps615dev = idev->private;
+
+	ioss_dev_dbg(idev, "%s", __func__);
+
+	kzfree(qps615dev);
+
 	return 0;
 }
 
@@ -254,7 +279,6 @@ enum {
 	FLT_TYPE_IP4,
 	FLT_TYPE_IP6,
 	FLT_TYPE_VLAN,
-	FLT_TYPE_MKA,
 
 	/* Must be the last entry */
 	FLT_NUM_TYPES,
@@ -319,24 +343,6 @@ static int qps615_set_filter_info(struct rx_filter_info *filter_info)
 	filter_info->entries[FLT_TYPE_VLAN].res3 = 0;
 	filter_info->entries[FLT_TYPE_VLAN].dma_ch_no = 2;
 	filter_info->entries[FLT_TYPE_VLAN].res4 = 0;
-
-	/* MKA  ether type 0x888E
-	 * Only Check for 0x8E and 0x88
-	 */
-	filter_info->entries[FLT_TYPE_MKA].match_data = 0x00008E88;
-	filter_info->entries[FLT_TYPE_MKA].match_en = 0x0000FFFF;
-	filter_info->entries[FLT_TYPE_MKA].af = 1;
-	filter_info->entries[FLT_TYPE_MKA].rf = 0;
-	filter_info->entries[FLT_TYPE_MKA].im = 0;
-	filter_info->entries[FLT_TYPE_MKA].nc = 0;
-	filter_info->entries[FLT_TYPE_MKA].res1 = 0;
-	filter_info->entries[FLT_TYPE_MKA].frame_offset = 3;
-	filter_info->entries[FLT_TYPE_MKA].res2 = 0;
-	filter_info->entries[FLT_TYPE_MKA].ok_index = 0;
-	filter_info->entries[FLT_TYPE_MKA].res3 = 0;
-	filter_info->entries[FLT_TYPE_MKA].dma_ch_no = 2;
-	filter_info->entries[FLT_TYPE_MKA].res4 = 0;
-
 
 	return 0;
 }
@@ -523,6 +529,16 @@ static int qps615_ioss_device_statistics(struct ioss_device *idev,
 static int qps615_ioss_channel_statistics(struct ioss_channel *ch,
 		struct ioss_channel_stats *statistics)
 {
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct tc956xmac_priv *priv = netdev_priv(idev->net_dev);
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
+		statistics->desc_unavail = priv->xstats.rx_buf_unav_irq[ch->id];
+		statistics->overflow_error = priv->xstats.overflow_error;
+	} else {
+		statistics->underflow_error = priv->xstats.tx_underflow;
+	}
+
 	return 0;
 }
 
@@ -566,6 +582,30 @@ static int qps615_ioss_channel_status(struct ioss_channel *ch, struct ioss_chann
 	return 0;
 }
 
+static int qps615_save_regs(struct ioss_device *idev,
+		void **regs, size_t *size)
+{
+	int rc = 0;
+	struct qps615_ioss_device *qps615dev = idev->private;
+	struct tc956x_regs *regs_save = &qps615dev->regs_save;
+
+	memset(regs_save, 0, sizeof(*regs_save));
+
+	rc = tc956x_dump_regs(idev->net_dev, regs_save);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to save qps615 device registers");
+		return rc;
+	}
+
+	if (regs)
+		*regs = regs_save;
+
+	if (size)
+		*size = sizeof(*regs_save);
+
+	return rc;
+}
+
 static struct ioss_driver_ops qps615_ioss_ops = {
 	.open_device = qps615_ioss_open_device,
 	.close_device = qps615_ioss_close_device,
@@ -585,6 +625,8 @@ static struct ioss_driver_ops qps615_ioss_ops = {
 	.get_device_statistics = qps615_ioss_device_statistics,
 	.get_channel_statistics = qps615_ioss_channel_statistics,
 	.get_channel_status = qps615_ioss_channel_status,
+
+	.save_regs = qps615_save_regs,
 };
 
 bool qps615_driver_match(struct device *dev)

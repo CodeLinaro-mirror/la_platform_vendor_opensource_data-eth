@@ -2,6 +2,7 @@
 
 // Copyright (c) 2021 The Linux Foundation. All rights reserved.
 // Copyright (c) 2018-19 Linaro Limited
+// Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
 
 #include <linux/module.h>
 #include <linux/of.h>
@@ -22,9 +23,14 @@
 #include "stmmac_thin.h"
 #include "stmmac_platform_thin.h"
 #include "dwmac-qcom-ethqos-thin.h"
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+#include "dwmac-qcom-msgq-svm.h"
+#endif
 
 #define EMAC_HW_v3_0_0 0x30000000
 #define MAX_FILTER_CHK 10
+#define ETHQOS_SYSFS_DEV_ATTR_PERMS 0644
+#define BUFF_SZ 256
 
 void *ipc_emac_log_ctxt;
 
@@ -39,6 +45,123 @@ struct emac_fe_ev {
 static struct multicast_mac_addr mc_addrs[MAX_FILTER_CHK];
 static struct unicast_mac_addr uc_addrs[MAX_FILTER_CHK];
 
+static ssize_t show_cv2x_priority(struct device *dev,
+				  struct device_attribute *attr, char *user_buf)
+{
+	struct net_device *netdev = to_net_dev(dev);
+	struct stmmac_priv *priv;
+
+	if (!netdev) {
+		ETHQOSERR("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	priv = netdev_priv(netdev);
+	if (!priv) {
+		ETHQOSERR("priv is NULL\n");
+		return -EINVAL;
+	}
+
+	return scnprintf(user_buf, BUFF_SZ, "%d\n", priv->prio);
+}
+
+static ssize_t store_cv2x_priority(struct device *dev,
+				   struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	struct net_device *netdev = to_net_dev(dev);
+	struct stmmac_priv *priv;
+	union emac_ctrl_fe_filter filter;
+	s8 input = 0;
+
+	if (!netdev) {
+		ETHQOSERR("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	priv = netdev_priv(netdev);
+	if (!priv) {
+		ETHQOSERR("priv is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos8(user_buf, 0, &input)) {
+		ETHQOSERR("Error in reading option from user\n");
+		return -EINVAL;
+	}
+
+	if (input < 0 || input > 7) {
+		ETHQOSERR("Invalid option set by user\n");
+		return -EINVAL;
+	}
+
+	if (input == priv->prio) {
+		ETHQOSINFO("Ethqos:  cv2x_priority input: %d\n", input);
+	} else {
+		ETHQOSINFO("Ethqos:  cv2x_priority input: %d\n", input);
+		priv->filter_type = PRIORITY_FILTER;
+		if (priv->prio > 0) {
+			priv->del_filter(netdev);
+		}
+		priv->prio = input;
+		priv->add_filter(netdev);
+	}
+
+	return size;
+}
+
+static DEVICE_ATTR(cv2x_priority, ETHQOS_SYSFS_DEV_ATTR_PERMS, show_cv2x_priority,
+		   store_cv2x_priority);
+
+static int ethqos_remove_sysfs(struct qcom_ethqos *ethqos)
+{
+	struct net_device *net_dev;
+
+	if (!ethqos) {
+		ETHQOSERR("ethqos is NULL\n");
+		return -EINVAL;
+	}
+
+	net_dev = platform_get_drvdata(ethqos->pdev);
+	if (!net_dev) {
+		ETHQOSERR("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	sysfs_remove_file(&net_dev->dev.kobj,
+			  &dev_attr_cv2x_priority.attr);
+
+	return 0;
+}
+
+static int ethqos_create_sysfs(struct qcom_ethqos *ethqos)
+{
+	int ret;
+	struct net_device *net_dev;
+
+	if (!ethqos) {
+		ETHQOSERR("ethqos is NULL\n");
+		return -EINVAL;
+	}
+
+	net_dev = platform_get_drvdata(ethqos->pdev);
+	if (!net_dev) {
+		ETHQOSERR("netdev is NULL\n");
+		return -EINVAL;
+	}
+
+	ret = sysfs_create_file(&net_dev->dev.kobj,
+				&dev_attr_cv2x_priority.attr);
+	if (ret) {
+		ETHQOSERR("unable to create cv2x_priority sysfs node\n");
+		goto fail;
+	}
+
+	return ret;
+
+fail:
+	return ethqos_remove_sysfs(ethqos);
+}
+
 static void emac_fe_ev_wq(struct work_struct *work)
 {
 	struct qcom_ethqos *ethqos = container_of(work, struct qcom_ethqos,
@@ -48,12 +171,12 @@ static void emac_fe_ev_wq(struct work_struct *work)
 
 	ETHQOSINFO("Enter - cur state [%u]\n", priv->emac_state);
 	do {
-		mutex_lock(&ethqos->lock);
+		spin_lock(&ethqos->lock);
 		emac_ev = list_first_entry_or_null(&ethqos->emac_fe_ev_q,
 						   struct emac_fe_ev, list);
 		if (emac_ev)
 			list_del(&emac_ev->list);
-		mutex_unlock(&ethqos->lock);
+		spin_unlock(&ethqos->lock);
 
 		if (!emac_ev)
 			break;
@@ -66,15 +189,22 @@ static void emac_fe_ev_wq(struct work_struct *work)
 				break;
 
 			priv->emac_state = EMAC_HW_UP_ST;
-			if (ethqos->suspended &&
-			    !stmmac_resume(priv->device)) {
-				ETHQOSINFO("resume on HW up\n");
+			if (ethqos->suspended) {
+				if (priv->dev_inited &&
+				    !stmmac_resume(priv->device))
+					ETHQOSINFO("resume on HW up\n");
 				ethqos->suspended = false;
+				if (priv->prio) {
+					priv->filter_type = PRIORITY_FILTER;
+					priv->add_filter(priv->dev);
+				}
 			} else if (priv->dev_opened &&
 				   !priv->dev_inited) {
 				ETHQOSINFO("init driver on HW up\n");
 				stmmac_dvr_init(priv->dev);
 				priv->add_filter(priv->dev);
+			} else {
+				ETHQOSINFO("Device not opened when HW up\n");
 			}
 			break;
 		case EMAC_HW_DOWN:
@@ -135,9 +265,9 @@ static int qcom_ethqos_emac_notify_cb(struct notifier_block *nb,
 		return -ENOMEM;
 
 	emac_ev->ev = ev;
-	mutex_lock(&ethqos->lock);
+	spin_lock(&ethqos->lock);
 	list_add_tail(&emac_ev->list, &ethqos->emac_fe_ev_q);
-	mutex_unlock(&ethqos->lock);
+	spin_unlock(&ethqos->lock);
 
 	queue_work(ethqos->wq, &ethqos->emac_fe_work);
 
@@ -151,16 +281,23 @@ static void qcom_ethqos_register_emac_fe_listener(struct qcom_ethqos *ethqos)
 	ETHQOSINFO("Enter\n");
 	ethqos->emac_nb.notifier_call = qcom_ethqos_emac_notify_cb;
 	ret = emac_ctrl_fe_register_notifier(&ethqos->emac_nb);
-	if (ret)
+	if (ret) {
 		ETHQOSERR("emac_ctrl_fe_register_notifier failed\n");
+		return;
+	}
+	ethqos->fe_registered = true;
 }
 
 static void
 qcom_ethqos_unregister_emac_fe_listener(struct qcom_ethqos *ethqos, int reason)
 {
+	if (!ethqos->fe_registered)
+		return;
+
 	ethqos->emac_nb.notifier_call = qcom_ethqos_emac_notify_cb;
 	ethqos->emac_nb.priority = reason;
 	emac_ctrl_fe_unregister_notifier(&ethqos->emac_nb);
+	ethqos->fe_registered = false;
 }
 
 static inline unsigned int dwmac_qcom_get_eth_type(unsigned char *buf)
@@ -276,11 +413,12 @@ static int qcom_ethqos_mac_addr(struct net_device *ndev)
 	struct unicast_mac_addr mac;
 
 	ETHQOSINFO("Enter\n");
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 	if (is_valid_ether_addr(ndev->dev_addr)) {
 		memcpy(mac.enm_addr, ndev->dev_addr, ETH_ALEN);
 		return emac_ctrl_fe_mac_addr_chg(&mac);
 	}
-
+#endif
 	return 0;
 }
 
@@ -396,11 +534,20 @@ static int qcom_ethqos_add_filter(struct net_device *ndev)
 		filter.vlan_id = priv->vid;
 		ret = emac_ctrl_fe_filter_add_request(filter_type, &filter);
 		break;
+	case VLAN_PRIORITY:
+		filter_type = PRIORITY_FILTER;
+		filter.vlan_prio = priv->prio;
+		ret = emac_ctrl_fe_filter_add_request(filter_type, &filter);
+		break;
 	case MULTICAST_TYPE:
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 		ret = qcom_ethqos_set_mc_filters(ndev);
+#endif
 		break;
 	case UNICAST_TYPE:
+#ifndef CONFIG_ETHQOS_QCOM_SVM
 		ret = qcom_ethqos_set_uc_filters(ndev);
+#endif
 		break;
 	default:
 		ETHQOSINFO("Wrong filter type %d\n", priv->filter_type);
@@ -424,6 +571,12 @@ static int qcom_ethqos_del_filter(struct net_device *ndev)
 	if (priv->filter_type == VLAN_TYPE) {
 		filter_type = VLAN_FILTER;
 		filter.vlan_id = priv->vid;
+		return emac_ctrl_fe_filter_del_request(filter_type, filter);
+	}
+
+	if (priv->filter_type == VLAN_PRIORITY) {
+		filter_type = PRIORITY_FILTER;
+		filter.vlan_id = priv->prio;
 		return emac_ctrl_fe_filter_del_request(filter_type, filter);
 	}
 
@@ -460,6 +613,14 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	ETHQOSINFO("Start\n");
 
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
+	place_marker("M - Ethernet probe start");
+#endif
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	qcom_ethmsgq_init(&pdev->dev);
+#endif
+
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 	if (ret) {
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
@@ -470,10 +631,6 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	}
 	if (of_device_is_compatible(np, "qcom,emac-smmu-embedded"))
 		return emac_emb_smmu_cb_probe(pdev);
-
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	place_marker("M - Ethernet probe start");
-#endif
 
 	ipc_emac_log_ctxt = ipc_log_context_create(IPCLOG_STATE_PAGES,
 						   "emac", 0);
@@ -491,8 +648,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	ethqos->pdev = pdev;
 
-	plat_dat = stmmac_probe_config_dt(pdev,
-					  &stmmac_res.mac, stmmac_res.ch);
+	plat_dat = stmmac_probe_config_dt(pdev, stmmac_res.mac);
 	if (IS_ERR(plat_dat)) {
 		dev_err(&pdev->dev, "dt configuration failed\n");
 		return PTR_ERR(plat_dat);
@@ -542,7 +698,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		goto err_smmu;
 	}
 
-	mutex_init(&ethqos->lock);
+	spin_lock_init(&ethqos->lock);
 	INIT_WORK(&ethqos->emac_fe_rdy_work, ethqos_emac_fe_ready_wq);
 	INIT_WORK((struct work_struct *)&ethqos->emac_fe_work, emac_fe_ev_wq);
 	INIT_LIST_HEAD(&ethqos->emac_fe_ev_q);
@@ -561,29 +717,44 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv->del_filter = qcom_ethqos_del_filter;
 
 	priv->emac_state = EMAC_INIT_ST;
+	priv->prio = 0;
+	ethqos_create_sysfs(ethqos);
 
 	while (count < 10) {
 		if (!emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,
 						    (void *)ethqos))
 			break;
-		ETHQOSINFO("emac_ctrl_fe_register_ready_cb failed\n");
 		cond_resched();
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+		msleep(200);
+#endif
 		count++;
 	}
-	if (count == 10)
-		goto err_reg;
+	if (count == 10) {
+		ret = -EINVAL;
+		goto err_fe;
+	}
 
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 	place_marker("M - Ethernet probe end");
 #endif
+
 	ETHQOSINFO("End\n");
 	return 0;
 
+err_fe:
+	stmmac_pltfr_remove(pdev);
+	platform_set_drvdata(pdev, NULL);
 err_reg:
 	destroy_workqueue(ethqos->wq);
-	mutex_destroy(&ethqos->lock);
+	emac_emb_smmu_exit();
 err_smmu:
 	of_platform_depopulate(&pdev->dev);
+	ETHQOSERR("Ethernet probe exit with ret = %d\n", ret);
+	if (ipc_emac_log_ctxt)
+		ipc_log_context_destroy(ipc_emac_log_ctxt);
+	ipc_emac_log_ctxt = NULL;
+
 	return ret;
 }
 
@@ -603,9 +774,16 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 		return -ENODEV;
 
 	ETHQOSINFO("Enter\n");
+
+	ethqos_remove_sysfs(ethqos);
+
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	qcom_ethmsgq_deinit(&pdev->dev);
+#endif
+
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_UNMOUNT);
+	cancel_work_sync(&ethqos->emac_fe_work);
 	destroy_workqueue(ethqos->wq);
-	mutex_destroy(&ethqos->lock);
 	ret = stmmac_pltfr_remove(pdev);
 
 	emac_emb_smmu_exit();
@@ -613,9 +791,10 @@ static int qcom_ethqos_remove(struct platform_device *pdev)
 	platform_set_drvdata(pdev, NULL);
 	of_platform_depopulate(&pdev->dev);
 
-	if (!ipc_emac_log_ctxt)
+	if (ipc_emac_log_ctxt)
 		ipc_log_context_destroy(ipc_emac_log_ctxt);
 	ipc_emac_log_ctxt = NULL;
+	ETHQOSINFO("Exit\n");
 
 	return ret;
 }
@@ -635,8 +814,12 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct qcom_ethqos *ethqos;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
-	int ret;
+	int ret = 0;
 
+#ifdef CONFIG_MSM_GVM_BOOT_TIME_MARKER
+	update_marker("M - Ethernet Suspend start");
+#endif
+	ETHQOSINFO("Enter Suspend\n");
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded")) {
 		ETHQOSDBG("smmu return\n");
 		return 0;
@@ -649,11 +832,22 @@ static int qcom_ethqos_suspend(struct device *dev)
 	ndev = dev_get_drvdata(dev);
 
 	if (!ndev || !netif_running(ndev)) {
-		ETHQOSINFO(" Suspend not possible\n");
+		ETHQOSINFO("Suspend not possible\n");
 		return 0;
 	}
 
 	priv = netdev_priv(ndev);
+
+	if (ethqos->suspended || !priv->dev_inited) {
+		/* Device interface is not up (stmmac_open is not called)
+		   but netif_running still returns true. Need to add more
+		   check to skip suspend.
+		*/
+		ETHQOSINFO("Driver not open/resumed, unregister emac fe\n");
+		ret = 0;
+		goto unregister;
+	}
+
 	ret = stmmac_suspend(dev);
 	if (!ret) {
 		ethqos->suspended = true;
@@ -661,10 +855,14 @@ static int qcom_ethqos_suspend(struct device *dev)
 	}
 
 	emac_ctrl_fe_gvm_dma_stopped();
+unregister:
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_SUSPEND);
 
 	priv->boot_kpi = false;
-	ETHQOSDBG(" ret = %d\n", ret);
+#ifdef CONFIG_MSM_GVM_BOOT_TIME_MARKER
+	update_marker("M - Ethernet Suspend End");
+#endif
+	ETHQOSINFO("Suspend ret = %d\n", ret);
 	return ret;
 }
 
@@ -675,6 +873,10 @@ static int qcom_ethqos_resume(struct device *dev)
 	int ret;
 
 	ETHQOSDBG("Resume Enter\n");
+#ifdef CONFIG_MSM_GVM_BOOT_TIME_MARKER
+	update_marker("M - Ethernet Resume start");
+#endif
+
 	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded"))
 		return 0;
 
@@ -686,15 +888,19 @@ static int qcom_ethqos_resume(struct device *dev)
 	ndev = dev_get_drvdata(dev);
 
 	if (!ndev || !netif_running(ndev)) {
-		ETHQOSINFO(" Resume not possible\n");
+		ETHQOSINFO("Resume not possible\n");
 		return 0;
 	}
 
 	ret = emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,
 					     (void *)ethqos);
+
+#ifdef CONFIG_MSM_GVM_BOOT_TIME_MARKER
+	update_marker("M - Ethernet Resume End");
+#endif
 	ETHQOSDBG("emac_ctrl_fe_register_ready_cb return %d\n", ret);
 
-	ETHQOSDBG("<--Resume Exit\n");
+	ETHQOSINFO("Waiting for HW_UP event to resume driver\n");
 	return ret;
 }
 
