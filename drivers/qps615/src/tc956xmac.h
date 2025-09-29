@@ -4,7 +4,7 @@
  * tc956xmac.h
  *
  * Copyright (C) 2007-2009  STMicroelectronics Ltd
- * Copyright (C) 2023 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro Linux driver,
  * and developed or modified for TC956X.
@@ -37,10 +37,10 @@
  *  15 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported without module parameter
  *  VERSION     : 01-00-02
  *  20 Jul 2021 : 1. Version update
- *		2. Default Port1 interface selected as SGMII
+ *                2. Default Port1 interface selected as SGMII
  *  VERSION     : 01-00-03
  *  22 Jul 2021 : 1. Version update
- *		2. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
+ *                2. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
  *  VERSION     : 01-00-04
  *  22 Jul 2021 : 1. Dynamic CM3 TAMAP configuration
  *  VERSION     : 01-00-05
@@ -49,12 +49,12 @@
  *  29 Jul 2021 : 1. Add support to set MAC Address register
  *  VERSION     : 01-00-07
  *  05 Aug 2021 : 1. Store and use Port0 pci_dev for all DMA allocation/mapping for IPA path
- *		: 2. Register Port0 as only PCIe device, incase its PHY is not found
+ *              : 2. Register Port0 as only PCIe device, incase its PHY is not found
  *  VERSION     : 01-00-08
  *  16 Aug 2021 : 1. PHY interrupt mode supported through .config_intr and .ack_interrupt API
  *  VERSION     : 01-00-09
  *  24 Aug 2021 : 1. Disable TC956X_PCIE_GEN3_SETTING and TC956X_LOAD_FW_HEADER macros and provide support via Makefile
- *		: 2. Platform API supported
+ *              : 2. Platform API supported
  *  VERSION     : 01-00-10
  *  02 Sep 2021 : 1. Configuration of Link state L0 and L1 transaction delay for PCIe switch ports & Endpoint.
  *  VERSION     : 01-00-11
@@ -69,28 +69,28 @@
  *  14 Oct 2021 : 1. Version update
  *  VERSION     : 01-00-16
  *  19 Oct 2021 : 1. Adding M3 SRAM Debug counters to ethtool statistics
- *		: 2. Adding MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
- *		: 3. Version update
+ *                2. Adding MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
+ *                3. Version update
  *  VERSION     : 01-00-17
  *  21 Oct 2021 : 1. Added support for GPIO configuration API
- *		: 2. Version update 
+ *              : 2. Version update
  *  VERSION     : 01-00-18
  *  26 Oct 2021 : 1. Updated Driver Module Version.
-		: 2. Added variable for port-wise suspend status.
-		: 3. Added macro to control EEE MAC Control.
+ *                2. Added variable for port-wise suspend status.
+ *                3. Added macro to control EEE MAC Control.
  *  VERSION     : 01-00-19
  *  04 Nov 2021 : 1. Version update
  *  VERSION     : 01-00-20
  *  08 Nov 2021 : 1. Version update
  *  VERSION     : 01-00-21
  *  24 Nov 2021 : 1. Version update
- 		  2. Private member used instead of global for wol interrupt indication
+ *                2. Private member used instead of global for wol interrupt indication
  *  VERSION     : 01-00-22
  *  24 Nov 2021 : 1. Version update
  *  VERSION     : 01-00-23
  *  24 Nov 2021 : 1. EEE macro enabled by default.
- 		  2. Module param support for EEE configuration
-		  3. Version update
+ *                2. Module param support for EEE configuration
+ *                3. Version update
  *  VERSION     : 01-00-24
  *  30 Nov 2021 : 1. Version update
  *  VERSION     : 01-00-25
@@ -107,7 +107,7 @@
  *  10 Dec 2021 : 1. Version update
  *  VERSION     : 01-00-31
  *  27 Dec 2021 : 1. Support for eMAC Reset and unused clock disable during Suspend and restoring it back during resume.
-		  2. Version update.
+ *                2. Version update.
  *  VERSION     : 01-00-32
  *  06 Jan 2022 : 1. Version update
  *  VERSION     : 01-00-33
@@ -116,61 +116,61 @@
  *  11 Jan 2022 : 1. Version update
  *  VERSION     : 01-00-35
  *  18 Jan 2022 : 1. IRQ device name change
- *		  2. Version update
+ *                2. Version update
  *  VERSION     : 01-00-36
  *  20 Jan 2022 : 1. Version update
  *  VERSION     : 01-00-37
  *  24 Jan 2022 : 1. Version update
  *  VERSION     : 01-00-38
  *  31 Jan 2022 : 1. Debug dump API and structures added to dump registers during crash.
- *		  2. Version update.
+ *                2. Version update.
  *  VERSION     : 01-00-39
  *  02 Feb 2022 : 1. Version update
  *  VERSION     : 01-00-40
  *  04 Feb 2022 : 1. Version update
  *  VERSION     : 01-00-41
  *  14 Feb 2022 : 1. Reset assert and clock disable support during Link Down.
- *		  2. Version update.
+ *                2. Version update.
  *  VERSION     : 01-00-42
  *  22 Feb 2022 : 1. Supported GPIO configuration save and restoration
- *		  2. Version update.
+ *                2. Version update.
  *  VERSION     : 01-00-43
  *  25 Feb 2022 : 1. Version update.
  *  VERSION     : 01-00-44
- *  09 Mar 2022 : 1. Version update 
+ *  09 Mar 2022 : 1. Version update
  *  VERSION     : 01-00-45
- *  22 Mar 2022 : 1. Version update 
+ *  22 Mar 2022 : 1. Version update
  *  VERSION     : 01-00-46
- *  05 Apr 2022 : 1. Version update 
+ *  05 Apr 2022 : 1. Version update
  *  VERSION     : 01-00-47
- *  06 Apr 2022 : 1. Version update 
+ *  06 Apr 2022 : 1. Version update
  *  VERSION     : 01-00-48
- *  14 Apr 2022 : 1. Version update 
+ *  14 Apr 2022 : 1. Version update
  *  VERSION     : 01-00-49
- *  25 Apr 2022 : 1. Version update 
+ *  25 Apr 2022 : 1. Version update
  *  VERSION     : 01-00-50
  *  29 Apr 2022 : 1. Added variable for tracking port release status and Lock for syncing linkdown, port rlease and release of offloaded DMA channels
- *		  2. Version update.
+ *                2. Version update.
  *  VERSION     : 01-00-51
  *  15 Jun 2022 : 1. Added debugfs support for module specific register dump
- *		  2. Version update.
+ *                2. Version update.
  *  VERSION     : 01-00-52
- *  08 Aug 2022 : 1. Version update 
+ *  08 Aug 2022 : 1. Version update
  *  VERSION     : 01-00-53
  *  31 Aug 2022 : 1. Added Fix for configuring Rx Parser when EEE is enabled and RGMII Interface is used
- *		  2. Version update.
+ *                2. Version update.
  *  VERSION     : 01-00-54
  *  02 Sep 2022 : 1. 2500Base-X support for line speeds 2.5Gbps, 1Gbps, 100Mbps.
- *		  2. Version update
+ *                2. Version update
  *  VERSION     : 01-00-55
- *  21 Oct 2022 : 1. Version update 
+ *  21 Oct 2022 : 1. Version update
  *  VERSION     : 01-00-56
- *  09 Nov 2022 : 1. Version update 
+ *  09 Nov 2022 : 1. Version update
  *  VERSION     : 01-00-57
  *  22 Dec 2022 : 1. Support for SW reset during link down.
  *                2. Version update
  *  VERSION     : 01-00-58
- *  09 May 2023 : 1. Version update 
+ *  09 May 2023 : 1. Version update
  *  VERSION     : 01-00-59
  *  10 Nov 2023 : 1. DSP Cascade related modifications
  *                2. Kernel 6.1 Porting changes
@@ -181,6 +181,32 @@
  *                2. Added the support for TC commands taprio and flower
  *                3. Version update
  *  VERSION     : 01-03-59
+ *  13 Feb 2024 : 1. Merged CPE and Automotive package
+ *                2. Updated with Register Configuration Check.
+ *                3. Added support for board device RBTC9563_3MA
+ *  VERSION     : 04-00
+ *  31 May 2024 : 1. Changes related to module param USXGMII_10G, USXGMII_5G, USXGMII_2.5G added
+ *                2. Version update
+ *  VERSION     : 05-00
+ *  06 Dec 2024 : 1. Modification to support PHY_INTERFACE_MODE_10GBASER interface type
+ *                2. Driver compilation warnings fixed for CCflags "Wmissing-prototypes" which is added in driver Makefile
+ *                3. Driver modification to use global array for 'WOL' device name during 'IRQ' registration
+ *  VERSION     : 04-00-02
+ *  11 Dec 2024 : 1. Modification to support port interface setting overlay from dts.
+ *                2. Driver modification to disable phydev private flag access.
+ *  VERSION     : 04-00-03
+ *  31 Jan 2025 : 1. Merge of Automotive limited github branches as listed above with 05-00 version
+ *                2. Support for module parameter (array) to configure different ethernet interfaces and
+ *                   associated other mandatory configurations for same ethernet port number in a cascade TC956x setup
+ *                3. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+ *                4. Modification to support PHY_INTERFACE_MODE_RGMII_ID interface type
+ *                5. Fix for MAC address assignment conflict in Cascade setup
+ *                6. Version update
+ *  VERSION     : 05-00-01
+ *  28 Feb 2025 : 1. Version update
+ *  VERSION     : 05-02-00
+ *  31 Mar 2025 : 1. Version update
+ *  VERSION     : 06-00-00
  */
 
 #ifndef __TC956XMAC_H__
@@ -199,7 +225,7 @@
 #include <linux/net_tstamp.h>
 #include <linux/reset.h>
 #include <linux/version.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0))
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,6,0)
 #include <net/page_pool.h>
 #else
 #include <net/page_pool/helpers.h>
@@ -217,6 +243,8 @@
 /* Uncomment TC956X_5_G_2_5_G_EEE_SUPPORT macro for enabling EEE support for 5G and 2.5G */
 #define TC956X_5_G_2_5_G_EEE_SUPPORT
 // #define CONFIG_TC956XMAC_SELFTESTS  /*Enable this macro to test Feature selftest*/
+/* Enable this macro when using TSB provided sample AQR driver which supports preamble suppression */
+// #define TC956X_SAMP_PHY_AQR_DRV_PSE_ENABLED
 
 #ifdef TC956X
 #define VENDOR_ID 0x1179
@@ -253,7 +281,7 @@
 #define IRQ_DEV_NAME(x)		(((x) == RM_PF0_ID) ? ("eth0") : ("eth1"))
 #define WOL_IRQ_DEV_NAME(x)	(((x) == RM_PF0_ID) ? ("eth0_wol") : ("eth1_wol"))
 
-#define DRV_MODULE_VERSION	"V_01-03-59"
+#define DRV_MODULE_VERSION	"V_06-00-00"
 #define TC956X_FW_MAX_SIZE	(64*1024)
 #elif (defined TC956X_SRIOV_VF)
 #define TC956X_RESOURCE_NAME	"tc956x_vf_pci-eth"
@@ -398,11 +426,16 @@
 
 #define TC956X_M3_DBG_VER_START			0x4F900
 
-#define ENABLE_USXGMII_INTERFACE	0
-#define ENABLE_XFI_INTERFACE		1 /* XFI/SFI, this is same as USXGMII, except XPCS autoneg disabled */
-#define ENABLE_RGMII_INTERFACE		2
-#define ENABLE_SGMII_INTERFACE		3
-#define ENABLE_2500BASE_X_INTERFACE	4
+#define ENABLE_USXGMII_INTERFACE		0 /* This value is passed to TSB AQR Sample driver as dev_flags, when this changed, AQR sample driver needs change */
+#define ENABLE_XFI_INTERFACE			1 /* XFI/SFI, this is same as USXGMII, except XPCS autoneg disabled */
+#define ENABLE_RGMII_INTERFACE			2
+#define ENABLE_RGMII_ID_INTERFACE		3
+#define ENABLE_SGMII_INTERFACE			4
+#define ENABLE_2500BASE_X_INTERFACE		5
+#define ENABLE_USXGMII_10G_INTERFACE	6
+#define ENABLE_USXGMII_5G_INTERFACE		7 /* This value is passed to TSB AQR Sample driver as dev_flags, when this changed, AQR sample driver needs change */
+#define ENABLE_USXGMII_2_5G_INTERFACE	8
+
 #define MTL_FPE_AFSZ_64		0
 #define MTL_FPE_AFSZ_128	1
 #define MTL_FPE_AFSZ_192	2
@@ -463,10 +496,17 @@ struct tc956xmac_resources {
 	int irq;
 #ifdef TC956X
 	unsigned int port_num;
+	u8  device_num;
 	unsigned int port_interface; /* Kernel module parameter variable for interface */
 	unsigned int eee_enabled; /* Parameter to store kernel module parameter to enable/disable EEE */
 	unsigned int tx_lpi_timer; /* Parameter to store kernel module parameter for LPI Auto Entry Timer */
 #endif
+	uint16_t pci_bd; /* PCI bus and device ID of self */
+	unsigned int mdc_clk;
+	unsigned int c45_state;
+	unsigned int link_down_macrst;
+	uint16_t pci_bdf; /* PCI bus, device ID and Fun ID of self */
+	uint16_t probe_seq_no;
 };
 
 struct tc956xmac_tx_info {
@@ -485,7 +525,7 @@ struct tc956xmac_tx_info {
 struct tc956xmac_tx_queue {
 	u32 tx_count_frames;
 	int tbs;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0))
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,11,0)
 	struct hrtimer txtimer;
 #else
 	struct timer_list txtimer;
@@ -665,7 +705,7 @@ enum tc956x_rfs_type {
 
 struct tc956xmac_priv {
 	/* Frequently used values are kept adjacent for cache effect */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0)
 	u32 tx_coal_frames[MTL_MAX_TX_QUEUES];
 	u32 tx_coal_timer[MTL_MAX_TX_QUEUES];
 	u32 rx_coal_frames[MTL_MAX_TX_QUEUES];
@@ -683,7 +723,7 @@ struct tc956xmac_priv {
 
 	unsigned int dma_buf_sz;
 	unsigned int rx_copybreak;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0))
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0)
 	u32 rx_riwt[MTL_MAX_RX_QUEUES];
 #else
 	u32 rx_riwt;
@@ -784,9 +824,12 @@ struct tc956xmac_priv {
 #endif
 	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
 
+#ifdef TC956X_SRIOV_PF
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dbgfs_dir;
 #endif
+	char int_name_wol[IFNAMSIZ + 9];
+#endif /* TC956X_SRIOV_PF */
 
 	unsigned long state;
 	struct workqueue_struct *wq;
@@ -851,6 +894,7 @@ struct tc956xmac_priv {
 	/* eMAC port number */
 #ifdef TC956X
 	u32 port_num;
+	u8 device_num;
 	u32 mac_loopback_mode;
 	u32 phy_loopback_mode;
 	bool is_sgmii_2p5g; /* For 2.5G SGMI, XPCS doesn't support AN. This flag is to identify 2.5G Speed for SGMII interface. */
@@ -888,14 +932,17 @@ struct tc956xmac_priv {
 	u32 pm_saved_linkdown_clk; /* Save and restore Clocks during link-down sequence */
 	bool port_link_down; /* Flag to save per port link down state */
 	bool port_release; /* Flag to notify appropriate sequence of link down & up */
-	struct mutex port_ld_release_lock; /* Mutex lock to handle (set and clear) flag to notify 
+	struct mutex port_ld_release_lock; /* Mutex lock to handle (set and clear) flag to notify
 						appropriate sequence of link down & up */
 
 #endif
-	struct tc956x_gpio_config saved_gpio_config[GPIO_12 + 1]; /* Only GPIO0- GPIO06, GPI010-GPIO12 are used */
+	struct tc956x_gpio_config saved_gpio_config[GPIO_13 + 1]; /* Only GPIO0- GPIO06, GPI010-GPIO13 are used */
+
+#ifdef TC956X_SRIOV_PF
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *debugfs_dir; /* debugfs structure pointer for port specific */
 #endif
+#endif /* TC956X_SRIOV_PF */
 
 #ifdef TC956X_ENABLE_MAC2MAC_BRIDGE
 	void *pbridge_buffaddr;
@@ -907,6 +954,9 @@ struct tc956xmac_priv {
 #endif
 	unsigned long link_state;
 	bool link_down_rst; /* For light-weight release and open during link-down */
+	uint16_t pci_bd; /* PCI bus and device ID of self */
+	uint16_t pci_bdf; /* PCI bus, device ID and Fun ID of self */
+	uint16_t probe_seq_no;
 };
 
 struct tc956x_version {
@@ -1229,7 +1279,8 @@ static inline int tc956xmac_selftest_get_count(struct tc956xmac_priv *priv)
 s32 tc956x_load_firmware(struct device *dev, struct tc956xmac_resources *res);
 #endif
 extern int tc956xmac_pm_usage_counter;
-#if defined(TC956X_SRIOV_PF) && !defined(TC956X_AUTOMOTIVE_CONFIG) && !defined(TC956X_ENABLE_MAC2MAC_BRIDGE)
+extern int tc956x_dsp_count;
+#if defined(TC956X_SRIOV_PF) && !defined(TC956X_AUTOMOTIVE_CONFIG) && !defined(TC956X_ENABLE_MAC2MAC_BRIDGE) && !defined(TC956X_CPE_CONFIG)
 int tc956x_pf_get_fn_idx_from_int_sts(struct tc956xmac_priv *priv,
 					     struct fn_id *fn_id_info);
 void tc956x_pf_parse_mbx(struct tc956xmac_priv *priv,
@@ -1241,11 +1292,13 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resource
 int tc956x_platform_remove(struct tc956xmac_priv *priv);
 int tc956x_platform_suspend(struct tc956xmac_priv *priv);
 int tc956x_platform_resume(struct tc956xmac_priv *priv);
+int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res);
 #else
-static inline int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resources *res) { return 0; }
+int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resources *res);
 static inline int tc956x_platform_remove(struct tc956xmac_priv *priv) { return 0; }
 static inline int tc956x_platform_suspend(struct tc956xmac_priv *priv) { return 0; }
-static inline int tc956x_platform_resume(struct tc956xmac_priv *priv) { return 0; }
+int tc956x_platform_resume(struct tc956xmac_priv *priv);
+static inline int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res) { return 0; }
 #endif
 
 int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 out_value);
@@ -1261,6 +1314,37 @@ int tc956x_vf_rsc_mng_get_fn_id(struct tc956xmac_priv *priv, void __iomem *reg_p
 
 #endif
 int tc956x_set_pci_speed(struct pci_dev *pdev, u32 speed);
+uint8_t get_tc956x_index(struct pci_dev *pdev);
 void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT_LINK_CHANGE_STATE state);
+uint16_t tc956x_get_shared_mem_offset(struct pci_dev *pdev, uint16_t pci_bd);
+
+#ifdef TC956X_SRIOV_PF
+#ifdef CONFIG_DEBUG_FS
+int tc956xmac_create_debugfs(struct net_device *net_device);
+int tc956xmac_cleanup_debugfs(struct net_device *net_device);
+#endif
+#endif
+
+#ifndef TC956X_SRIOV_VF
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+int genphy_c45_read_eee_adv_local(struct phy_device *phydev, unsigned long *adv);
+int genphy_c45_eee_is_active_local(struct phy_device *phydev, unsigned long *adv,
+			     unsigned long *lp, bool *is_enabled);
+int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
+			       struct ethtool_eee *data);
+int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *data);
+int phylink_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *eee);
+#endif
+
+#ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
+extern int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data);
+#endif
+#endif
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 5, 0)
+struct timespec64 tc956x_calc_basetime(ktime_t old_base_time,
+					   ktime_t current_time,
+					   u64 cycle_time);
+#endif
 
 #endif /* __TC956XMAC_H__ */
