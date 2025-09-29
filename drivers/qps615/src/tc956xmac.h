@@ -269,7 +269,7 @@
 #define TC956X_RX_QUEUES 8
 
 #ifndef FIRMWARE_NAME
-#define FIRMWARE_NAME "TC956X_Firmware_PCIeBridge.bin"
+#define FIRMWARE_NAME "qps615_fw.bin"
 #endif
 
 #define TC956X_TOTAL_VFS 3

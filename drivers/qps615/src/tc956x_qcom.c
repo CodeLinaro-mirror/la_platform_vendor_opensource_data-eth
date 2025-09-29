@@ -56,8 +56,10 @@ static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
 			if (regulator_disable(qpriv->phy_supply))
 				dev_err(priv->device, "Failed to disable regulator\n");
 		}
-	} else
+	}
+	else if (qpriv->phy_rst_gpio_som) {
 		gpiod_set_value(qpriv->phy_rst_gpio_som, 1);
+	}
 
 	dev_dbg(priv->device,"QPS615 PHY out of reset delay %d", qpriv->phy_rst_delay_us);
 	usleep_range(qpriv->phy_rst_delay_us, qpriv->phy_rst_delay_us);
@@ -83,9 +85,10 @@ static int tc956x_phy_power_off(struct tc956xmac_priv *priv)
 			if (tc956x_deassert_phy_reset(priv))
 				dev_err(priv->device, "Failed to deassert PHY\n");
 		}
-	} else
+	}
+	else if (qpriv->phy_rst_gpio_som) {
 		gpiod_set_value(qpriv->phy_rst_gpio_som, 0);
-
+	}
 	return ret;
 }
 
@@ -96,14 +99,11 @@ static int tc956x_platform_of_parse(struct device *dev,
 
 	if(!qpriv->has_always_on_supplies) {
 		if (of_property_read_u32(dev->of_node,"qcom,phy-rst-gpio", &qpriv->phy_rst_gpio)) {
-			if (of_property_read_u32(dev->of_node, "qcom,phy-rst-gpio-id",
-				&qpriv->phy_rst_gpio)) {
 				dev_err(dev, "Failed to get PHY reset GPIO\n");
 				return -EINVAL;
 			}
-		}
 	} else {
-		qpriv->phy_rst_gpio_som = devm_gpiod_get(dev, "phy-rst-som", GPIOD_OUT_LOW);
+		qpriv->phy_rst_gpio_som = devm_gpiod_get_optional(dev, "phy-rst-som", GPIOD_OUT_LOW);
 		if (IS_ERR(qpriv->phy_rst_gpio_som)) {
 			dev_err(dev, "Failed to get PHY reset GPIO: %ld\n", PTR_ERR(qpriv->phy_rst_gpio_som));
 			return -EINVAL;
@@ -188,8 +188,10 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 			dev_err(priv->device, "Failed to assert the PHY reset with error %d\n", ret);
 			goto err_assert_phy_rst;
 		}
-	} else
+	}
+	else if (qpriv->phy_rst_gpio_som) {
 		gpiod_set_value(qpriv->phy_rst_gpio_som, 0);
+	}
 
 	ret = pinctrl_select_state(qpriv->pinctrl, qpriv->pinctrl_default);
 	if (ret) {
@@ -291,7 +293,6 @@ int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_
 	u32 mdc_clk;
 	u32 c45_state;
 	u32 link_down_macrst;
-	u32 plat_interface;
 
 	if (of_property_read_u32(dev->of_node, "qcom,phy-port-interface", &interface)) {
 		dev_err(dev, "Failed to get phy port interface\n");
