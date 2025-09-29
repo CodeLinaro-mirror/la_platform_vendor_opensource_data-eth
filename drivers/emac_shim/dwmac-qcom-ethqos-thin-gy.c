@@ -440,7 +440,9 @@ int send_with_retry(struct vlan_info vlan)
 static int netdev_event_listener(struct notifier_block *nb, unsigned long event, void *data)
 {
 	struct net_device *netdev = netdev_notifier_info_to_dev(data);
+	struct stmmac_priv *priv;
 	unsigned long flags;
+	bool send_flag = false;
 
 	if (!netdev || !netdev->dev.parent || !netdev->dev.parent->driver)
 		return NOTIFY_DONE;
@@ -453,6 +455,7 @@ static int netdev_event_listener(struct notifier_block *nb, unsigned long event,
 	if (strcmp(netdev->dev.parent->driver->name, DRV_NAME) != 0)
 		return NOTIFY_DONE;
 
+	priv = netdev_priv(netdev);
 	ETHQOSDBG("driver name = %s\n", netdev->dev.parent->driver->name);
 	spin_lock_irqsave(&state_lock, flags);
 	switch (event) {
@@ -462,8 +465,8 @@ static int netdev_event_listener(struct notifier_block *nb, unsigned long event,
 				client_vlan.gvm_link_state = EMAC_LINK_UP;
 				client_vlan.vlan_status = ADD_ALL_GVM_THIN_VLAN;
 				client_vlan.vid = 0;
-				send_with_retry(client_vlan);
 				state = UP_SENT;
+				send_flag = true;
 			}
 			break;
 		case NETDEV_DOWN:
@@ -472,14 +475,18 @@ static int netdev_event_listener(struct notifier_block *nb, unsigned long event,
 				client_vlan.gvm_link_state = EMAC_LINK_DOWN;
 				client_vlan.vid = 0;
 				client_vlan.vlan_status = DEL_GVM_THIN_VLAN;
-				send_with_retry(client_vlan);
 				state = DOWN_SENT;
+				send_flag = true;
 			}
 			break;
 		default:
 			break;
 	}
 	spin_unlock_irqrestore(&state_lock, flags);
+
+	if (send_flag && priv->emac_state >= EMAC_HW_UP_ST)
+		send_with_retry(client_vlan);
+
 	return NOTIFY_OK;
 }
 
