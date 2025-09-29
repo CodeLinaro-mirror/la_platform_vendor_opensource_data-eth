@@ -4,7 +4,7 @@
  * tc956xmac_tc.c
  *
  * Copyright (C) 2018 Synopsys, Inc. and/or its affiliates.
- * Copyright (C) 2023 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro and Synopsys Linux driver,
  * and developed or modified for TC956X.
@@ -36,6 +36,11 @@
  *  26 Dec 2023 : 1. Kernel 6.6 Porting changes
  *              : 2. Added the support for TC commands taprio and flower
  *  VERSION     : 01-03-59
+ *  31 May 2024 : 1. Modified for TC FPE support
+ *  VERSION     : 05-00
+ *  31 Jan 2025 : 1. Linux Kernel version check for supported TC command
+ *                2. Initialisation of some local variables to avoid compiler warnings
+ *  VERSION     : 05-00-01
  */
 
 #include <net/pkt_cls.h>
@@ -303,7 +308,7 @@ static int tc_setup_cls_u32(struct tc956xmac_priv *priv,
 #ifdef TC956X_SRIOV_VF
 	/* This is feature not supported from VF as this will impact
 	 * the entire MAC
-	 * */
+	 */
 	return -EOPNOTSUPP;
 #endif
 	switch (cls->command) {
@@ -1041,7 +1046,7 @@ static int tc_setup_cls(struct tc956xmac_priv *priv,
 	return ret;
 }
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 5, 0))
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 5, 0)
 struct timespec64 tc956x_calc_basetime(ktime_t old_base_time,
 					   ktime_t current_time,
 					   u64 cycle_time)
@@ -1121,7 +1126,7 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 	default:
 		return -EOPNOTSUPP;
 	}
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 5))
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 5)
 	if (!qopt->enable)
 		goto disable;
 #else
@@ -1149,7 +1154,7 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 	size = qopt->num_entries;
 
 	priv->plat->est->gcl_size = size;
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 5))
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 5)
 	priv->plat->est->enable = qopt->enable;
 #else
 	priv->plat->est->enable = qopt->cmd == TAPRIO_CMD_REPLACE;
@@ -1195,7 +1200,14 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 		default:
 			return -EOPNOTSUPP;
 		}
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+		if ((qopt->mqprio.preemptible_tcs != 0) && (priv->dma_cap.fpesel)) {
+			if (gates & (1 << (MTL_MAX_TX_TC - 1))) /* Check for Express Queue Open */
+				gates |= qopt->mqprio.preemptible_tcs;
+			else
+				gates &= ~qopt->mqprio.preemptible_tcs;
+		}
+#endif
 		priv->plat->est->gcl[i] = delta_ns | (gates << wid);
 	}
 
@@ -1217,10 +1229,13 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 	priv->plat->est->ctr[0] = (u32)(qopt->cycle_time % NSEC_PER_SEC);
 	priv->plat->est->ctr[1] = (u32)(qopt->cycle_time / NSEC_PER_SEC);
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+	if (!(priv->dma_cap.fpesel))
+		qopt->mqprio.preemptible_tcs = 0;
 
-	if (fpe && !priv->dma_cap.fpesel)
-		return -EOPNOTSUPP;
-#ifdef TC956X_UNSUPPORTED_UNTESTED
+	fpe = qopt->mqprio.preemptible_tcs;
+#endif
+
 	ret = tc956xmac_fpe_configure(priv, priv->ioaddr,
 				   priv->plat->tx_queues_to_use,
 				   priv->plat->rx_queues_to_use, fpe);
@@ -1228,7 +1243,7 @@ static int tc_setup_taprio(struct tc956xmac_priv *priv,
 		netdev_err(priv->dev, "failed to enable Frame Preemption\n");
 		return ret;
 	}
-#endif
+
 	ret = tc956xmac_est_configure(priv, priv->ioaddr, priv->plat->est,
 				   priv->plat->clk_ptp_rate);
 	if (ret) {
@@ -1246,7 +1261,7 @@ disable:
 	return ret;
 }
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 2, 16))
+#if LINUX_VERSION_CODE > KERNEL_VERSION(6, 2, 16)
 static int tc_query_caps(struct tc956xmac_priv *priv,
 			 struct tc_query_caps_base *base)
 {
@@ -1328,9 +1343,9 @@ const struct tc956xmac_tc_ops dwmac510_tc_ops = {
 	.setup_cls_u32 = tc_setup_cls_u32,
 	.setup_cbs = tc_setup_cbs,
 	.setup_cls = tc_setup_cls,
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 5, 0))
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 5, 0)
 	.setup_taprio = tc_setup_taprio,
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(6, 2, 16))
+#if LINUX_VERSION_CODE > KERNEL_VERSION(6, 2, 16)
 	.query_caps = tc_query_caps,
 #endif
 #endif
