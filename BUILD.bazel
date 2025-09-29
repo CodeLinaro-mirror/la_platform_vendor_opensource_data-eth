@@ -1,0 +1,24 @@
+load(":define_modules.bzl", "define_modules")
+load("//build/kernel/kleaf:kernel.bzl", "ddk_headers")
+
+define_modules("pineapple", "consolidate")
+
+define_modules("pineapple", "gki")
+
+define_modules("volcano", "consolidate")
+
+define_modules("volcano", "gki")
+
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
+
+ddk_headers(
+    name = "qps615_headers",
+    hdrs = glob([
+        "drivers/qps615/src/*.h",
+    ]),
+)
+

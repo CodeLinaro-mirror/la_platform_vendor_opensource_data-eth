@@ -1,1 +1,2 @@
-# Dummy mk file
+BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/tc956x_pcie_eth.ko
+
