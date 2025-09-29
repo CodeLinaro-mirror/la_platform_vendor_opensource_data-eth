@@ -15696,14 +15696,8 @@ int tc956xmac_vf_dvr_probe(struct device *device,
 	/* To be enabled for config.ini parsing */
 	parse_config_file(priv->port_num, priv->plat->vf_id, priv->dev);
 #else
-	ret = of_get_mac_address_nvmem(priv->device->of_node, dev_addr[priv->probe_seq_no]);
-	if (ret == -EPROBE_DEFER) {
-		dev_info(priv->device, "Deferring probe for MAC address from NVMEM\n");
-		return ret;
-	} else if (ret) {
-		/* To be enabled for config.ini parsing */
-		parse_config_file(priv->port_num, 0, priv->dev);
-	}
+	/* To be enabled for config.ini parsing */
+	parse_config_file(priv->port_num, 0, priv->dev);
 #endif
 
 #endif /* EEPROM_MAC_ADDR */
