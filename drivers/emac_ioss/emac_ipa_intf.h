@@ -156,6 +156,7 @@ struct request_channel_input {
 	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
 	phys_addr_t tail_ptr_addr;
 	int channel_num;
+	dma_addr_t addr;
 };
 
 struct mem_ops {
