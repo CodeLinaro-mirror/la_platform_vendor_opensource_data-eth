@@ -36,7 +36,6 @@ def define_modules(target, variant):
             "-DENABLE_TX_NO_CLOSE",
             "-DCONFIG_R8125_NAPI",
             "-DCONFIG_R8125_VLAN",
-            "-DENABLE_DOUBLE_VLAN",
             "-DENABLE_MULTIPLE_TX_QUEUE",
             "-DENABLE_RSS_SUPPORT",
         ],
