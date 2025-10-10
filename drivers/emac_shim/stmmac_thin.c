@@ -2064,6 +2064,12 @@ read_again:
 			prev_len = len;
 			len = stmmac_get_rx_frame_len(priv, p, coe);
 		}
+
+		/* ACS is disabled; strip manually. */
+		if (priv->is_gy_en && likely(!(status & rx_not_ls))) {
+				len -= ETH_FCS_LEN;
+		}
+
 		if (!skb) {
 			skb = napi_alloc_skb(&ch->rx_napi, len);
 			if (!skb) {
