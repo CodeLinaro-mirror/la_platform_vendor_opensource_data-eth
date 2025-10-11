@@ -1,1 +1,2 @@
-# Dummy mk file
+PRODUCT_PACKAGES += tc956x_pcie_eth.ko
+

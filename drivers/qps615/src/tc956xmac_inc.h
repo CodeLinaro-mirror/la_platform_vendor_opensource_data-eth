@@ -76,7 +76,7 @@
 /* Enable for PORT0 interrupt mode, if commented polling mode */
 #define TC956X_PHY_INTERRUPT_MODE_EMAC0
 /* Enable for PORT1 interrupt mode, if commented polling mode */
-#define TC956X_PHY_INTERRUPT_MODE_EMAC1
+//#define TC956X_PHY_INTERRUPT_MODE_EMAC1
 
 #ifdef TC956X
 //#define TC956X_SRIOV_PF		/* Enable TC956X SRIOV Configuration */
