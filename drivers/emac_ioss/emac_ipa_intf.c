@@ -467,7 +467,7 @@ static void stmmac_init_ipa_rx_ch(struct stmmac_priv *priv, struct channel_info 
 	stmmac_set_rx_tail_ptr(priv, priv->ioaddr, rx_q->rx_tail_addr, chan);
 
 	stmmac_set_rx_ring_len(priv, priv->ioaddr, (channel->desc_cnt - 1), chan);
-	stmmac_set_dma_bfsize(priv, priv->ioaddr, (channel->buf_size/8), chan);
+	stmmac_set_dma_bfsize(priv, priv->ioaddr, channel->buf_size, chan);
 
 	ioss_log_msg(NULL, "%s : desc_cnt = %d $ buf_size = %d",
 				__func__,
