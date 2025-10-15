@@ -66,6 +66,7 @@ static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
 
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
+static void stmmac_reset_queues_param(struct stmmac_priv *priv);
 
 #ifdef CONFIG_DEBUG_FS
 static int stmmac_init_fs(struct net_device *dev);
@@ -1107,7 +1108,7 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 
 	/* DMA CSR Channel configuration */
 	stmmac_init_chan(priv, priv->ioaddr, priv->plat->dma_cfg, chan);
-
+	stmmac_disable_dma_irq(priv, priv->ioaddr, chan);
 	/* DMA RX Channel Configuration */
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
 			    rx_q->dma_rx_phy, chan);
@@ -1313,7 +1314,8 @@ static int stmmac_release(struct net_device *dev)
 	u32 ch = priv->queue;
 	int filter_del;
 
-	dev_info(priv->device, "%s Enter\n", __func__);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	priv->dev_inited = false;
 	priv->dev_opened = false;
 
@@ -1325,6 +1327,7 @@ static int stmmac_release(struct net_device *dev)
 			pr_info("qcom-ethqos-thin: Filter delete successful");
 	}
 
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_stop_queue(priv);
 
 	stmmac_disable_queue(priv);
@@ -1341,6 +1344,7 @@ static int stmmac_release(struct net_device *dev)
 
 	/* Release and free the Rx/Tx resources */
 	free_dma_desc_resources(priv);
+	}
 
 	if(priv->is_gy_en && priv->clks_config)
 		priv->clks_config(priv->plat->bsp_priv, false);
@@ -2530,6 +2534,7 @@ int stmmac_dvr_init(struct net_device *dev)
 	pr_info("%s: Enter\n", __func__);
 	priv = netdev_priv(dev);
 
+	stmmac_reset_queues_param(priv);
 	mutex_lock(&priv->lock);
 
 	ret = alloc_dma_desc_resources(priv);
@@ -2585,7 +2590,6 @@ int stmmac_dvr_init(struct net_device *dev)
 	stmmac_start_queue(priv);
 
 	priv->dev_inited = true;
-
 	mutex_unlock(&priv->lock);
 
 	return 0;
@@ -3022,10 +3026,12 @@ int stmmac_thin_suspend(struct device *dev)
 	if (!ndev || !netif_running(ndev))
 		return 0;
 
-	netdev_info(priv->dev, "%s: Enter", __func__);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	mutex_lock(&priv->lock);
-
 	netif_device_detach(ndev);
+
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_stop_queue(priv);
 
 	stmmac_disable_queue(priv);
@@ -3034,11 +3040,15 @@ int stmmac_thin_suspend(struct device *dev)
 
 	/* Stop TX/RX DMA */
 	stmmac_stop_dma(priv);
+	free_dma_desc_resources(priv);
+
+	netif_carrier_off(ndev);
+	}
 
 	mutex_unlock(&priv->lock);
 	if(priv->is_gy_en && priv->clks_config)
 		priv->clks_config(priv->plat->bsp_priv, false);
-	netdev_info(priv->dev, "%s: Exit", __func__);
+	dev_info(priv->device, "%s: Exit\n", __func__);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_suspend);
@@ -3060,51 +3070,6 @@ static void stmmac_reset_queues_param(struct stmmac_priv *priv)
 	tx_q->mss = 0;
 }
 
-
-static void stmmac_reinit_rx_buffers(struct stmmac_priv *priv)
-{
-
-	int i;
-	struct stmmac_rx_queue *rx_q = &priv->rx_queue;
-
-	pr_info("qcom-ethqos: %s enter", __func__);
-	for (i = 0; i < DMA_RX_SIZE; i++) {
-		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
-
-		if (buf->page) {
-			page_pool_recycle_direct(rx_q->page_pool, buf->page);
-			buf->page = NULL;
-		}
-
-	}
-
-	for (i = 0; i < DMA_RX_SIZE; i++) {
-		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[i];
-		struct dma_desc *p;
-
-		p = rx_q->dma_rx + i;
-		if (!buf->page) {
-			buf->page = page_pool_dev_alloc_pages(rx_q->page_pool);
-			if (!buf->page)
-				goto err_reinit_rx_buffers;
-
-			buf->addr = page_pool_get_dma_addr(buf->page);
-			if(!buf->addr) {
-				pr_err("buf->addr is NULL");
-				goto err_reinit_rx_buffers;
-			}
-		}
-		stmmac_set_desc_addr(priv, p, buf->addr);
-	}
-
-	return;
-
-err_reinit_rx_buffers:
-	pr_err(" error in reinit_rx_buffers");
-		while (--i >= 0)
-			stmmac_free_rx_buffer(priv,i);
-}
-
 /**
  * stmmac_thin_resume - resume callback
  * @dev: device pointer
@@ -3115,23 +3080,41 @@ int stmmac_thin_resume(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	int ret = 0;
+
+	if (!ndev)
+		return -ENOMEM;
 
 	if (!netif_running(ndev))
 		return 0;
 
-	netdev_info(priv->dev, "%s: Enter", __func__);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	if (priv->is_gy_en && priv->clks_config)
 		priv->clks_config(priv->plat->bsp_priv, true);
 
 	mutex_lock(&priv->lock);
-	netif_device_attach(ndev);
-
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_reset_queues_param(priv);
-	dma_free_tx_skbufs(priv);
-	stmmac_reinit_rx_buffers(priv);
-	stmmac_clear_descriptors(priv);
+	ret = alloc_dma_desc_resources(priv);
+	if (ret < 0) {
+		netdev_err(priv->dev, "%s: DMA descriptors alloc failed\n",
+			   __func__);
+		goto dma_desc_error;
+	}
 
-	stmmac_hw_setup(ndev);
+	ret = init_dma_desc_rings(ndev, GFP_KERNEL);
+	if (ret < 0) {
+		netdev_err(priv->dev, "%s: DMA descriptors init failed\n",
+			   __func__);
+		goto init_error;
+	}
+
+	ret = stmmac_hw_setup(ndev);
+	if (ret < 0) {
+		netdev_err(priv->dev, "%s: Hw setup failed\n", __func__);
+		goto init_error;
+	}
 
 	if (!priv->tx_coal_timer_disable)
 		stmmac_init_coalesce(priv);
@@ -3143,12 +3126,17 @@ int stmmac_thin_resume(struct device *dev)
 	stmmac_enable_queue(priv);
 
 	stmmac_start_queue(priv);
-
+	netif_device_attach(ndev);
+	}
 	mutex_unlock(&priv->lock);
-	netdev_info(priv->dev, "%s: Exit", __func__);
-
+	dev_info(priv->device, "%s: Exit\n", __func__);
 
 	return 0;
+init_error:
+	free_dma_desc_resources(priv);
+dma_desc_error:
+	mutex_unlock(&priv->lock);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_resume);
 /*
