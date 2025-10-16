@@ -3356,9 +3356,12 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 	plat->mac_power_save_at_link_down = macX_power_save_at_link_down[res.device_num];
 
 	plat->start_phy_addr = portX_phyaddr[res.device_num] = portX_phyaddr[res.device_num] > PHY_MAX_ADDR ? 0 : portX_phyaddr[res.device_num];
-
-	if (macX_no_mdio_no_phy[res.device_num] != PHY_OFF_MDIO_OFF)
-		macX_no_mdio_no_phy[res.device_num] = PHY_ON_MDIO_ON; /* Currently only PHY OFF and MDIO OFF is supported for SFP+ case, others are invalid */
+	/* Query No. QPSSW-245, TC956X_Host_Driver-industrial_limited_tested_20250926_V_06-00-00-QPSSW-245.patch */
+	if (macX_no_mdio_no_phy[res.device_num] == PHY_OFF_MDIO_ON) { /* only phy off mdio on mode is not supported. So handle this to set default */
+		macX_no_mdio_no_phy[res.device_num] = PHY_ON_MDIO_ON;
+		NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid macX_no_mdio_no_phy parameter passed. Restoring to default mode: %d for the device index: %d\n",
+		__func__, macX_no_mdio_no_phy[res.device_num], res.device_num);
+	}
 
 	plat->mac_no_mdio_no_phy = macX_no_mdio_no_phy[res.device_num];
 
@@ -3821,7 +3824,8 @@ static void tc956xmac_pci_remove(struct pci_dev *pdev)
 	 * device is registered as only PCIe device. So skip any
 	 * ethernet device related uninitialization
 	 */
-	if (priv->dma_cap.sma_mdio == 1) {
+	 /* Query No. QPSSW-245, TC956X_Host_Driver-industrial_limited_tested_20250926_V_06-00-00-QPSSW-245.patch */
+	if (priv->dma_cap.sma_mdio == TC956X_MDIO_CONN_PRESENT) {
 		if (priv->plat->phy_addr != -1)
 			tc956xmac_dvr_remove(&pdev->dev);
 	} else {
@@ -4133,7 +4137,8 @@ static int tc956x_pcie_resume_config(struct pci_dev *pdev)
 	DBGPR_FUNC(&(pdev->dev), "---> %s", __func__);
 
 	/* Skip Config when Port unavailable */
-	if (priv->dma_cap.sma_mdio == 1) {
+	/* Query No. QPSSW-245, TC956X_Host_Driver-industrial_limited_tested_20250926_V_06-00-00-QPSSW-245.patch */
+	if (priv->dma_cap.sma_mdio == TC956X_MDIO_CONN_PRESENT) {
 		if ((priv->plat->phy_addr == -1) || (priv->mii == NULL)) {
 			DBGPR_FUNC(&(pdev->dev), "%s : Invalid PHY Address (%d)\n", __func__, priv->plat->phy_addr);
 			ret = -1;
@@ -4923,7 +4928,7 @@ module_param_array(macX_no_mdio_no_phy, uint, NULL, 0444);
 MODULE_PARM_DESC(macX_no_mdio_no_phy,
 	"Array of PHY and MDIO configuration in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'\
 	PHY and MDIO configuration - default is 0 (PHY ON and MDIO ON) for both Port0 and Port1,\
-	Supported values [0: PHY ON and MDIO ON, 1: PHY ON and MDIO OFF*, 2: PHY OFF and MDIO ON*, 3: PHY OFF and MDIO OFF]\
+	Supported values [0: PHY ON and MDIO ON, 1: PHY ON and MDIO OFF, 2: PHY OFF and MDIO ON*, 3: PHY OFF and MDIO OFF]\
 	* - These modes are not supported in current version\
 	This is array module parameter in which maximum of 14 PHY and MDIO configuration state can be provided in comma seperated format");
 
