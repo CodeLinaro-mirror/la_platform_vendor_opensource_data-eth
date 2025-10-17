@@ -667,6 +667,7 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		queue_num = DEFAULT_QUEUE_RX_TX;
 	}
 
+	stmmac_enable_sph(priv, priv->ioaddr, 0, channel->channel_num);
 	channel->buff_pool_addr.buff_pool_va_addrs_base = kcalloc(channel_input->desc_cnt,
 								  sizeof(void *),
 								  (gfp_t)channel_input->flags);
@@ -831,6 +832,8 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		dealloc_ipa_rx_resources(ndev, channel);
 	}
+
+	stmmac_enable_sph(priv, priv->ioaddr, 1, channel->channel_num);
 
 	kfree(channel->buff_pool_addr.buff_pool_va_addrs_base);
 	kfree(channel->buff_pool_addr.buff_pool_dma_addrs_base);
