@@ -6,6 +6,12 @@ ccflags-y += -I$(srctree)/include/linux/
 ccflags-y += -I$(src)/../
 endif
 
+ccflags-y += -I$(src)/../ioss/include/
+ccflags-y += -I$(srctree)/drivers/net/ethernet/stmicro/stmmac/
+ccflags-y += -I$(srctree)/../../../../src/data-eth/drivers/
+ccflags-y += -I$(srctree)/include/linux/
+ccflags-y += -I$(src)/../
+
 ccflags-y += -Wno-error
 
 obj-m += iemac_ioss.o

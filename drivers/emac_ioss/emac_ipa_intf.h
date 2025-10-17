@@ -13,8 +13,10 @@
  */
 
 #include <linux/netdevice.h>
-#include "ioss_i.h"
-#include "ioss_version.h"
+#include "ioss/ioss_i.h"
+#include "ioss/ioss_version.h"
+#include "ioss/include/linux/msm/ioss.h"
+#include "common.h"
 
 #define MAX_PARSABLE_FRP_ENTRIES 72
 #define CONFIG_LEN 40
@@ -64,9 +66,6 @@
 #define TSN_CHANNEL_RX_DEFAULT	IPA_MUL_CHANNEL_BE0
 #define TSN_CHANNEL_TX_DEFAULT	IPA_MUL_CHANNEL_BE0
 #define TSN_CHANNEL_TX_LL	IPA_MUL_CHANNEL_BE3
-
-/* QOS Config */
-#define QOS_RX_PCP0_QUEUE	0
 
 enum channel_dir {
 	CH_DIR_RX,
@@ -134,7 +133,6 @@ struct channel_info {
 
 	bool ezmesh_enabled;		/* stores ezmesh enabled infomration */
 	bool tsn_enabled;		/* flag to know if tsn feature is enabled or not*/
-	bool qos_enabled;		/* flag to check if qos is enabled*/
 	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
 
 };
@@ -180,112 +178,6 @@ struct mac_addr_list {
 	u8 mbc;		/* Mask Byte Control */
 	u16 dcs;	/* DMA Channel Select */
 };
-
-/*qos*/
-
-enum qos_filter_type {
-	PCP,
-	SRC_MAC,
-	DEST_MAC,
-	VLAN_ID,
-	SRC_IP,
-	DEST_IP,
-	SRC_PORT,
-	DEST_PORT,
-	INVALID_FILTER,
-};
-
-struct filter_map_info {
-	u8 queue;
-	u8 channel;
-	enum qos_filter_type filter;
-};
-
-struct tx_route_info {
-	u8 channel;
-	u16 acc_bw;
-	u8 mode_to_use;
-	unsigned int idle_slope;
-	unsigned int send_slope;
-	unsigned int hi_credit;
-	unsigned int low_credit;
-};
-
-struct qos_struct {
-	struct list_head pcp_route_table;
-	struct list_head dma_filter_table;
-	struct list_head flt_to_app;
-	struct tx_route_info tx_routing_info[MTL_MAX_TX_QUEUES];
-	struct qos_pipe_mapping pipe_map;
-	enum action rx_channel_info[MTL_MAX_RX_QUEUES];
-	enum action tx_channel_info[MTL_MAX_TX_QUEUES];
-	u8 backup_pcp_map[MTL_MAX_RX_QUEUES];
-	u16 backup_rx_fifo_size[MTL_MAX_RX_QUEUES];
-	u16 bw_allocated[MTL_MAX_TX_QUEUES];
-	u8 queue_to_pcp_map[MTL_MAX_RX_QUEUES];
-	u8 queue_to_ch_map[MTL_MAX_RX_QUEUES];
-	u8 tc_to_queue_map[8];
-	u8 filter_cnt;
-	u8 queue_cnt;
-	int asgn_sw_queue;
-	int asgn_hw_queue;
-	u8 ipa_qos_rx_ch;
-	u8 ipa_qos_tx_ch;
-};
-
-enum data_path {
-	SW_PATH,
-	HW_PATH,
-	SW_HW_PATH,
-};
-
-struct src_ip {
-       unsigned char ipv6_src_addr[16];
-       u32 ipv4_src_addr;
-       u8 src_mask_length;
-       bool ipv6_src;
-};
-
-struct dest_ip {
-       unsigned char ipv6_dst_addr[16];
-       u32 ipv4_dst_addr;
-       u8 dst_mask_length;
-       bool ipv6_dst;
-};
-
-struct pcp_routing {
-	u8 tc_prio;
-	u8 pcp;
-	u8 queue;
-	u8 dma_ch;
-	enum action path;
-	struct list_head node;
-};
-#define to_pcp_routing(ptr) list_entry(ptr, struct pcp_routing, node)
-
-struct dma_filter_table {
-	u8 tc_prio;
-	u8 dma_ch;
-	bool applied;
-	union  {
-		u16 vlan_id;
-		struct src_ip ip_src;
-		struct dest_ip ip_dest;
-
-		struct port src_port;
-		struct port dst_port;
-	};
-    struct list_head node;
-};
-#define to_dma_filter_table(ptr) list_entry(ptr, struct dma_filter_table, node)
-
-#define PCP_MAX_VALUE	7
-
-/*CBS params*/
-#define SGMII_INTERFACE_BIT	8
-#define SGMII_2500X_BIT	32
-#define MAX_FRAME_SIZE	1518
-#define MAX_INTERFERENCE_SIZE	1518
 
 /*!
  * \brief API to allocate a channel for IPA  Tx/Rx datapath,
@@ -488,85 +380,3 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel);
  *	      when " stmmacmac_set_rx_mode" is invoked via "ndo_set_rx_mode" callback.
  */
 int set_mac_addr(struct net_device *ndev, struct mac_addr_list *mac_addr, u8 index);
-
-/* Enable PFC and queue routing for QOS
- *param[in] priv : stmmac priv data structure
- * \param[in] qos_table_info : qos_struct which contains required qos_info post
- * qos_table processing
- */
-void stmmac_enable_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qos_table_info);
-
-/* Enable filters to route QOS traffic
- * param[in] priv : stmmac priv data structure
- * param[in] qos_table_info : qos_struct which contains required qos_info post
- * qos_table processing
- */
-void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos_table_info);
-
-/* Configure CBS for qos queues
- * param[in] ndev : stmmac netdev data structure
- * param[in] qos_table_info : qos_struct which contains required qos_info post
- * qos_table processing
- */
-void stmmac_config_qos_cbs(struct stmmac_priv *priv, struct qos_struct *qos_table_info);
-
-/* Restore qos queue routing after disabling QOS
- *param[in] priv : stmmac priv data structure
- * \param[in] qos_table_info : qos_struct which contains required qos_info post
- * qos_table processing
- */
-void stmmac_restore_qos_queue_cfg(struct stmmac_priv *priv, struct qos_struct *qos_table_info);
-
-/* Remove filters to route QOS traffic
- * param[in] priv : stmmac priv data structure
- * param[in] filter_type : filter to be cleared
- * param[in] action : filter action
- * qos_table processing
- */
-void stmmac_remove_qos_filtering(struct net_device *ndev, int filter_type, enum idx_action action);
-
-/* Restore DMA configuration after disabling QOS
- * param[in] ndev : stmmac netdev data structure
- * \param[in] qos_table_info : qos_struct which contains required qos_info post
- * qos_table processing
- */
-void stmmac_restore_dma_config(struct net_device *ndev, struct qos_struct *qos_table_info);
-
-/* Backup pcp routing before applying qos config
- * \param[in] qos_table_info : qos_struct which contains required qos_info post
- * qos_table processing
- */
-void stmmac_backup_pcp(struct stmmac_priv *priv, struct qos_struct *qos_table_info);
-
-/* Configure tx queue
- * param[in] priv : stmmac priv data structure
- * param[in] queue number
- * param[in] txmode is DCB/AVB
- */
-void stmmac_configure_tx_queue(struct stmmac_priv *priv, u8 queue, u8 txmode);
-
-/* stmmac qos tx routing strategy
- * param[in] ndev : stmmac netdev data structure
- */
-bool stmmac_is_skprio_routing (struct net_device *ndev);
-
-/* Configure RX queue path in SW/HW
- * param[in] ndev : stmmac netdev data structure
- * param[in] queue number
- * skip_sw : Queue is for SW/HW
- */
-int config_rx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
-
-/* Configure TX queue path is SW/HW
- * param[in] ndev : stmmac netdev data structure
- * param[in] queue number
- * skip_sw : Queue is for SW/HW
- */
-int config_tx_queue_path(struct net_device *ndev, u32 queue, bool skip_sw);
-
-/* MAC-PCS Interface width
- * param[in] priv : stmmac priv data structure
- */
-#if IS_ENABLED(CONFIG_ETHQOS_QCOM_VER4)
-ssize_t stmmac_intf_width(struct stmmac_priv *priv);
-#endif
