@@ -140,6 +140,7 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 	ipa_channel_info.buf_size = ch->config.buff_size;
 	ipa_channel_info.ch_flags = STMMAC_CONTIG_BUFS;
 	ipa_channel_info.flags = GFP_KERNEL;
+	ipa_channel_info.addr = ch->event.daddr;
 
 	strscpy(ipa_channel_info.ipa_config_info, ch->iface->ipa_config, CONFIG_LEN);
 	ipa_channel_info.traffic_type_info = ch->traffic_type;
@@ -259,21 +260,6 @@ static int stmmac_ioss_request_event(struct ioss_channel *ch)
 	if (rc) {
 		ioss_dev_err(ioss_ch_dev(ch), "Failed to request event\n");
 		return rc;
-	}
-
-	// call for rx and not tx direction
-	if (ch->direction == IOSS_CH_DIR_RX)
-	{
-		// Each wdt unit is 2048 ns (~2 uS).
-		wdt = ch->event.mod_usecs_max / 2;
-		ioss_dev_log(ioss_ch_dev(ch),"EVENT: wdt=%d\n", wdt);
-
-		rc = set_event_mod(ioss_ch_dev(ch)->net_dev,ring, wdt);
-		if (rc) {
-			ioss_dev_err(ioss_ch_dev(ch), "Failed to set interrupt moderation\n");
-			release_event(ioss_ch_dev(ch)->net_dev,ring);
-			return rc;
-		}
 	}
 
 	return 0;
