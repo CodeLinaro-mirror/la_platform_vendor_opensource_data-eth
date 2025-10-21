@@ -153,6 +153,57 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 	return size;
 }
 
+static ssize_t show_disable_ioss_auto_resume(struct device *dev,
+		struct device_attribute *attr, char *user_buf)
+{
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+
+	if (!dev)
+		return -EINVAL;
+
+	net_dev = to_net_dev(dev);
+	if (!net_dev)
+		return -EINVAL;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	return snprintf(user_buf, PAGE_SIZE, "%d\n", iface->disable_ioss_auto_resume);
+}
+
+static ssize_t store_disable_ioss_auto_resume(struct device *dev,
+		struct device_attribute *attr, const char *user_buf, size_t size)
+{
+	struct net_device *net_dev = NULL;
+	struct ioss_interface *iface = NULL;
+	struct ioss_device *idev = NULL;
+	bool input;
+
+	if (!dev)
+		return -EINVAL;
+
+	net_dev = to_net_dev(dev);
+	if (!net_dev)
+		return -EINVAL;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return -EINVAL;
+
+	idev = ioss_iface_dev(iface);
+	if (!idev)
+		return -EINVAL;
+
+	if (kstrtobool(user_buf, &input) < 0)
+		return -EINVAL;
+
+	iface->disable_ioss_auto_resume = input;
+	ioss_dev_log(idev, "disable_ioss_auto_resume set to: %d", iface->disable_ioss_auto_resume);
+	return size;
+}
+
 /* By default assign port #0 to have LLCC enabled. Only one port can get LLCC. */
 static int enable_tcm_eth = 1;
 
@@ -161,6 +212,9 @@ MODULE_PARM_DESC(enable_tcm_eth, "Enable use of LLCC TCM memory for Ethernet por
 
 static DEVICE_ATTR(suspend_ipa_offload, S_IWUSR | S_IRUGO,
 		show_suspend_ipa_offload, store_suspend_ipa_offload);
+
+static DEVICE_ATTR(disable_ioss_auto_resume, S_IWUSR | S_IRUGO,
+		show_disable_ioss_auto_resume, store_disable_ioss_auto_resume);
 
 static int ioss_bus_probe(struct device *dev)
 {
@@ -212,6 +266,13 @@ static int ioss_bus_probe(struct device *dev)
 				&dev_attr_suspend_ipa_offload.attr);
 	if (rc) {
 		ioss_dev_err(idev, "unable to create suspend_ipa_offload node");
+		goto err_create_sysfs;
+	}
+
+	rc = sysfs_create_file(&idev->net_dev->dev.kobj,
+				&dev_attr_disable_ioss_auto_resume.attr);
+	if (rc) {
+		ioss_dev_err(idev, "unable to create disable_ioss_auto_resume node");
 		goto err_create_sysfs;
 	}
 
@@ -276,6 +337,8 @@ err_chrdev:
 err_qos_add:
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
+	sysfs_remove_file(&idev->net_dev->dev.kobj,
+			&dev_attr_disable_ioss_auto_resume.attr);
 err_create_sysfs:
 	ioss_sysfs_remove_idev(idev);;
 err_add_sysfs:
@@ -302,6 +365,8 @@ static void ioss_bus_remove(struct device *dev)
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
+	sysfs_remove_file(&idev->net_dev->dev.kobj,
+			&dev_attr_disable_ioss_auto_resume.attr);
 
 	if(emac_ipa_cdev && iface->auto_resume_disabled)
 	{
@@ -345,6 +410,11 @@ static int __ioss_bus_resume_idev(struct device *dev)
 	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "Resuming device");
+
+	if (iface->disable_ioss_auto_resume) {
+		ioss_dev_log(idev, "Skipping Resume of IPA");
+		return 0;
+	}
 
 	if (iface->auto_resume_disabled) {
 		ioss_dev_log(idev, "Auto resume of device disabled let eth PM call IOSS enable");
