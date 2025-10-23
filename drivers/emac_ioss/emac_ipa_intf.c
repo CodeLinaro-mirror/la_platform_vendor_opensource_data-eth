@@ -1941,8 +1941,8 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 				} else {
 					priv->qos_l3_l4_filters++;
 					dma_filter_node->applied = true;
-					ioss_qos_dev_log(NULL, "[iemac qos]: applied src port %d filter, proto = %d, ch = %d, idx = %d\n",
-							 dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto,
+					ioss_qos_dev_log(NULL, "[iemac qos]: applied src port %d filter, proto = %s, ch = %d, idx = %d\n",
+							 dma_filter_node->src_port.port_num, ioss_protocol_name(dma_filter_node->src_port.proto),
 							 dma_filter_node->dma_ch, i);
 
 					priv->app_filters[i].src_port.port_num = dma_filter_node->src_port.port_num;
@@ -1952,8 +1952,8 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 				}
 			} else {
 				dma_filter_node->applied = false;
-				ioss_qos_dev_err(NULL, "[iemac qos]: filters exhausted, couldn't apply filter for src port = %d, proto = %d, ch = %d\n",
-						dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto, dma_filter_node->dma_ch);
+				ioss_qos_dev_err(NULL, "[iemac qos]: filters exhausted, couldn't apply filter for src port = %d, proto = %s, ch = %d\n",
+						dma_filter_node->src_port.port_num, ioss_protocol_name(dma_filter_node->src_port.proto), dma_filter_node->dma_ch);
 			}
 			break;
 		case DEST_PORT:
@@ -1971,8 +1971,8 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 				} else {
 					priv->qos_l3_l4_filters++;
 					dma_filter_node->applied = true;
-					ioss_qos_dev_log(NULL, "[iemac qos]: applied dest port %d filter, proto = %d, ch = %d idx = %d\n",
-							 dma_filter_node->dst_port.port_num, dma_filter_node->dst_port.proto,
+					ioss_qos_dev_log(NULL, "[iemac qos]: applied dest port %d filter, proto = %s, ch = %d idx = %d\n",
+							 dma_filter_node->dst_port.port_num, ioss_protocol_name(dma_filter_node->dst_port.proto),
 							 dma_filter_node->dma_ch, i);
 
 					priv->app_filters[i].dst_port.port_num = dma_filter_node->dst_port.port_num;
