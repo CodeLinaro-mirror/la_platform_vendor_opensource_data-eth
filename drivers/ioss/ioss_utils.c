@@ -189,3 +189,18 @@ const char *ioss_traffic_name(enum ioss_traffic_type t)
 
 	return "<unknown>";
 }
+
+static const char * const protocol_name_map[IOSS_IPPROTO_INVALID_PROTO + 1] = {
+	[IOSS_IPPROTO_TCP] = "TCP",
+	[IOSS_IPPROTO_UDP] = "UDP",
+	[IOSS_IPPROTO_TCP_UDP] = "TCP/UDP",
+	[IOSS_IPPROTO_INVALID_PROTO] = "INVALID",
+};
+
+const char *ioss_protocol_name(enum protocol proto)
+{
+	if (proto <= IOSS_IPPROTO_INVALID_PROTO && protocol_name_map[proto])
+		return protocol_name_map[proto];
+	return "<unknown>";
+}
+EXPORT_SYMBOL_GPL(ioss_protocol_name);
