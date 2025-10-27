@@ -547,6 +547,19 @@ static void delete_tx_table(struct list_head *table)
 	}
 }
 
+static void ioss_qos_delete_tables(struct ioss_device *idev)
+{
+	delete_rx_table(&idev->ioss_qos_table.qos_rx_pending_table);
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_pending_table);
+	delete_rx_table(&idev->ioss_qos_table.qos_rx_committed_table);
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_committed_table);
+
+	delete_tx_table(&idev->ioss_qos_table.qos_tx_pending_table);
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_pending_table);
+	delete_tx_table(&idev->ioss_qos_table.qos_tx_committed_table);
+	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_committed_table);
+}
+
 static int get_used_bw(struct list_head *table)
 {
 	struct qos_routing_tx *tx_node;
@@ -1238,15 +1251,7 @@ static ssize_t store_commit(struct device *dev,
 
 	if (has_qos_table_changed(idev) == false) {
 		if (idev->clear_qos_hw == true) {
-			delete_rx_table(&idev->ioss_qos_table.qos_rx_pending_table);
-			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_pending_table);
-			delete_rx_table(&idev->ioss_qos_table.qos_rx_committed_table);
-			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_committed_table);
-
-			delete_tx_table(&idev->ioss_qos_table.qos_tx_pending_table);
-			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_pending_table);
-			delete_tx_table(&idev->ioss_qos_table.qos_tx_committed_table);
-			INIT_LIST_HEAD(&idev->ioss_qos_table.qos_tx_committed_table);
+			ioss_qos_delete_tables(idev);
 
 			idev->clear_qos_hw = false;
 			idev->qos_enabled = false;
@@ -2143,7 +2148,6 @@ void ioss_qos_init(struct ioss_device *idev)
 	INIT_LIST_HEAD(&idev->ioss_qos_table.qos_rx_tc_table);
 }
 
-
 void ioss_qos_remove_sysfs(struct device *dev)
 {
         struct ioss_device *idev = to_ioss_device(dev);
@@ -2187,11 +2191,14 @@ void ioss_qos_remove_idev(struct ioss_device *idev)
 	if (!idrv->qos_ops)
 		return;
 
-	if (idev->qos_enabled) {
-		idrv->qos_ops->clear_qos(idev);
-		idev->qos_enabled = false;
-	}
+	/* Remove filters and reset queue/channel configuration */
+	idrv->qos_ops->clear_qos(idev);
+	idev->qos_enabled = false;
 
+	/* Delete the QOS tables allocated by IOSS */
+	ioss_qos_delete_tables(idev);
+
+	/* Clean-up QOS SysFS */
 	ioss_qos_remove_sysfs(&idev->dev);
 }
 
