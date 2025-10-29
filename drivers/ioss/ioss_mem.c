@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-only
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
+
+#include <linux/iommu.h>
 
 #include "ioss_i.h"
 
@@ -33,10 +36,10 @@ struct ioss_mem_allocator ioss_default_alctr = {
 	.pa = default_mem_pa,
 };
 
+#ifdef LLCC_ENABLE
 /* LLCC Memory Allocator */
-
 #include <linux/soc/qcom/llcc-qcom.h>
-#include <linux/soc/qcom/llcc-tcm.h>
+#include <linux/dma-map-ops.h>
 
 bool tcm_in_use;
 static struct llcc_tcm_data *tcm_mem;
@@ -45,16 +48,51 @@ static void *llcc_mem_alloc(struct ioss_device *idev,
 		size_t size, dma_addr_t *daddr,
 		gfp_t gfp, struct ioss_mem_allocator *alctr)
 {
+	int rc;
+	dma_addr_t iova;
+	int prot = IOMMU_READ | IOMMU_WRITE;
 	struct device *dev = ioss_idev_to_real(idev);
+	struct iommu_domain *domain = iommu_get_domain_for_dev(dev);
 
 	if (!tcm_mem || tcm_in_use || size > tcm_mem->mem_size)
 		return NULL;
 
-	*daddr = dma_map_resource(dev, tcm_mem->phys_addr, tcm_mem->mem_size,
-				DMA_BIDIRECTIONAL, 0);
+	/* Use dma_map_resource() to map TCM so that a valid IOVA is allocated
+	 * iommu_unmap followed byiommu_map is used to map TCM memory as normal memory
+	 * from device memory.
+	 */
+	iova = dma_map_resource(dev, tcm_mem->phys_addr, tcm_mem->mem_size,
+						DMA_BIDIRECTIONAL, 0);
 
-	if (dma_mapping_error(dev, *daddr))
+	if (dma_mapping_error(dev, iova)) {
+		ioss_dev_err(idev, "DMA map of TCM failed");
 		return NULL;
+	}
+
+	ioss_dev_log(idev, "DMA map of TCM succeeded, using %pad as IOVA", &iova);
+
+	if(tcm_mem->mem_size != iommu_unmap(domain, iova, tcm_mem->mem_size)) {
+		ioss_dev_err(idev, "IOMMU unmap of TCM failed");
+		dma_unmap_resource(dev,
+			tcm_mem->phys_addr, tcm_mem->mem_size, DMA_BIDIRECTIONAL, 0);
+		return NULL;
+	}
+
+	if (dev_is_dma_coherent(dev))
+		prot |= IOMMU_CACHE;
+
+	rc = iommu_map(domain, iova,
+			tcm_mem->phys_addr, tcm_mem->mem_size, prot);
+	if (rc) {
+		ioss_dev_err(idev, "Failed to remap TCM as normal memory");
+		dma_unmap_resource(dev,
+			tcm_mem->phys_addr, tcm_mem->mem_size, DMA_BIDIRECTIONAL, 0);
+		return NULL;
+	} else {
+		ioss_dev_log(idev, "Successfully remapped TCM as normal memory");
+	}
+
+	*daddr = iova;
 
 	tcm_in_use = true;
 
@@ -78,7 +116,7 @@ static phys_addr_t llcc_mem_pa(struct ioss_device *idev,
 	return tcm_mem->phys_addr + (tcm_mem->virt_addr - addr);
 }
 
-static size_t llcc_mem_get(size_t size)
+static size_t llcc_mem_get(void)
 {
 	struct llcc_tcm_data *tcm_data;
 
@@ -98,7 +136,7 @@ static size_t llcc_mem_get(size_t size)
 	return tcm_mem->mem_size;
 }
 
-static void llcc_mem_put(size_t size)
+static void llcc_mem_put(void)
 {
 	struct llcc_tcm_data *tcm_data = tcm_mem;
 
@@ -118,3 +156,4 @@ struct ioss_mem_allocator ioss_llcc_alctr = {
 	.get = llcc_mem_get,
 	.put = llcc_mem_put,
 };
+#endif

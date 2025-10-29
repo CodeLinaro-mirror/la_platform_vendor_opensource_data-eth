@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -16,6 +17,7 @@
 #include <linux/pci.h>
 #include <linux/pm_wakeup.h>
 #include <linux/refcount.h>
+#include <linux/ethtool.h>
 
 /**
  *   API
@@ -29,9 +31,11 @@
  *            of event doorbell address logic to glue drivers
  *   6      - Change one-to-many mapping to one-to-one mapping from ioss_device to
  *            ioss_interface
+ *   7      - Added support for channel allocation using IPA config type and channel
+ *            traffic type properties
  */
 
-#define IOSS_API_VER 6
+#define IOSS_API_VER 7
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -140,17 +144,25 @@ enum ioss_filter_types {
 	IOSS_RXF_F_IP = BIT(IOSS_RXF_IP),
 };
 
+enum ioss_traffic_type {
+	IOSS_TRAFFIC_BE, /* 0 = Best Effort */
+	IOSS_TRAFFIC_BE_TAGGED, /* Best Effort VLAN tagged */
+	IOSS_TRAFFIC_LL, /* Low Latency */
+	IOSS_TRAFFIC_TYPE_MAX
+};
+
 extern struct bus_type ioss_bus;
 extern struct device_type ioss_idev_type;
 extern struct device_type ioss_iface_type;
 
 /* IOSS platform node */
 struct ioss {
-	u32 max_ddr_bandwidth;
+	u32 line_rate_for_llcc;
 	struct workqueue_struct *wq;
 	struct platform_device *pdev;
 
 	struct notifier_block pci_bus_nb;
+	struct notifier_block plat_bus_nb;
 
 	void *ioss_priv;
 
@@ -168,7 +180,14 @@ struct ioss_interface {
 
 	struct notifier_block net_dev_nb;
 	struct work_struct refresh;
-	struct list_head channels;
+
+	/* All channel configs from devicetree are initially added to invalid_channels and later
+	 * moved to valid_channels based on channel selection performed during validation stage.
+         */
+	struct list_head invalid_channels;
+	struct list_head valid_channels;
+
+	const char *ipa_config; /* currently selected IPA config type */
 
 	void *ioss_priv;
 
@@ -182,11 +201,8 @@ struct ioss_interface {
 
 	struct net_device_ops netdev_ops;
 	const struct net_device_ops *netdev_ops_real;
-
-	struct notifier_block pm_nb;
-	struct wakeup_source *active_ws;
-	struct delayed_work check_active;
-	struct rtnl_link_stats64 netdev_stats;
+	bool auto_resume_disabled;
+	bool is_pci_device;
 };
 
 #define to_ioss_interface(device) \
@@ -218,9 +234,6 @@ static inline struct ioss_interface *ioss_netdev_to_iface(
 #define ioss_refresh_work_to_iface(work) \
 	container_of(work, struct ioss_interface, refresh)
 
-#define ioss_active_work_to_iface(work) \
-	container_of(work, struct ioss_interface, check_active.work)
-
 struct ioss_mem {
 	void *addr;
 	size_t size;
@@ -247,8 +260,8 @@ struct ioss_mem_allocator {
 			void *addr, dma_addr_t daddr,
 			struct ioss_mem_allocator *alctr);
 
-	size_t (*get)(size_t size);
-	void (*put)(size_t size);
+	size_t (*get)(void);
+	void (*put)(void);
 
 	/* IOSS internal */
 	struct ioss *iroot;
@@ -293,7 +306,14 @@ struct ioss_channel_event {
 struct ioss_channel {
 	struct list_head node;
 
+	const char *name;
 	struct ioss_interface *iface;
+
+	enum ioss_traffic_type traffic_type;
+
+	/* List of all IPA configs that this channel config is applicable to. */
+	size_t num_ipa_configs;
+	const char **ipa_configs;
 
 	struct ioss_channel_config default_config;
 	struct ioss_channel_config config;
@@ -318,6 +338,7 @@ struct ioss_channel {
 	bool enabled;
 
 	void *ioss_priv;
+	int multi_rx_queues;
 };
 
 struct ioss_device {
@@ -334,6 +355,10 @@ struct ioss_device {
 	struct ethtool_wolinfo wol;
 
 	void *private;
+
+	bool unbinding;
+	bool llcc_enabled;
+	bool wol_activated;
 
 	struct {
 		u64 apps_suspend;
@@ -449,6 +474,7 @@ struct ioss_device_stats {
 struct ioss_channel_stats {
 	u64 overflow_error;
 	u64 underflow_error;
+	u64 desc_unavail;
 };
 
 /**
@@ -472,7 +498,7 @@ struct ioss_channel_status {
 #define ioss_ch_dev(ch) ioss_iface_dev(ch->iface)
 
 #define ioss_for_each_channel(ch, iface) \
-	list_for_each_entry(ch, &iface->channels, node)
+	list_for_each_entry(ch, &iface->valid_channels, node)
 
 static inline char *ioss_ch_dir_s(struct ioss_channel *ch)
 {
@@ -493,6 +519,9 @@ static inline int ioss_channel_add_mem(
 	imem->addr = addr;
 	imem->daddr = daddr;
 	imem->size = size;
+
+	if (ch->multi_rx_queues)
+		size *=2;
 
 	if (dma_get_sgtable(real_dev, &imem->sgt, addr, daddr, size)) {
 		kfree(imem);
@@ -657,5 +686,9 @@ int __ioss_pci_register_driver(struct ioss_driver *drv, struct module *owner);
 	__ioss_pci_register_driver(driver, THIS_MODULE)
 
 void ioss_pci_unregister_driver(struct ioss_driver *drv);
+
+int ioss_plat_register_driver(struct ioss_driver *idrv, struct module *owner);
+
+void ioss_plat_unregister_driver(struct ioss_driver *drv);
 
 #endif /* _IOSS_H_ */

@@ -26,6 +26,7 @@ union emac_ctrl_fe_filter{
 	uint16_t                  vlan_id;        //2 bytes
 	struct unicast_mac_addr   unicast_mac;    //6 bytes
 	struct multicast_mac_addr multi_mac;      //6 bytes
+	uint8_t                  vlan_prio;      //1 byte
 };
 
 
@@ -34,6 +35,7 @@ enum emac_ctrl_fe_filter_types {
 	UNICAST_FILTER=0,
 	MULTICAST_FILTER=1,
 	VLAN_FILTER=2,
+	PRIORITY_FILTER=3,
 };
 
 
@@ -74,22 +76,22 @@ int emac_ctrl_fe_unregister_notifier(struct notifier_block *nb);
 
 typedef void (*emac_ctrl_fe_ready_cb) (void *user_data);
 
-int emac_ctrl_fe_register_ready_cb(
+extern int emac_ctrl_fe_register_ready_cb(
 	void (*emac_ctrl_fe_ready_cb)(void *user_data),
 	void *user_data);
 
 /* Notify to EMAC CTRL FE that DMA is stopped and safe to pull the plug */
-void emac_ctrl_fe_gvm_dma_stopped(void);
+extern void emac_ctrl_fe_gvm_dma_stopped(void);
 
 /* request filter addition at EMAC HW*/
-int emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_types filter_type,
+extern int emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_types filter_type,
 	union emac_ctrl_fe_filter *filter );
 
 /* request filter deletion at EMAC HW*/
-int emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_types filter_type,
+extern int emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_types filter_type,
 	union emac_ctrl_fe_filter filter );
 
 /* request mac_addr_chg_req*/
-int emac_ctrl_fe_mac_addr_chg(struct unicast_mac_addr *new_mac_addr);
+extern int emac_ctrl_fe_mac_addr_chg(struct unicast_mac_addr *new_mac_addr);
 
 #endif /* _EMAC_CTRL_FE_API_H_ */

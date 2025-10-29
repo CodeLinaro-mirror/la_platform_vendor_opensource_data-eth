@@ -17,7 +17,11 @@
 #include "stmmac_thin.h"
 #include "stmmac_platform_thin.h"
 
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+#define VM_TRAFFIC_CHANNEL 4
+#else
 #define VM_TRAFFIC_CHANNEL 1
+#endif
 
 #ifdef CONFIG_OF
 
@@ -26,13 +30,18 @@
  * @pdev: platform device
  */
 static int stmmac_mtl_setup(struct platform_device *pdev,
-			    struct plat_stmmacenet_data *plat,
-			    u32 queue)
+			    struct plat_stmmacenet_data *plat)
 {
 	struct device_node *q_node = NULL;
 	struct device_node *rx_node = NULL;
 	struct device_node *tx_node = NULL;
 	struct device_node *np = pdev->dev.of_node;
+	u8 queue = 0;
+	int ret = 0;
+
+#ifdef CONFIG_ETHQOS_QCOM_SVM
+	queue = 4;
+#endif
 
 	/* For backwards-compatibility with device trees that don't have any
 	 * snps,mtl-rx-config or snps,mtl-tx-config properties, we fall back
@@ -170,7 +179,7 @@ static int stmmac_mtl_setup(struct platform_device *pdev,
  * set some private fields that will be used by the main at runtime.
  */
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
+stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct plat_stmmacenet_data *plat;
@@ -181,12 +190,12 @@ stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
 	if (!plat)
 		return ERR_PTR(-ENOMEM);
 
-	*mac = of_get_mac_address(np);
-	if (IS_ERR(*mac)) {
-		if (PTR_ERR(*mac) == -EPROBE_DEFER)
-			return ERR_CAST(*mac);
+	rc = of_get_mac_address(np, mac);
+	if (rc) {
+		if (rc == -EPROBE_DEFER)
+			return ERR_PTR(rc);
 
-		*mac = NULL;
+		eth_zero_addr(mac);
 	}
 
 	of_property_read_u32(np, "tx-fifo-depth", &plat->tx_fifo_size);
@@ -223,7 +232,7 @@ stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
 			 "force_sf_dma_mode is ignored if force_thresh_dma_mode is set.\n");
 	}
 
-	rc = stmmac_mtl_setup(pdev, plat, ch);
+	rc = stmmac_mtl_setup(pdev, plat);
 	if (rc)
 		return ERR_PTR(rc);
 
@@ -245,12 +254,12 @@ error_hw_init:
 
 #else
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, const char **mac)
+stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 {
 	return ERR_PTR(-EINVAL);
 }
 #endif /* CONFIG_OF */
-EXPORT_SYMBOL_GPL(stmmac_probe_config_dt);
+//EXPORT_SYMBOL_GPL(stmmac_probe_config_dt);
 
 int stmmac_get_platform_resources(struct platform_device *pdev,
 				  struct stmmac_resources *stmmac_res)
@@ -263,6 +272,9 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	/* Get IRQ information early to have an ability to ask for deferred
 	 * probe if needed before we went too far with resource allocation.
 	 */
+#if IS_ENABLED(CONFIG_ETHQOS_QCOM_SVM)
+	stmmac_res->irq[4] = platform_get_irq_byname(pdev, "tx_rx_ch4_intr");
+#else
 	stmmac_res->irq[0] = platform_get_irq_byname(pdev, "tx_rx_ch0_intr");
 	stmmac_res->irq[1] = platform_get_irq_byname(pdev, "tx_rx_ch1_intr");
 	stmmac_res->irq[2] = platform_get_irq_byname(pdev, "tx_rx_ch2_intr");
@@ -271,6 +283,8 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	stmmac_res->irq[5] = platform_get_irq_byname(pdev, "tx_rx_ch5_intr");
 	stmmac_res->irq[6] = platform_get_irq_byname(pdev, "tx_rx_ch6_intr");
 	stmmac_res->irq[7] = platform_get_irq_byname(pdev, "tx_rx_ch7_intr");
+#endif
+
 	for (i = 0; i < MAX_NUM_CH; i++) {
 		if (stmmac_res->irq[i] < 0) {
 			dev_warn(&pdev->dev,
@@ -295,7 +309,7 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	}
 	return PTR_ERR_OR_ZERO(stmmac_res->addr);
 }
-EXPORT_SYMBOL_GPL(stmmac_get_platform_resources);
+//EXPORT_SYMBOL_GPL(stmmac_get_platform_resources);
 
 /**
  * stmmac_pltfr_remove
@@ -315,7 +329,7 @@ int stmmac_pltfr_remove(struct platform_device *pdev)
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_pltfr_remove);
+//EXPORT_SYMBOL_GPL(stmmac_pltfr_remove);
 
 MODULE_DESCRIPTION("STMMAC 10/100/1000 Ethernet platform support");
 MODULE_AUTHOR("Giuseppe Cavallaro <peppe.cavallaro@st.com>");

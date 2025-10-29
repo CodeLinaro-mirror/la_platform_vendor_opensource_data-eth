@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -10,9 +11,36 @@
 
 typedef int (*of_parser_t)(struct ioss_device *idev, struct device_node *np);
 
+#define KEY_TRAFFIC_TYPE "qcom,ioss-traffic-type"
+#define KEY_IPA_CONFIGS "qcom,compatible-ipa-configs"
+
+static int ioss_of_parse_traffic_type(struct ioss_device *idev,
+		struct device_node *np, struct ioss_channel *ch)
+{
+	const char *str = NULL;
+	enum ioss_traffic_type t;
+
+	ch->traffic_type = DEFAULT_IOSS_TRAFFIC_TYPE;
+
+	if (of_property_read_string(np, KEY_TRAFFIC_TYPE, &str))
+		return 0; /* traffic type is optional */
+
+	for (t = 0; t < IOSS_TRAFFIC_TYPE_MAX; t++) {
+		if (!strcmp(str, ioss_traffic_name(t))) {
+			ch->traffic_type = t;
+			return 0;
+		}
+	}
+
+	ioss_dev_bug(idev, "Need to update traffic type map for '%s", str);
+
+	return 0;
+}
+
 static int ioss_of_parse_channel(struct ioss_device *idev,
 		struct device_node *np)
 {
+	int ret;
 	const char *key;
 	struct ioss_channel *ch = NULL;
 	struct ioss_interface *iface = &idev->interface;
@@ -21,9 +49,11 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 	if (!ch)
 		return -ENOMEM;
 
+	ch->name = of_node_full_name(np);
+
 	ch->ioss_priv = kzalloc(sizeof(struct ioss_ch_priv), GFP_KERNEL);
 	if (!ch->ioss_priv) {
-		kfree(ch);
+		kfree_sensitive(ch);
 		return -ENOMEM;
 	}
 
@@ -76,22 +106,40 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 		goto err;
 	}
 
+	if (of_find_property(np, "qcom,multi_rx_queues", NULL))
+		ch->multi_rx_queues = 1;
+	else
+		ch->multi_rx_queues = 0;
+
 	if (!!of_find_property(np, "qcom,rx-filter-be", NULL))
 		ch->filter_types |= IOSS_RXF_F_BE;
 
 	if (!!of_find_property(np, "qcom,rx-filter-ip", NULL))
 		ch->filter_types |= IOSS_RXF_F_IP;
 
+	if (ioss_of_parse_traffic_type(idev, np, ch))
+		goto err;
+
+	ret = of_property_count_strings(np, KEY_IPA_CONFIGS);
+	if (ret > 0) {
+		ch->ipa_configs = kmalloc(ret * sizeof(*ch->ipa_configs), GFP_KERNEL);
+		if (!ch->ipa_configs)
+			goto err;
+
+		ch->num_ipa_configs = of_property_read_string_array(np,
+				KEY_IPA_CONFIGS, ch->ipa_configs, ret);
+	}
+
 	ch->default_config.desc_alctr = &ioss_default_alctr;
 	ch->default_config.buff_alctr = &ioss_default_alctr;
 
-	list_add_tail(&ch->node, &iface->channels);
+	list_add_tail(&ch->node, &iface->invalid_channels);
 
 	return 0;
 
 err:
-	kfree(ch->ioss_priv);
-	kfree(ch);
+	kfree_sensitive(ch->ioss_priv);
+	kfree_sensitive(ch);
 
 	return -EINVAL;
 }
@@ -112,6 +160,10 @@ static int ioss_of_parse_v2(struct ioss_device *idev, struct device_node *np)
 		goto err;
 	}
 
+	/*To disable auto resume of ioss during PM*/
+	key = "qcom,ioss_auto_resume_disabled";
+	iface->auto_resume_disabled = of_property_read_bool(np, key);
+
 	/* Parse channels */
 	key = "qcom,ioss_channels";
 	count = of_count_phandle_with_args(np, "qcom,ioss_channels", NULL);
@@ -131,6 +183,9 @@ static int ioss_of_parse_v2(struct ioss_device *idev, struct device_node *np)
 		}
 	}
 
+	if(of_property_read_bool(np, "pci_device"))
+		iface->is_pci_device = true;
+
 	if (!!of_find_property(np, "qcom,ioss-wol-phy", NULL))
 		idev->wol.wolopts |= WAKE_PHY;
 
@@ -143,14 +198,15 @@ err:
 	{
 		struct ioss_channel *ch, *tmp_ch;
 
-		list_for_each_entry_safe(ch, tmp_ch, &iface->channels, node) {
+		list_for_each_entry_safe(ch, tmp_ch, &iface->invalid_channels, node) {
 			list_del(&ch->node);
-			kzfree(ch->ioss_priv);
-			kzfree(ch);
+			kfree(ch->ipa_configs);
+			kfree_sensitive(ch->ioss_priv);
+			kfree_sensitive(ch);
 		}
 	}
 
-	kfree(iface->ioss_priv);
+	kfree_sensitive(iface->ioss_priv);
 
 	return -EINVAL;
 }
@@ -179,7 +235,7 @@ int ioss_of_parse(struct ioss_device *idev)
 	const char *key;
 	struct device_node *of_root;
 	struct platform_device *pdev;
-	struct device_node *np = dev_of_node(idev->dev.parent);
+	struct device_node *np = dev_of_node(ioss_idev_to_real(idev));
 
 	if (!np)
 		return -EINVAL;

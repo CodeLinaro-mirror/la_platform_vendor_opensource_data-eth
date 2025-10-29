@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -48,6 +49,38 @@ static bool match_r8125(struct device *real_dev)
 {
 	return (real_dev->bus == &pci_bus_type) &&
 		!strcmp(to_pci_driver(real_dev->driver)->name, "r8125");
+}
+
+/* Realtek R8168 HAL implementation */
+
+static int __fill_r8168_si(struct ioss_channel *ch,
+		struct ipa_eth_realtek_setup_info *rtk)
+{
+	static const int RTL8168_BAR_MMIO = 2;
+
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct pci_dev *pdev = to_pci_dev(ioss_idev_to_real(idev));
+
+	rtk->bar_addr = pci_resource_start(pdev, RTL8168_BAR_MMIO);
+	rtk->bar_size = pci_resource_len(pdev, RTL8168_BAR_MMIO);
+	rtk->queue_number = ch->id;
+	rtk->num_queues_enabled = 2;
+
+	return 0;
+}
+static int fill_r8168_si(enum ipa_eth_client_type ctype,
+		struct ioss_channel *ch)
+{
+	struct ioss_ch_priv *cp = ch->ioss_priv;
+	struct ipa_eth_pipe_setup_info *si = &cp->ipa_pi.info;
+
+	return __fill_r8168_si(ch, &si->client_info.rtk);
+}
+
+static bool match_r8168(struct device *real_dev)
+{
+	return (real_dev->bus == &pci_bus_type) &&
+		!strcmp(to_pci_driver(real_dev->driver)->name, "r8168");
 }
 
 /* AQC HAL implementation */
@@ -128,15 +161,46 @@ static bool match_ntn3(struct device *real_dev)
 		!strcmp(to_pci_driver(real_dev->driver)->name, "tc956x_pci-eth");
 }
 
+static int fill_stmmac_si(enum ipa_eth_client_type ctype, struct ioss_channel *ch)
+{
+	struct ioss_ch_priv *cp = ch->ioss_priv;
+	struct ipa_eth_pipe_setup_info *si = &cp->ipa_pi.info;
+	struct ipa_eth_ntn_setup_info *stm_ipa = &si->client_info.ntn;
+	struct resource *resource = NULL;
+	int ret = 0;
+
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct platform_device *pdev = to_platform_device(ioss_idev_to_real(idev));
+
+	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!resource) {
+		ioss_dev_err(idev, "Failed to get emac-base resource");
+		ret = -ENODEV;
+		return ret;
+	}
+
+	stm_ipa->bar_addr = resource->start;
+	stm_ipa->tail_ptr_offs = ch->tail_ptr_addr;
+	stm_ipa->ioc_mod_threshold = ch->event.mod_count_min;
+
+	ioss_dev_log(idev, "stm_ipa: bar=%pap, q=%u, ioc_threshold=%d\n",
+		     &stm_ipa->bar_addr, ch->id, stm_ipa->ioc_mod_threshold);
+
+	return 0;
+}
+
+static bool match_stmmac(struct device *real_dev)
+{
+	return (real_dev->bus == &platform_bus_type) &&
+		!strcmp(to_platform_driver(real_dev->driver)->driver.name, "qcom-ethqos");
+}
 
 struct ioss_ipa_map ioss_ipa_map_table[IPA_ETH_CLIENT_MAX] = {
 	[IPA_ETH_CLIENT_RTK8125B] = { match_r8125, fill_r8125_si },
+	[IPA_ETH_CLIENT_RTK8111K] = { match_r8168, fill_r8168_si },
 	[IPA_ETH_CLIENT_AQC107] = { match_aqc, fill_aqc_si },
-#if IPA_ETH_API_VER >= 2
 	[IPA_ETH_CLIENT_NTN3] = { match_ntn3, fill_ntn3_si },
-#else
-	[IPA_ETH_CLIENT_NTN] = { match_ntn3, fill_ntn3_si },
-#endif
+	[IPA_ETH_CLIENT_IEMAC] = { match_stmmac, fill_stmmac_si },
 };
 
 enum ipa_eth_client_type ioss_ipa_hal_get_ctype(struct ioss_device *idev)
