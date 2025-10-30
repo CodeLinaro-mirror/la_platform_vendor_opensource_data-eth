@@ -188,6 +188,21 @@
  *  31 May 2024 : 1. Changes related to module param USXGMII_10G, USXGMII_5G, USXGMII_2.5G added
  *                2. Version update
  *  VERSION     : 05-00
+ *  06 Dec 2024 : 1. Modification to support PHY_INTERFACE_MODE_10GBASER interface type
+ *                2. Driver compilation warnings fixed for CCflags "Wmissing-prototypes" which is added in driver Makefile
+ *                3. Driver modification to use global array for 'WOL' device name during 'IRQ' registration
+ *  VERSION     : 04-00-02
+ *  11 Dec 2024 : 1. Modification to support port interface setting overlay from dts.
+ *                2. Driver modification to disable phydev private flag access.
+ *  VERSION     : 04-00-03
+ *  31 Jan 2025 : 1. Merge of Automotive limited github branches as listed above with 05-00 version
+ *                2. Support for module parameter (array) to configure different ethernet interfaces and
+ *                   associated other mandatory configurations for same ethernet port number in a cascade TC956x setup
+ *                3. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+ *                4. Modification to support PHY_INTERFACE_MODE_RGMII_ID interface type
+ *                5. Fix for MAC address assignment conflict in Cascade setup
+ *                6. Version update
+ *  VERSION     : 05-00-01
  */
 
 #ifndef __TC956XMAC_H__
@@ -224,6 +239,8 @@
 /* Uncomment TC956X_5_G_2_5_G_EEE_SUPPORT macro for enabling EEE support for 5G and 2.5G */
 #define TC956X_5_G_2_5_G_EEE_SUPPORT
 // #define CONFIG_TC956XMAC_SELFTESTS  /*Enable this macro to test Feature selftest*/
+/* Enable this macro when using TSB provided sample AQR driver which supports preamble suppression */
+// #define TC956X_SAMP_PHY_AQR_DRV_PSE_ENABLED
 
 #ifdef TC956X
 #define VENDOR_ID 0x1179
@@ -260,7 +277,7 @@
 #define IRQ_DEV_NAME(x)		(((x) == RM_PF0_ID) ? ("eth0") : ("eth1"))
 #define WOL_IRQ_DEV_NAME(x)	(((x) == RM_PF0_ID) ? ("eth0_wol") : ("eth1_wol"))
 
-#define DRV_MODULE_VERSION	"V_05-00-00"
+#define DRV_MODULE_VERSION	"V_05-00-01"
 #define TC956X_FW_MAX_SIZE	(64*1024)
 #elif (defined TC956X_SRIOV_VF)
 #define TC956X_RESOURCE_NAME	"tc956x_vf_pci-eth"
@@ -405,14 +422,16 @@
 
 #define TC956X_M3_DBG_VER_START			0x4F900
 
-#define ENABLE_USXGMII_INTERFACE		0
+#define ENABLE_USXGMII_INTERFACE		0 /* This value is passed to TSB AQR Sample driver as dev_flags, when this changed, AQR sample driver needs change */
 #define ENABLE_XFI_INTERFACE			1 /* XFI/SFI, this is same as USXGMII, except XPCS autoneg disabled */
 #define ENABLE_RGMII_INTERFACE			2
-#define ENABLE_SGMII_INTERFACE			3
-#define ENABLE_2500BASE_X_INTERFACE		4
-#define ENABLE_USXGMII_10G_INTERFACE	5
-#define ENABLE_USXGMII_5G_INTERFACE		6
-#define ENABLE_USXGMII_2_5G_INTERFACE	7
+#define ENABLE_RGMII_ID_INTERFACE		3
+#define ENABLE_SGMII_INTERFACE			4
+#define ENABLE_2500BASE_X_INTERFACE		5
+#define ENABLE_USXGMII_10G_INTERFACE	6
+#define ENABLE_USXGMII_5G_INTERFACE		7 /* This value is passed to TSB AQR Sample driver as dev_flags, when this changed, AQR sample driver needs change */
+#define ENABLE_USXGMII_2_5G_INTERFACE	8
+
 #define MTL_FPE_AFSZ_64		0
 #define MTL_FPE_AFSZ_128	1
 #define MTL_FPE_AFSZ_192	2
@@ -473,12 +492,18 @@ struct tc956xmac_resources {
 	int irq;
 #ifdef TC956X
 	unsigned int port_num;
+	u8  device_num;
 	unsigned int port_interface; /* Kernel module parameter variable for interface */
 	unsigned int eee_enabled; /* Parameter to store kernel module parameter to enable/disable EEE */
 	unsigned int tx_lpi_timer; /* Parameter to store kernel module parameter for LPI Auto Entry Timer */
 #endif
 	uint16_t pci_bd; /* PCI bus and device ID of self */
 
+	unsigned int mdc_clk;
+	unsigned int c45_state;
+	unsigned int link_down_macrst;
+	uint16_t pci_bdf; /* PCI bus, device ID and Fun ID of self */
+	uint16_t probe_seq_no;
 	unsigned int start_phy_addr;
 };
 
@@ -867,6 +892,7 @@ struct tc956xmac_priv {
 	/* eMAC port number */
 #ifdef TC956X
 	u32 port_num;
+	u8 device_num;
 	u32 mac_loopback_mode;
 	u32 phy_loopback_mode;
 	bool is_sgmii_2p5g; /* For 2.5G SGMI, XPCS doesn't support AN. This flag is to identify 2.5G Speed for SGMII interface. */
@@ -927,6 +953,8 @@ struct tc956xmac_priv {
 	unsigned long link_state;
 	bool link_down_rst; /* For light-weight release and open during link-down */
 	uint16_t pci_bd; /* PCI bus and device ID of self */
+	uint16_t pci_bdf; /* PCI bus, device ID and Fun ID of self */
+	uint16_t probe_seq_no;
 };
 
 struct tc956x_version {
@@ -1262,11 +1290,13 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resource
 int tc956x_platform_remove(struct tc956xmac_priv *priv);
 int tc956x_platform_suspend(struct tc956xmac_priv *priv);
 int tc956x_platform_resume(struct tc956xmac_priv *priv);
+int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res);
 #else
 int tc956x_platform_probe(struct tc956xmac_priv *priv, struct tc956xmac_resources *res);
 static inline int tc956x_platform_remove(struct tc956xmac_priv *priv) { return 0; }
 static inline int tc956x_platform_suspend(struct tc956xmac_priv *priv) { return 0; }
 int tc956x_platform_resume(struct tc956xmac_priv *priv);
+static inline int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res) { return 0; }
 #endif
 
 int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 out_value);
@@ -1282,6 +1312,37 @@ int tc956x_vf_rsc_mng_get_fn_id(struct tc956xmac_priv *priv, void __iomem *reg_p
 
 #endif
 int tc956x_set_pci_speed(struct pci_dev *pdev, u32 speed);
+uint8_t get_tc956x_index(struct pci_dev *pdev);
 void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT_LINK_CHANGE_STATE state);
+uint16_t tc956x_get_shared_mem_offset(struct pci_dev *pdev, uint16_t pci_bd);
+
+#ifdef TC956X_SRIOV_PF
+#ifdef CONFIG_DEBUG_FS
+int tc956xmac_create_debugfs(struct net_device *net_device);
+int tc956xmac_cleanup_debugfs(struct net_device *net_device);
+#endif
+#endif
+
+#ifndef TC956X_SRIOV_VF
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
+int genphy_c45_read_eee_adv_local(struct phy_device *phydev, unsigned long *adv);
+int genphy_c45_eee_is_active_local(struct phy_device *phydev, unsigned long *adv,
+			     unsigned long *lp, bool *is_enabled);
+int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
+			       struct ethtool_eee *data);
+int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *data);
+int phylink_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *eee);
+#endif
+
+#ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
+extern int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data);
+#endif
+#endif
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5, 5, 0)
+struct timespec64 tc956x_calc_basetime(ktime_t old_base_time,
+					   ktime_t current_time,
+					   u64 cycle_time);
+#endif
 
 #endif /* __TC956XMAC_H__ */

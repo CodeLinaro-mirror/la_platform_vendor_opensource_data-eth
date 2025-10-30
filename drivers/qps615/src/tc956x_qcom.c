@@ -261,3 +261,47 @@ int tc956x_platform_resume(struct tc956xmac_priv *priv)
 
 	return ret;
 }
+
+int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_resources *res)
+{
+	int ret = 0;
+	u32 interface;
+	u32 mdc_clk;
+	u32 c45_state;
+	u32 link_down_macrst;
+	u32 plat_interface;
+
+	if (of_property_read_u32(dev->of_node, "qcom,phy-port-interface", &interface)) {
+		dev_err(dev, "Failed to get phy port interface\n");
+		return ret;
+	} else {
+		dev_err(dev, "phy port interface overlay to %d from %d\n", interface, res->port_interface);
+		res->port_interface = interface;
+
+		if (of_property_read_u32(dev->of_node, "qcom,mdc-clk", &mdc_clk)) {
+			dev_err(dev, "Failed to get mdc clk\n");
+			return ret;
+		} else {
+			dev_err(dev, "mdc clk overlay to %d\n", mdc_clk);
+			res->mdc_clk = mdc_clk;
+		}
+
+		if (of_property_read_u32(dev->of_node, "qcom,c45-state", &c45_state)) {
+			dev_err(dev, "Failed to get c45 state\n");
+			return ret;
+		} else {
+			dev_err(dev, "c45 state overlay to %d\n", c45_state);
+			res->c45_state = c45_state;
+		}
+
+		if (of_property_read_u32(dev->of_node, "qcom,link-down-macrst", &link_down_macrst)) {
+			dev_err(dev, "Failed to get link down macrst\n");
+			return ret;
+		} else {
+			dev_err(dev, "link down macrst overlay to %d\n", link_down_macrst);
+			res->link_down_macrst = link_down_macrst;
+		}
+		ret = 1;
+	}
+	return ret;
+}

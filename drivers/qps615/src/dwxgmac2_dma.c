@@ -53,11 +53,17 @@
  *  VERSION     : 04-00
  *  31 May 2024 : 1. Added Max outstanding request Errata fix
  *  VERSION     : 05-00
+ *  31 Jan 2025 : 1. Support for module parameter (array) to configure different ethernet interfaces and
+ *                   associated other mandatory configurations for same ethernet port number in a cascade TC956x setup
+ *                2. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+ *                3. Update for correct DMA address width in case of 64-bit Host bus addressing
+ *  VERSION     : 05-00-01
  */
 
 #include <linux/iopoll.h>
 #include "tc956xmac.h"
 #include "dwxgmac2.h"
+
 
 static int dwxgmac2_dma_reset(struct tc956xmac_priv *priv, void __iomem *ioaddr)
 {
@@ -560,9 +566,8 @@ static void dwxgmac2_get_hw_feature(struct tc956xmac_priv *priv,
 	dma_cap->rmon = (hw_cap & XGMAC_HWFEAT_MMCSEL) >> 8;
 	dma_cap->pmt_magic_frame = (hw_cap & XGMAC_HWFEAT_MGKSEL) >> 7;
 	dma_cap->pmt_remote_wake_up = (hw_cap & XGMAC_HWFEAT_RWKSEL) >> 6;
-#ifdef TC956X_WITHOUT_MDIO_WITHOUT_PHY
+
 	dma_cap->sma_mdio = (hw_cap & XGMAC_HWFEAT_SMASEL) >> 5;
-#endif
 	dma_cap->vlhash = (hw_cap & XGMAC_HWFEAT_VLHASH) >> 4;
 	dma_cap->mbps_1000 = (hw_cap & XGMAC_HWFEAT_GMIISEL) >> 1;
 
@@ -592,9 +597,10 @@ static void dwxgmac2_get_hw_feature(struct tc956xmac_priv *priv,
 		break;
 	}
 
-	if (IS_ENABLED(CONFIG_ARCH_DMA_ADDR_T_64BIT))
+	if (IS_ENABLED(CONFIG_ARCH_DMA_ADDR_T_64BIT)) {
 		NMSGPR_INFO(priv->device, "64 bit platform\n");
-	else {
+		dma_cap->addr64 = 36; /* XGMAC IP is configured to support till 40 bits but TC956X IP supports only 36bit width */
+	} else {
 		NMSGPR_INFO(priv->device, "32 bit platform\n");
 		dma_cap->addr64 = 32;
 	}
@@ -649,9 +655,12 @@ static void dwxgmac2_get_hw_feature(struct tc956xmac_priv *priv,
 		dma_cap->frpes = 256;
 		break;
 	}
-#ifdef TC956X_WITHOUT_MDIO_WITHOUT_PHY
-	dma_cap->sma_mdio = 0;
-#endif
+
+	/* Overwrite the MDIO DMA capabilities when user selects without MDIO and without PHY cofiguration for the particular interface */
+	if (priv->plat->mac_no_mdio_no_phy == PHY_OFF_MDIO_OFF) {
+		DBGPR_FUNC(priv->device, "%s Disabling MDIO for BDF:0x%x\n", __func__, priv->pci_bdf);
+		dma_cap->sma_mdio = 0;
+	}
 }
 
 static void dwxgmac2_rx_watchdog(struct tc956xmac_priv *priv,

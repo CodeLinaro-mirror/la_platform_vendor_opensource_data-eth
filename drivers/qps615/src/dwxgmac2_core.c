@@ -66,6 +66,13 @@
  *  VERSION     : 04-00
  *  31 May 2024 : 1. Modified for TC FPE support
  *  VERSION     : 05-00
+ *  06 Dec 2024 : 1. Modification to support PHY_INTERFACE_MODE_10GBASER interface type
+ *  VERSION     : 04-00-02
+ *  11 Dec 2024 : 1. Modification to support port interface setting overlay from dts.
+ *  VERSION     : 04-00-03
+ *  31 Jan 2025 : 1. Merge of Automotive limited github branches as listed above after 5-00 version
+ *                2. Fix to avoid unbound access of SW MAC table during deletion
+ *  VERSION     : 05-00-01
  */
 
 #include <linux/bitrev.h>
@@ -143,12 +150,17 @@ static void dwxgmac2_core_init(struct tc956xmac_priv *priv,
 		}
 	}
 #ifndef TC956X
-	if (priv->plat->interface == PHY_INTERFACE_MODE_RGMII)
+	if ((priv->plat->interface == PHY_INTERFACE_MODE_RGMII) ||
+		(priv->plat->interface == PHY_INTERFACE_MODE_RGMII_ID))
 		tx |= hw->link.speed1000;
 	else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII)
 		tx |= hw->link.speed2500;
 	else if ((priv->plat->interface == PHY_INTERFACE_MODE_USXGMII) ||
-		(priv->plat->interface == PHY_INTERFACE_MODE_10GKR))
+		(priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
+		|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
+#endif
+			)
 		tx |= hw->link.xgmii.speed10000;
 #endif
 	writel(tx, ioaddr + XGMAC_TX_CONFIG);
@@ -768,6 +780,7 @@ static void dwxgmac2_set_eee_timer(struct tc956xmac_priv *priv,
 {
 	void __iomem *ioaddr = hw->pcsr;
 	u32 value;
+
 	value = readl(ioaddr + XGMAC_LPI_TIMER_CTRL);
 
 	value &= ~(XGMAC_LPI_TIMER_CTRL_TWT_MASK | XGMAC_LPI_TIMER_CTRL_LST_MASK);
@@ -1066,6 +1079,7 @@ static void tc956x_del_sw_mac_table(struct net_device *dev,
 	u32 mc_filter[2];
 	u32 nr;
 	u32 data1, data2;
+	u32 flag = 0;
 
 	void __iomem *ioaddr = (void __iomem *)dev->base_addr;
 
@@ -1074,37 +1088,41 @@ static void tc956x_del_sw_mac_table(struct net_device *dev,
 		if (mac_table->status == TC956X_MAC_STATE_OCCUPIED) {
 			if (ether_addr_equal(mac, mac_table->mac_address)) {
 				tc956x_del_sw_mac_helper(mac_table, vf);
+				flag = 1;
 				break;
 			}
 		}
 	}
-	if (mac_table->counter == 0) {
-		/* deleting the crc from hast table*/
-		if (priv->l2_filtering_mode == 1) {
-			memset(mc_filter, 0, sizeof(mc_filter));
-			nr = (bitrev32(~crc32_le(~0, mac_table->mac_address, 6)) >> 26);
-			/* The most significant bit determines the register
-			 * to use while the other 5 bits determines the bit
-			 * within the selected register
-			 */
-			mc_filter[nr >> 5] |= (1 << (nr & 0x1F));
 
-			data1 = 0;
-			data1 = readl(ioaddr + XGMAC_HASH_TAB_0_31);
+	if (flag == 1) {
+		if (mac_table->counter == 0) {
+			/* deleting the crc from hast table*/
+			if (priv->l2_filtering_mode == 1) {
+				memset(mc_filter, 0, sizeof(mc_filter));
+				nr = (bitrev32(~crc32_le(~0, mac_table->mac_address, 6)) >> 26);
+				/* The most significant bit determines the register
+				 * to use while the other 5 bits determines the bit
+				 * within the selected register
+				 */
+				mc_filter[nr >> 5] |= (1 << (nr & 0x1F));
 
-			data2 = readl(ioaddr + XGMAC_HASH_TAB_32_63);
+				data1 = 0;
+				data1 = readl(ioaddr + XGMAC_HASH_TAB_0_31);
 
-			data1 &= ~mc_filter[0];
-			data2 &= ~mc_filter[1];
+				data2 = readl(ioaddr + XGMAC_HASH_TAB_32_63);
 
-			writel(data1, ioaddr + XGMAC_HASH_TAB_0_31);
-			writel(data2, ioaddr + XGMAC_HASH_TAB_32_63);
-		}
-		tc956x_del_mac_addr(priv, hw, i, vf);
+				data1 &= ~mc_filter[0];
+				data2 &= ~mc_filter[1];
+
+				writel(data1, ioaddr + XGMAC_HASH_TAB_0_31);
+				writel(data2, ioaddr + XGMAC_HASH_TAB_32_63);
+			}
+			tc956x_del_mac_addr(priv, hw, i, vf);
 #ifdef TC956X_SRIOV_PF
-	} else {
-		tc956x_del_dma_ch(priv, hw, i, vf);
+		} else {
+			tc956x_del_dma_ch(priv, hw, i, vf);
 #endif
+		}
 	}
 }
 

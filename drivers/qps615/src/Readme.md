@@ -1,7 +1,7 @@
 # Toshiba Electronic Devices & Storage Corporation TC956X PCIe Ethernet Host Driver
-Release Date: 31 May 2024
+Release Date: 31 Jan 2025
 
-Release Version: V_05-00
+Release Version: V_05-00-01
 
 TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kernel-6.1.18" and "Fedora 39, kernel-6.6.1"
 
@@ -63,17 +63,76 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 
     ethtool -s <interface> advertise 0x6002 autoneg on --> changes the advertisement 10Mbps
 
-2. Use the below command to insert the kernel module with specific modes for interfaces:
+2. Use the below command to insert the kernel module with support of multiple interfaces in a system where more than one TC956x devices are present:
 	
-    #insmod tc956x_pcie_eth.ko mac0_interface=x mac1_interface=y
+	#insmod tc956x_pcie_eth.ko tc956x_eth_ports_bdf=BDF1,BDF2,...BDFn  macX_interface=x1,x2,...xn
 
-       argument info:
-	     mac0_interface: For PORT0 interface mode setting
-	     mac1_interface: For PORT1 interface mode setting
-	     x = [0: USXGMII, 1: XFI (default), 2: RGMII (unsupported), 3: SGMII, 4: 2500Base-X, 5: USXGMII_10G, 6: USXGMII_5G, 7.USXGMII_2.5G]
-	     y = [0: USXGMII, 1: XFI, 2: RGMII, 3: SGMII(default), 4: 2500Base-X, 5: USXGMII_10G, 6: USXGMII_5G, 7.USXGMII_2.5G]
-  
-    If invalid and unsupported modes are passed as kernel module parameter, the default interface mode will be selected.
+	argument info:
+	tc956x_eth_ports_bdf: Array of BDFs (Bus number, Device number and Function number) for which interface configuration is required, default is 0 (None),
+		which means other associated array module parameters will assign their default values to the TC956x devices in cascade setup.
+		Supported format: 0xBBDF, 'BB': one byte of Bus number, 'DF': one byte of Slot/Device number and Function number encoded as
+		[7:3] bits for Slot number and [2:0] bits for Function number.
+		This is array module parameter in which maximum of 14 BDFs can be provided in comma seperated format.
+		Note that this is a mandatory parameter to associate other array module parameters with particular TC956x device in a cascade setup.
+
+    macX_interface: Array of MAC Interface arranged in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+	     x = [0: USXGMII, 1: XFI, 2: RGMII*, 3: RGMII_ID*, 4: SGMII, 5: 2500Base-X, 6: USXGMII_10G, 7: USXGMII_5G, 8: USXGMII_2.5G]
+		 (*) - Not supported interface type for EMAC Port0.
+
+    Note:
+	1. Providing array of BDFs in module param "tc956x_eth_ports_bdf" along with "macX_interface" is mandatory to associate a TC956x's MAC port for correct MAC interface.
+	2. If "tc956x_eth_ports_bdf" is not provided, software will take following interface for all TC956x's devices in a TC956x's DSP cascade setup or more than one TC956x connection in a system.
+	   Port0: XFI
+	   Port1: SGMII
+	3. Along with "tc956x_eth_ports_bdf" and "macX_interface" module parameters, below mentioned module parameters also can be provided according to PHY specification attached with MAC0/1
+
+	   a. portX_mdc: Array of MDC values arranged in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+	   PORTX MDC clock setting supported values - default is 0x4 (clk_csr_i/12) for all Port0 and 0x8 (clk_csr_i/62) for all Port1
+	   Supported values: 
+                         [
+			  0x0 - clk_csr_i/4,   0x1 - clk_csr_i/6,
+			  0x2 - clk_csr_i/8,   0x3 - clk_csr_i/10,
+			  0x4 - clk_csr_i/12,  0x5 - clk_csr_i/14,
+			  0x6 - clk_csr_i/16,  0x7 - clk_csr_i/18,
+			  0x8 - clk_csr_i/62,  0x9 - clk_csr_i/102,
+			  0xA - clk_csr_i/122, 0xB - clk_csr_i/142,
+			  0xC - clk_csr_i/162, 0xD - clk_csr_i/202 
+			  ]
+
+
+	   b. portX_c45_state: Array of C45 state values arranged in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+	   PORTX phy driver clause setting - default is 1 (true) for all Port0 and 0 (false) for all Port1
+	   Supported values: [1 - true, 0 - false]
+
+	   c. portX_phyaddr: Array of Phy device addr arranged in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+	   PORT0 Phy device addr for phy detection, default is 0 for both Port0 and Port1
+	   Supported values: [0 to 31]
+
+	   d. macX_link_down_macrst: Array of MAC Link down reset setting in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+	   MAC reset for PHY Clock loss during Link Down - default is 1 (ENABLE) for all Port0 and 0 (DISABLE) for all Port1
+	   Supported values: [0: DISABLE, 1: ENABLE]
+
+	   e. macX_no_mdio_no_phy: Array of PHY and MDIO configuration in order according to the BDFs provided in module parameter 'tc956x_eth_ports_bdf'
+	   PHY and MDIO configuration - default is 0 (PHY ON and MDIO ON) for both Port0 and Port1
+	   Supported values: [0: PHY ON and MDIO ON, 1: PHY ON and MDIO OFF*, 2: PHY OFF and MDIO ON*, 3: PHY OFF and MDIO OFF]
+	   (*) These values are not supported currently.
+	4. In this release only above mentioned module parameters are supported in array format to associate with individual TC956x device in cascade setup.
+	   All other module parameters remains same as that of previous release.
+	5. For this array module parameters maximum array members supported is 14 which is maximum number of ethernet ports for 2 Level cascade setup.
+
+	Example for giving array of module parameters:
+    insmod tc956x_pcie_eth.ko tc956x_eth_ports_bdf=0x0500,0x0501 macX_interface=1,4 portX_c45_state=1,0 portX_mdc=4,8 portX_phyaddr=0,0
+	
+	This is an example for configuring Port0 interface as "XFI" and Port1 interface as "SGMII" for the TC956x device which is listed like below in "lspci" result.
+		01:00.0 PCI bridge: Toshiba Corporation Device 0623
+		02:01.0 PCI bridge: Toshiba Corporation Device 0623
+		02:02.0 PCI bridge: Toshiba Corporation Device 0623
+		02:03.0 PCI bridge: Toshiba Corporation Device 0623
+		05:00.0 Ethernet controller: Toshiba Corporation Device 0220
+		05:00.1 Ethernet controller: Toshiba Corporation Device 0220
+	In this example, "C45" state is configured as "true" for Port0 and "false" for Port1 and MDC clock as "clk_csr_i/12" and clk_csr_i/62 respectively.
+	It is possible to give different values as well.
+
 
 3. Regarding the performance, use the below command to increase the dynamic byte queue limit
 
@@ -299,8 +358,12 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 
 	If invalid values are passed as kernel module parameter, the default value will be selected.
 
-19. Uncomment TC956X_WITHOUT_MDIO_WITHOUT_PHY macro in tc956xmac_inc.h file to disable mdio and remove PHY dependency.
-	//#define TC956X_WITHOUT_MDIO_WITHOUT_PHY
+19. To disable MDIO and remove PHY dependency in the driver, use module parameter "macX_no_mdio_no_phy".
+	Supported options are as follows.
+	0: PHY_ON_MDIO_ON   /* PHY and MDIO available */ /* Default */
+	1: PHY_ON_MDIO_OFF  /* PHY available and MDIO not available */ /* Not supported currently */
+	2: PHY_OFF_MDIO_ON  /* PHY not available and MDIO available */ /* Not supported currrently */
+	3: PHY_OFF_MDIO_OFF /* PHY not available and MDIO not available */
 
 # Release Versions:
 
@@ -622,3 +685,31 @@ TC956X PCIe EMAC driver is based on "Fedora 30, kernel-5.4.19", "Fedora 36, kern
 6. Added support for FPE TC command.
 7. Error handling added for oversize gptp packets
 
+## TC956X_Linux_Host_Driver_20240620_V_04-00-01
+1. PHY_INTERFACE_MODE_2500BASEX added to "supported" interface when SGMII interface is used.
+2. Coding guideline changes.
+
+## TC956X_Linux_Host_Driver_20241206_V_04-00-02
+1. Driver compilation warnings fixed for CCflags "Wmissing-prototypes" which is added in driver Makefile
+2. Driver modification to support PHY_INTERFACE_MODE_10GBASER interface type
+3. Driver modification to use global array for 'WOL' device name during 'IRQ' registration
+4. Replaced 'sprintf' with 'snprintf', due to restriction in some environment.
+
+## TC956X_Linux_Host_Driver_20241211_V_04-00-03
+1. Modification to support port interface setting overlay from dts.
+2. Driver modification to disable phydev private flag access.
+
+## TC956X_Linux_Host_Driver_20250131_V_05-00-01
+1. Merge of Automotive limited github branches (V_04-00-01 ~ V_04-00-03) as listed above with 05-00 version
+1. Support for module parameter (array) to configure different ethernet interfaces and associated other mandatory configurations for same ethernet port number in a cascade TC956x setup
+2. Driver modification to disable phydev private flag access.
+3. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+4. Modification to support PHY_INTERFACE_MODE_RGMII_ID interface type
+5. Fix for ping issue in 5Gbps speed of USXGMII interface (mac_interface=0)
+6. Fix for throughput issue when CPE macro is enabled
+7. Fix to avoid unbound access of SW MAC table during deletion
+8. Initialisation of some local variables to avoid compiler warnings
+9. Update for correct DMA address width in case of 64-bit Host bus addressing
+10. Linux Kernel version check for supported TC command
+11. Fix for MAC address conflict in Cascade setup
+12. USXGMII (0) made as supported module param for TC956x Rev ID1
