@@ -4,7 +4,7 @@
  * tc956xmac_inc.h
  *
  * Copyright (C) 2009  STMicroelectronics Ltd
- * Copyright (C) 2024 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro Linux driver,
  * and developed or modified for TC956X.
@@ -50,6 +50,8 @@
  *  VERSION     : 01-03-59
  *  29 Mar 2024 : 1. Support for without MDIO and without PHY case
  *  VERSION     : 04-00
+ *  31 May 2024 : 1. Lower speed support for USXGMII interface related changes
+ *  VERSION     : 05-00
  */
 
 #ifndef __TC956XMAC_PLATFORM_DATA
@@ -362,6 +364,7 @@ struct plat_tc956xmacenet_data {
 	enum ch_owner rx_dma_ch_owner[MTL_MAX_RX_QUEUES];
 #endif
 	u32 port_num;
+	u32 RevID;
 	u32 port_interface; /* Kernel module parameter variable for interface */
 	bool phy_interrupt_mode; /* For Handling of PHY Operating mode */
 	int forced_speed; /* applicable only in case of fixed phy mode */
