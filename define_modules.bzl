@@ -1,19 +1,18 @@
 load("//build/bazel_common_rules/dist:dist.bzl", "copy_to_dist_dir")
 load(":target_variants.bzl", "get_all_la_variants")
 load("//build/kernel/kleaf:kernel.bzl", "ddk_module")
-load("@rules_pkg//pkg:install.bzl", "pkg_install")
-load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "strip_prefix")
 
 def define_modules(target, variant):
     kernel_build_variant = "{}_{}".format(target, variant)
     include_base = "../../../{}".format(native.package_name())
+    rule_base = "{}_tc956x_pcie_eth".format(kernel_build_variant)
 
     #The below will take care of the defconfig
     #include_defconfig = ":{}_defconfig".format(variant)
 
-    mod_list = []
+    mod_list = [":{}".format(rule_base)]
 
-    kernel_build = select({
+    base_kernel = select({
         "//build/kernel/kleaf:socrepo_true": "//soc-repo:{}_base_kernel".format(kernel_build_variant),
         "//build/kernel/kleaf:socrepo_false": "//msm-kernel:{}".format(kernel_build_variant),
     })
@@ -26,7 +25,7 @@ def define_modules(target, variant):
     })
 
     ddk_module(
-	name = "{}_qps615".format(kernel_build_variant),
+	name = rule_base,
 	out = "tc956x_pcie_eth.ko",
 	srcs = [
 	    "drivers/qps615/src/dwxgmac2_core.c",
@@ -50,7 +49,7 @@ def define_modules(target, variant):
 		"drivers/qps615/src/tc956x_pf_mbx.c",
 		"drivers/qps615/src/tc956x_pf_rsc_mng.c",
 	],
-	kernel_build = kernel_build,
+	kernel_build = base_kernel,
 	#defconfig = include_defconfig,
 	deps = [
 	    ":qps615_headers",
@@ -63,12 +62,10 @@ def define_modules(target, variant):
     ],
     )
 
-    mod_list.append("{}_qps615".format(kernel_build_variant))
-
     copy_to_dist_dir(
-       name = "{}_modules_dist".format(kernel_build_variant),
+       name = "{}_dist".format(rule_base),
        data = mod_list,
-       dist_dir = "out/target/product/{}/dlkm/lib/modules/".format(target),
+       dist_dir = "../out/target/product/{}/dlkm/lib/modules/".format(target),
        flat = True,
        wipe_dist_dir = False,
        allow_duplicate_filenames = False,
