@@ -711,14 +711,14 @@ int tc956x_dump_regs(struct net_device *net_device, struct tc956x_regs *regs)
 	}
 
 	/* Driver & FW Information */
-	strlcpy(regs->info.driver, TC956X_RESOURCE_NAME, sizeof(regs->info.driver));
-	strlcpy(regs->info.version, DRV_MODULE_VERSION, sizeof(regs->info.version));
+	strscpy(regs->info.driver, TC956X_RESOURCE_NAME, sizeof(regs->info.driver));
+	strscpy(regs->info.version, DRV_MODULE_VERSION, sizeof(regs->info.version));
 
 	reg = readl(priv->tc956x_SRAM_pci_base_addr + TC956X_M3_DBG_VER_START);
 	fw_version = (struct tc956x_version *)(&reg);
 	scnprintf(fw_version_str, sizeof(fw_version_str), "FW Version %s_%d.%d-%d", (fw_version->rel_dbg == 'D')?"DBG":"REL",
 					fw_version->major, fw_version->minor, fw_version->sub_minor);
-	strlcpy(regs->info.fw_version, fw_version_str, sizeof(regs->info.fw_version));
+	strscpy(regs->info.fw_version, fw_version_str, sizeof(regs->info.fw_version));
 
 	/* Updating statistics */
 	tc956xmac_mmc_read(priv, priv->mmcaddr, &priv->mmc);
@@ -6234,7 +6234,7 @@ static void tc956xmac_dma_interrupt(struct tc956xmac_priv *priv)
 	u32 channels_to_check = tx_channel_count > rx_channel_count ?
 				tx_channel_count : rx_channel_count;
 	u32 chan;
-	int status[max_t(u32, MTL_MAX_TX_QUEUES, MTL_MAX_RX_QUEUES)];
+	int status[MAX_QUEUES];
 
 	/* Make sure we never check beyond our status buffer. */
 	if (WARN_ON_ONCE(channels_to_check > ARRAY_SIZE(status)))
@@ -15323,7 +15323,7 @@ static void parse_config_file(uint8_t port_id, uint8_t dev_id, struct net_device
 		}
 	}
 
-	vfree(data);
+	kvfree(data);
 	KPRINT_INFO("<--%s", __func__);
 }
 #endif
