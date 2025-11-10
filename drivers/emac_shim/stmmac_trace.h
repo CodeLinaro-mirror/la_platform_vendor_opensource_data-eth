@@ -189,5 +189,5 @@ TRACE_EVENT(stmmac_poll_exit,
 
 /* This part must be outside protection */
 #undef TRACE_INCLUDE_PATH
-#define TRACE_INCLUDE_PATH ../../techpack/data-eth/drivers/emac_shim
+#define TRACE_INCLUDE_PATH ../../../../../../../src/data-eth/drivers/emac_shim
 #include <trace/define_trace.h>

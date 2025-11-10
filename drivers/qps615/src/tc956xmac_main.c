@@ -101,7 +101,33 @@
  *  VERSION     : 01-00-36
  *  20 Jan 2022 : 1. Reset eMAC if port unavailable (PHY not connected) during suspend-resume.
  *  VERSION     : 01-00-37
-*/
+ *  31 Jan 2022 : 1. Debug dump API supported to dump registers during crash.
+ *  VERSION     : 01-00-39
+ *  04 Feb 2022 : 1. DMA channel status cleared only for SW path allocated DMA channels. IPA path DMA channel status clearing is skipped.
+ *  VERSION     : 01-00-41
+ *  14 Feb 2022 : 1. Reset assert and clock disable support during Link Down.
+ *  VERSION     : 01-00-42
+ *  22 Feb 2022 : 1. Supported GPIO configuration save and restoration
+ *  VERSION     : 01-00-43
+ *  25 Feb 2022 : 1. XPCS module is re-initialized after link-up as MACxPONRST is asserted during link-down.
+ *		  2. Disable Rx side EEE LPI before configuring Rx Parser (FRP). Enable the same after Rx Parser configuration.
+ *  VERSION     : 01-00-44
+ *  09 Mar 2022 : 1. Handling of Non S/W path DMA channel abnormal interrupts in Driver and only TI & RI interrupts handled in FW.
+ *		  2. Reading MSI status for checking interrupt status of SW MSI.
+ *  VERSION     : 01-00-45
+ *  05 Apr 2022 : 1. Disable MSI and flush phy work queue during driver release.
+ *  VERSION     : 01-00-47
+ *  06 Apr 2022 : 1. Dynamic MTU change supported. Max MTU supported is 2000 bytes.
+ *		  2. Constant buffer size of 2K used, so that during MTU change there is no buffer reconfiguration.
+ *  VERSION     : 01-00-48
+ *  14 Apr 2022 : 1. Ignoring error from tc956xmac_hw_setup in tc956xmac_open API.
+ *  VERSION     : 01-00-49
+ *  25 Apr 2022 : 1. Perform platform remove after MDIO deregistration.
+ *  VERSION     : 01-00-50
+ *  29 Apr 2022 : 1. Added Lock for syncing linkdown, port rlease and release of offloaded DMA channels.
+ *		  2. Added kernel Module parameter for selecting Power saving at Link down.
+ *  VERSION     : 01-00-51
+ */
 
 #include <linux/clk.h>
 #include <linux/kernel.h>
@@ -214,6 +240,8 @@ static void tc956xmac_init_fs(struct net_device *dev);
 static void tc956xmac_exit_fs(struct net_device *dev);
 #endif
 
+static u32 tc956xmac_link_down_counter = 0; /* Counter to count Link Down/Up for both port */
+
 #define TC956XMAC_COAL_TIMER(x) (jiffies + usecs_to_jiffies(x))
 
 /* MAC address */
@@ -262,6 +290,561 @@ static u8 phy_sa_addr[2][6] = {
 };
 extern unsigned int mac0_en_lp_pause_frame_cnt;
 extern unsigned int mac1_en_lp_pause_frame_cnt;
+extern unsigned int mac_power_save_at_link_down;
+
+
+static int dwxgmac2_rx_parser_read_entry(struct tc956xmac_priv *priv,
+		struct tc956xmac_rx_parser_entry *entry, int entry_pos)
+{
+	void __iomem *ioaddr = priv->ioaddr;
+	int limit;
+	int i;
+	u32 reg_val;
+
+	for (i = 0; i < (sizeof(*entry) / sizeof(u32)); i++) {
+		int real_pos = entry_pos * (sizeof(*entry) / sizeof(u32)) + i;
+
+		/* Set Entry Position */
+		reg_val = readl(ioaddr + XGMAC_MTL_RXP_IACC_CTRL_ST);
+		reg_val = reg_val & (~XGMAC_ADDR);
+		reg_val |= (real_pos & XGMAC_ADDR);
+		writel(reg_val, ioaddr + XGMAC_MTL_RXP_IACC_CTRL_ST);
+		
+		/* Set Read op */
+		reg_val = readl(ioaddr + XGMAC_MTL_RXP_IACC_CTRL_ST);
+		reg_val &= ~XGMAC_WRRDN;
+		writel(reg_val, ioaddr + XGMAC_MTL_RXP_IACC_CTRL_ST);
+
+		/* Start read */
+		reg_val = readl(ioaddr + XGMAC_MTL_RXP_IACC_CTRL_ST);
+		reg_val |= XGMAC_STARTBUSY;
+		writel(reg_val, ioaddr + XGMAC_MTL_RXP_IACC_CTRL_ST);
+
+
+		limit = 10000;
+		while (limit--) {
+			if (!(readl(ioaddr + XGMAC_MTL_RXP_IACC_CTRL_ST) &
+			      XGMAC_STARTBUSY))
+				break;
+			udelay(1);
+		}
+		if (limit < 0)
+			return -EBUSY;
+
+		/* Read Data Reg */
+		*((unsigned int  *)entry + i) = readl(ioaddr  + XGMAC_MTL_RXP_IACC_DATA);
+	}
+
+	return 0;
+}
+
+
+int tc956x_dump_regs(struct net_device *net_device, struct tc956x_regs *regs)
+{
+	struct tc956xmac_priv *priv = netdev_priv(net_device);
+	u32 rx_queues_cnt = priv->plat->rx_queues_to_use;
+	u32 tx_queues_cnt = priv->plat->tx_queues_to_use;
+	u32 maxq = max(rx_queues_cnt, tx_queues_cnt);
+	u32 ch, queue, table_entry, reg = 0;
+	struct tc956xmac_tx_queue *tx_q;
+	struct tc956xmac_rx_queue *rx_q;
+	u8 fw_version_str[32];
+	struct tc956x_version *fw_version;
+
+	DBGPR_FUNC(priv->device, "-->%s\n", __func__);
+
+	/* PCIe register dump */
+	regs->pcie_reg.rsc_mng_id = readl(priv->tc956x_BRIDGE_CFG_pci_base_addr + RSCMNG_ID_REG);
+
+	/* Configuration register dump */
+	regs->config_reg.ncid = readl(priv->ioaddr + NCID_OFFSET);
+	regs->config_reg.nclkctrl0 = readl(priv->ioaddr + NCLKCTRL0_OFFSET);
+	regs->config_reg.nrstctrl0 = readl(priv->ioaddr + NRSTCTRL0_OFFSET);
+	regs->config_reg.nclkctrl1 = readl(priv->ioaddr + NCLKCTRL1_OFFSET);
+	regs->config_reg.nemac0ctl = readl(priv->ioaddr + NEMAC0CTL_OFFSET);
+	regs->config_reg.nemac1ctl = readl(priv->ioaddr + NEMAC1CTL_OFFSET);
+	regs->config_reg.nemacsts = readl(priv->ioaddr + NEMACSTS_OFFSET);
+	regs->config_reg.gpioi0 = readl(priv->ioaddr + GPIOI0_OFFSET);
+	regs->config_reg.gpioi1 = readl(priv->ioaddr + GPIOI1_OFFSET);
+	regs->config_reg.gpioe0 = readl(priv->ioaddr + GPIOE0_OFFSET);
+	regs->config_reg.gpioe1 = readl(priv->ioaddr + GPIOE1_OFFSET);
+
+	/* MSI register dump */
+	regs->msi_reg.msi_out_en = readl(priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num));
+	regs->msi_reg.msi_mask_set = readl(priv->ioaddr + TC956X_MSI_MASK_SET_OFFSET(priv->port_num));
+	regs->msi_reg.msi_mask_clr = readl(priv->ioaddr + TC956X_MSI_MASK_CLR_OFFSET(priv->port_num));
+	regs->msi_reg.int_sts = readl(priv->ioaddr + TC956X_MSI_INT_STS_OFFSET(priv->port_num));
+	regs->msi_reg.int_raw_sts = readl(priv->ioaddr + TC956X_MSI_INT_RAW_STS_OFFSET(priv->port_num));
+	regs->msi_reg.msi_sts = readl(priv->ioaddr + TC956X_MSI_STS_OFFSET(priv->port_num));
+	regs->msi_reg.cnt_int0 = readl(priv->ioaddr + TC956X_MSI_CNT0(priv->port_num));	
+	regs->msi_reg.cnt_int1 = readl(priv->ioaddr + TC956X_MSI_CNT1(priv->port_num));	
+	regs->msi_reg.cnt_int2 = readl(priv->ioaddr + TC956X_MSI_CNT2(priv->port_num));	
+	regs->msi_reg.cnt_int3 = readl(priv->ioaddr + TC956X_MSI_CNT3(priv->port_num));	
+	regs->msi_reg.cnt_int4 = readl(priv->ioaddr + TC956X_MSI_CNT4(priv->port_num));	
+	regs->msi_reg.cnt_int11 = readl(priv->ioaddr + TC956X_MSI_CNT11(priv->port_num));
+	regs->msi_reg.cnt_int12 = readl(priv->ioaddr + TC956X_MSI_CNT12(priv->port_num));
+	regs->msi_reg.cnt_int20 = readl(priv->ioaddr + TC956X_MSI_CNT20(priv->port_num));
+	regs->msi_reg.cnt_int24 = readl(priv->ioaddr + TC956X_MSI_CNT24(priv->port_num));
+
+	/* INTC register dump */
+	regs->intc_reg.intmcumask0 = readl(priv->ioaddr + INTMCUMASK0);	
+	regs->intc_reg.intmcumask1 = readl(priv->ioaddr + INTMCUMASK1);	
+	regs->intc_reg.intmcumask2 = readl(priv->ioaddr + INTMCUMASK2);	
+
+	/* DMA channel register dump */
+	regs->dma_reg.debug_sts0 = readl(priv->ioaddr + XGMAC_DMA_DEBUG_STATUS0); 
+
+	for (ch = 0; ch < maxq; ch++) {
+		regs->dma_reg.ch_control[ch] = readl(priv->ioaddr + XGMAC_DMA_CH_CONTROL(ch));
+		regs->dma_reg.interrupt_enable[ch] = readl(priv->ioaddr + XGMAC_DMA_CH_INT_EN(ch));
+		regs->dma_reg.ch_status[ch] = readl(priv->ioaddr + XGMAC_DMA_CH_STATUS(ch));
+		regs->dma_reg.debug_status[ch] = readl(priv->ioaddr + XGMAC_DMA_CH_DBG_STATUS(ch));
+		regs->dma_reg.rxch_watchdog_timer[ch] = readl(priv->ioaddr + XGMAC_DMA_CH_Rx_WATCHDOG(ch));
+	}
+
+	for (ch = 0; ch < tx_queues_cnt; ch++) {
+		regs->dma_reg.tx_ch[ch].control = readl(priv->ioaddr + XGMAC_DMA_CH_TX_CONTROL(ch));
+		regs->dma_reg.tx_ch[ch].list_haddr = readl(priv->ioaddr + XGMAC_DMA_CH_TxDESC_HADDR(ch));
+		regs->dma_reg.tx_ch[ch].list_laddr = readl(priv->ioaddr + XGMAC_DMA_CH_TxDESC_LADDR(ch));
+		regs->dma_reg.tx_ch[ch].ring_len = readl(priv->ioaddr + XGMAC_DMA_CH_TX_CONTROL2(ch));
+		regs->dma_reg.tx_ch[ch].curr_haddr = readl(priv->ioaddr + XGMAC_DMA_CH_Cur_TxDESC_HADDR(ch));
+		regs->dma_reg.tx_ch[ch].curr_laddr = readl(priv->ioaddr + XGMAC_DMA_CH_Cur_TxDESC_LADDR(ch));
+		regs->dma_reg.tx_ch[ch].tail_ptr = readl(priv->ioaddr + XGMAC_DMA_CH_TxDESC_TAIL_LPTR(ch));
+		regs->dma_reg.tx_ch[ch].buf_haddr = readl(priv->ioaddr + XGMAC_DMA_CH_Cur_TxBuff_HADDR(ch));
+		regs->dma_reg.tx_ch[ch].buf_laddr = readl(priv->ioaddr + XGMAC_DMA_CH_Cur_TxBuff_LADDR(ch));
+	}
+
+	for (ch = 0; ch < rx_queues_cnt; ch++) {
+		regs->dma_reg.rx_ch[ch].control = readl(priv->ioaddr + XGMAC_DMA_CH_RX_CONTROL(ch));
+		regs->dma_reg.rx_ch[ch].list_haddr = readl(priv->ioaddr + XGMAC_DMA_CH_RxDESC_HADDR(ch));
+		regs->dma_reg.rx_ch[ch].list_laddr = readl(priv->ioaddr + XGMAC_DMA_CH_RxDESC_LADDR(ch));
+		regs->dma_reg.rx_ch[ch].ring_len = readl(priv->ioaddr + XGMAC_DMA_CH_RX_CONTROL2(ch));
+		regs->dma_reg.rx_ch[ch].curr_haddr = readl(priv->ioaddr + XGMAC_DMA_CH_Cur_RxDESC_HADDR(ch));
+		regs->dma_reg.rx_ch[ch].curr_laddr = readl(priv->ioaddr + XGMAC_DMA_CH_Cur_RxDESC_LADDR(ch));
+		regs->dma_reg.rx_ch[ch].tail_ptr = readl(priv->ioaddr + XGMAC_DMA_CH_RxDESC_TAIL_LPTR(ch));
+		regs->dma_reg.rx_ch[ch].buf_haddr = readl(priv->ioaddr + XGMAC_DMA_CH_Cur_RxBuff_HADDR(ch));
+		regs->dma_reg.rx_ch[ch].buf_laddr = readl(priv->ioaddr + XGMAC_DMA_CH_Cur_RxBuff_LADDR(ch));
+	}
+
+	for (ch = 0; ch < tx_queues_cnt; ch++) {
+		tx_q = &priv->tx_queue[ch];
+		regs->dma_reg.tx_queue[ch].desc_phy_addr = tx_q->dma_tx_phy;
+		regs->dma_reg.tx_queue[ch].desc_va_addr = tx_q->dma_tx;
+		#ifdef DMA_OFFLOAD_ENABLE
+		regs->dma_reg.tx_queue[ch].buff_phy_addr = tx_q->buff_tx_phy;
+		regs->dma_reg.tx_queue[ch].buff_va_addr = (void *)tx_q->buffer_tx_va_addr;
+		#endif
+		regs->dma_reg.tx_queue[ch].tx_skbuff = tx_q->tx_skbuff;
+		regs->dma_reg.tx_queue[ch].tx_skbuff_dma = tx_q->tx_skbuff_dma;
+	}
+
+	for (ch = 0; ch < rx_queues_cnt; ch++) {
+		rx_q = &priv->rx_queue[ch];
+		regs->dma_reg.rx_queue[ch].desc_phy_addr = rx_q->dma_rx_phy;
+		regs->dma_reg.rx_queue[ch].desc_va_addr = rx_q->dma_rx;
+		#ifdef DMA_OFFLOAD_ENABLE
+		regs->dma_reg.rx_queue[ch].buff_phy_addr = rx_q->buff_rx_phy;
+		regs->dma_reg.rx_queue[ch].buff_va_addr = (void *)rx_q->buffer_rx_va_addr;
+		#endif
+		regs->dma_reg.rx_queue[ch].buf_pool = rx_q->buf_pool;
+	}
+
+	/* MAC register dump */
+	regs->mac_reg.mac_tx_config = readl(priv->ioaddr + XGMAC_TX_CONFIG);
+	regs->mac_reg.mac_rx_config = readl(priv->ioaddr + XGMAC_RX_CONFIG);
+	regs->mac_reg.mac_pkt_filter = readl(priv->ioaddr + XGMAC_PACKET_FILTER);
+	regs->mac_reg.mac_tx_rx_status = readl(priv->ioaddr + XGMAC_RX_TX_STS);
+	regs->mac_reg.mac_debug = readl(priv->ioaddr + XGMAC_DEBUG);
+
+	/* MTL register dump */
+	regs->mtl_reg.op_mode = readl(priv->ioaddr + XGMAC_MTL_OPMODE);
+	regs->mtl_reg.mtl_rxq_dma_map0 = readl(priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP0);
+	regs->mtl_reg.mtl_rxq_dma_map1 = readl(priv->ioaddr + XGMAC_MTL_RXQ_DMA_MAP1);
+
+	for (queue = 0; queue < MTL_MAX_TX_QUEUES; queue++) {
+		regs->mtl_reg.tx_info[queue].op_mode = readl(priv->ioaddr + XGMAC_MTL_TXQ_OPMODE(queue));
+		regs->mtl_reg.tx_info[queue].underflow = readl(priv->ioaddr + XGMAC_MTL_TXQ_UF_OFFSET(queue));		
+		regs->mtl_reg.tx_info[queue].debug = readl(priv->ioaddr + XGMAC_MTL_TXQ_Debug(queue));				
+	}
+
+	for (queue = 0; queue < MTL_MAX_RX_QUEUES; queue++) {
+		regs->mtl_reg.rx_info[queue].op_mode = readl(priv->ioaddr + XGMAC_MTL_RXQ_OPMODE(queue));
+		regs->mtl_reg.rx_info[queue].miss_pkt_overflow = readl(priv->ioaddr + XGMAC_MTL_RXQ_MISS_PKT_OF_CNT_OFFSET(queue));		
+		regs->mtl_reg.rx_info[queue].debug = readl(priv->ioaddr + XGMAC_MTL_RXQ_Debug(queue));				
+		regs->mtl_reg.rx_info[queue].flow_control = readl(priv->ioaddr + XGMAC_MTL_RXQ_FLOW_CONTROL(queue));						
+	}
+
+	/* M3 SRAM dump */
+	for (ch = 0; ch < maxq; ch++) {
+		regs->m3_reg.sram_tx_pcie_addr[ch] = readl(priv->tc956x_SRAM_pci_base_addr + SRAM_TX_PCIE_ADDR_LOC + 
+							(priv->port_num * TC956XMAC_CH_MAX * 4) + (ch * 4));
+		regs->m3_reg.sram_rx_pcie_addr[ch] = readl(priv->tc956x_SRAM_pci_base_addr + SRAM_RX_PCIE_ADDR_LOC + 
+							(priv->port_num * TC956XMAC_CH_MAX * 4) + (ch * 4));	
+	}	
+
+	regs->m3_reg.m3_fw_init_done = readl(priv->tc956x_SRAM_pci_base_addr + TC956X_M3_INIT_DONE);
+	regs->m3_reg.m3_fw_exit	= readl(priv->tc956x_SRAM_pci_base_addr + TC956X_M3_FW_EXIT);
+
+	regs->m3_reg.m3_debug_cnt0 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT0 )));
+	regs->m3_reg.m3_debug_cnt1 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT1 )));
+	regs->m3_reg.m3_debug_cnt2 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT2 )));
+	regs->m3_reg.m3_debug_cnt3 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT3 )));
+	regs->m3_reg.m3_debug_cnt4 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT4 )));
+	regs->m3_reg.m3_debug_cnt5 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT5 )));
+	regs->m3_reg.m3_debug_cnt6 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT6 )));
+	regs->m3_reg.m3_debug_cnt7 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT7 )));
+	regs->m3_reg.m3_debug_cnt8 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT8 )));
+	regs->m3_reg.m3_debug_cnt9 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT9 )));
+	regs->m3_reg.m3_debug_cnt10 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT10 )));
+	regs->m3_reg.m3_watchdog_exp_cnt = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT11 )));
+	regs->m3_reg.m3_watchdog_monitor_cnt = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT12 )));
+	regs->m3_reg.m3_debug_cnt13 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT13 )));
+	regs->m3_reg.m3_debug_cnt14 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT14 )));
+	regs->m3_reg.m3_systick_cnt_upper_value = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT16 )));
+	regs->m3_reg.m3_systick_cnt_lower_value = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT15 )));
+	regs->m3_reg.m3_tx_timeout_port0 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT17 )));
+	regs->m3_reg.m3_tx_timeout_port1 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT18 )));
+	regs->m3_reg.m3_debug_cnt19 = readl(priv->tc956x_SRAM_pci_base_addr + 
+				(TC956X_M3_SRAM_DEBUG_CNTS_OFFSET + (DB_CNT_LEN * DB_CNT19 )));
+
+	regs->rxp_cfg = (struct tc956xmac_rx_parser_cfg *)&priv->plat->rxp_cfg;
+
+	/* TAMAP Information */
+	for(table_entry = 0; table_entry <= MAX_CM3_TAMAP_ENTRIES; table_entry++) {
+		regs->tamap[table_entry].trsl_addr_hi =	readl(priv->tc956x_BRIDGE_CFG_pci_base_addr + 
+						TC956X_AXI4_SLV_TRSL_ADDR_HI(0, table_entry));
+		regs->tamap[table_entry].trsl_addr_low = readl(priv->tc956x_BRIDGE_CFG_pci_base_addr + 
+						TC956X_AXI4_SLV_TRSL_ADDR_LO(0, table_entry));
+		regs->tamap[table_entry].src_addr_hi =	readl(priv->tc956x_BRIDGE_CFG_pci_base_addr + 
+						TC956X_AXI4_SLV_SRC_ADDR_HI(0, table_entry));
+		regs->tamap[table_entry].src_addr_low = (readl(priv->tc956x_BRIDGE_CFG_pci_base_addr + 
+						TC956X_AXI4_SLV_SRC_ADDR_LO(0, table_entry)) & TC956X_SRC_LO_MASK);
+		regs->tamap[table_entry].atr_size = ((readl(priv->tc956x_BRIDGE_CFG_pci_base_addr + 
+						TC956X_AXI4_SLV_SRC_ADDR_LO(0, table_entry)) & TC956X_ATR_SIZE_MASK) >> 1);
+		regs->tamap[table_entry].atr_impl = (readl(priv->tc956x_BRIDGE_CFG_pci_base_addr + 
+						TC956X_AXI4_SLV_SRC_ADDR_LO(0, table_entry)) & TC956X_ATR_IMPL);
+	}
+
+	/* Driver & FW Information */
+	strlcpy(regs->info.driver, TC956X_RESOURCE_NAME, sizeof(regs->info.driver));
+	strlcpy(regs->info.version, DRV_MODULE_VERSION, sizeof(regs->info.version));
+
+	reg = readl(priv->tc956x_SRAM_pci_base_addr + TC956X_M3_DBG_VER_START);
+	fw_version = (struct tc956x_version *)(&reg);
+	scnprintf(fw_version_str, sizeof(fw_version_str), "FW Version %s_%d.%d-%d", (fw_version->rel_dbg == 'D')?"DBG":"REL",
+					fw_version->major, fw_version->minor, fw_version->sub_minor);
+	strlcpy(regs->info.fw_version, fw_version_str, sizeof(regs->info.fw_version));
+
+	/* Updating statistics */
+	tc956xmac_mmc_read(priv, priv->mmcaddr, &priv->mmc);
+	for (ch = 0; ch < tx_queues_cnt; ch++) {
+		regs->stats.rx_buf_unav_irq[ch] = priv->xstats.rx_buf_unav_irq[ch];
+		regs->stats.tx_pkt_n[ch] = priv->xstats.tx_pkt_n[ch];
+		regs->stats.tx_pkt_errors_n[ch] = priv->xstats.tx_pkt_errors_n[ch];
+		regs->stats.rx_pkt_n[ch] = priv->xstats.rx_pkt_n[ch];
+	}
+	regs->stats.mmc_tx_broadcastframe_g = priv->mmc.mmc_tx_broadcastframe_g;
+	regs->stats.mmc_tx_multicastframe_g = priv->mmc.mmc_tx_multicastframe_g;
+	regs->stats.mmc_tx_64_octets_gb = priv->mmc.mmc_tx_64_octets_gb;
+	regs->stats.mmc_tx_framecount_gb = priv->mmc.mmc_tx_framecount_gb;
+	regs->stats.mmc_tx_65_to_127_octets_gb = priv->mmc.mmc_tx_65_to_127_octets_gb;
+	regs->stats.mmc_tx_128_to_255_octets_gb = priv->mmc.mmc_tx_128_to_255_octets_gb;
+	regs->stats.mmc_tx_256_to_511_octets_gb = priv->mmc.mmc_tx_256_to_511_octets_gb;
+	regs->stats.mmc_tx_512_to_1023_octets_gb = priv->mmc.mmc_tx_512_to_1023_octets_gb;
+	regs->stats.mmc_tx_1024_to_max_octets_gb = priv->mmc.mmc_tx_1024_to_max_octets_gb;
+	regs->stats.mmc_tx_unicast_gb = priv->mmc.mmc_tx_unicast_gb;
+	regs->stats.mmc_tx_underflow_error = priv->mmc.mmc_tx_underflow_error;
+	regs->stats.mmc_tx_framecount_g = priv->mmc.mmc_tx_framecount_g;
+	regs->stats.mmc_tx_pause_frame = priv->mmc.mmc_tx_pause_frame;
+	regs->stats.mmc_tx_vlan_frame_g = priv->mmc.mmc_tx_vlan_frame_g;
+	regs->stats.mmc_tx_lpi_us_cntr = priv->mmc.mmc_tx_lpi_us_cntr;
+	regs->stats.mmc_tx_lpi_tran_cntr = priv->mmc.mmc_tx_lpi_tran_cntr;
+
+	regs->stats.mmc_rx_framecount_gb = priv->mmc.mmc_rx_framecount_gb;
+	regs->stats.mmc_rx_broadcastframe_g = priv->mmc.mmc_rx_broadcastframe_g;
+	regs->stats.mmc_rx_multicastframe_g = priv->mmc.mmc_rx_multicastframe_g;
+	regs->stats.mmc_rx_crc_error = priv->mmc.mmc_rx_crc_error;
+	regs->stats.mmc_rx_jabber_error = priv->mmc.mmc_rx_jabber_error;
+	regs->stats.mmc_rx_undersize_g = priv->mmc.mmc_rx_undersize_g;
+	regs->stats.mmc_rx_oversize_g = priv->mmc.mmc_rx_oversize_g;
+	regs->stats.mmc_rx_64_octets_gb = priv->mmc.mmc_rx_64_octets_gb;
+	regs->stats.mmc_rx_65_to_127_octets_gb = priv->mmc.mmc_rx_65_to_127_octets_gb;
+	regs->stats.mmc_rx_128_to_255_octets_gb = priv->mmc.mmc_rx_128_to_255_octets_gb;
+	regs->stats.mmc_rx_256_to_511_octets_gb = priv->mmc.mmc_rx_256_to_511_octets_gb;
+	regs->stats.mmc_rx_512_to_1023_octets_gb = priv->mmc.mmc_rx_512_to_1023_octets_gb;
+	regs->stats.mmc_rx_1024_to_max_octets_gb = priv->mmc.mmc_rx_1024_to_max_octets_gb;
+	regs->stats.mmc_rx_unicast_g = priv->mmc.mmc_rx_unicast_g;
+	regs->stats.mmc_rx_length_error = priv->mmc.mmc_rx_length_error;
+	regs->stats.mmc_rx_pause_frames = priv->mmc.mmc_rx_pause_frames;
+	regs->stats.mmc_rx_fifo_overflow = priv->mmc.mmc_rx_fifo_overflow;
+	regs->stats.mmc_rx_lpi_us_cntr = priv->mmc.mmc_rx_lpi_us_cntr;
+	regs->stats.mmc_rx_lpi_tran_cntr = priv->mmc.mmc_rx_lpi_tran_cntr;
+
+	/* Reading FRP Table information from Registers */
+	regs->rxp_cfg->nve = (readl(priv->ioaddr + XGMAC_MTL_RXP_CONTROL_STATUS) & 0xFF);
+	regs->rxp_cfg->npe = ((readl(priv->ioaddr + XGMAC_MTL_RXP_CONTROL_STATUS) >> 16) & 0xFF);
+	for(table_entry = 0; table_entry <= (regs->rxp_cfg->nve); table_entry++) {
+		dwxgmac2_rx_parser_read_entry(priv,
+		&(regs->rxp_cfg->entries[table_entry]), table_entry);
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tc956x_dump_regs);
+
+int tc956x_print_debug_regs(struct net_device *net_device, struct tc956x_regs *regs)
+{
+
+	struct tc956xmac_priv *priv = netdev_priv(net_device);
+	u32 rx_queues_cnt = priv->plat->rx_queues_to_use;
+	u32 tx_queues_cnt = priv->plat->tx_queues_to_use;
+	u32 maxq = max(rx_queues_cnt, tx_queues_cnt);
+	u32 ch, queue, index;
+
+	DBGPR_FUNC(priv->device, "-->%s\n", __func__);
+
+	printk("regs->pcie_reg.rsc_mng_id = 0x%x\n",regs->pcie_reg.rsc_mng_id);
+
+	/* Configuration register dump */
+	printk("regs->config_reg.ncid = 0x%x\n", regs->config_reg.ncid);
+	printk("regs->config_reg.nclkctrl0 = 0x%x\n", regs->config_reg.nclkctrl0);
+	printk("regs->config_reg.nrstctrl0 = 0x%x\n", regs->config_reg.nrstctrl0);
+	printk("regs->config_reg.nclkctrl1 = 0x%x\n", regs->config_reg.nclkctrl1);
+	printk("regs->config_reg.nemac0ctl = 0x%x\n", regs->config_reg.nemac0ctl);
+	printk("regs->config_reg.nemac1ctl = 0x%x\n", regs->config_reg.nemac1ctl);
+	printk("regs->config_reg.nemacsts = 0x%x\n", regs->config_reg.nemacsts);
+	printk("regs->config_reg.gpioi0 = 0x%x\n", regs->config_reg.gpioi0);
+	printk("regs->config_reg.gpioi1 = 0x%x\n", regs->config_reg.gpioi1);
+	printk("regs->config_reg.gpioe0 = 0x%x\n", regs->config_reg.gpioe0);
+	printk("regs->config_reg.gpioe1 = 0x%x\n", regs->config_reg.gpioe1);
+
+	/* MSI register dump */
+	printk("regs->msi_reg.msi_out_en = 0x%x\n", regs->msi_reg.msi_out_en);
+	printk("regs->msi_reg.msi_mask_set = 0x%x\n", regs->msi_reg.msi_mask_set);
+	printk("regs->msi_reg.msi_mask_clr = 0x%x\n", regs->msi_reg.msi_mask_clr);
+	printk("regs->msi_reg.int_sts = 0x%x\n", regs->msi_reg.int_sts);
+	printk("regs->msi_reg.int_raw_sts = 0x%x\n", regs->msi_reg.int_raw_sts);
+	printk("regs->msi_reg.msi_sts = 0x%x\n", regs->msi_reg.msi_sts);
+	printk("regs->msi_reg.cnt_int0 = 0x%x\n", regs->msi_reg.cnt_int0);
+	printk("regs->msi_reg.cnt_int1 = 0x%x\n", regs->msi_reg.cnt_int1);
+	printk("regs->msi_reg.cnt_int2 = 0x%x\n", regs->msi_reg.cnt_int2);
+	printk("regs->msi_reg.cnt_int3 = 0x%x\n", regs->msi_reg.cnt_int3);
+	printk("regs->msi_reg.cnt_int4 = 0x%x\n", regs->msi_reg.cnt_int4);
+	printk("regs->msi_reg.cnt_int11 = 0x%x\n", regs->msi_reg.cnt_int11);
+	printk("regs->msi_reg.cnt_int12 = 0x%x\n", regs->msi_reg.cnt_int12);
+	printk("regs->msi_reg.cnt_int20 = 0x%x\n", regs->msi_reg.cnt_int20);
+	printk("regs->msi_reg.cnt_int24 = 0x%x\n", regs->msi_reg.cnt_int24);
+
+	/* INTC register dump */
+	printk("regs->intc_reg.intmcumask0 = 0x%x\n", regs->intc_reg.intmcumask0);
+	printk("regs->intc_reg.intmcumask1 = 0x%x\n", regs->intc_reg.intmcumask1);
+	printk("regs->intc_reg.intmcumask2 = 0x%x\n", regs->intc_reg.intmcumask2);
+
+	/* DMA channel register dump */
+	printk("regs->dma_reg.debug_sts0 = 0x%x\n", regs->dma_reg.debug_sts0);
+
+	for (ch = 0; ch < maxq; ch++) {
+		printk("regs->dma_reg.ch_control[%d] = 0x%x\n", ch, regs->dma_reg.ch_control[ch]);
+		printk("regs->dma_reg.interrupt_enable[%d] = 0x%x\n", ch, regs->dma_reg.interrupt_enable[ch]);
+		printk("regs->dma_reg.ch_status[%d] = 0x%x\n", ch, regs->dma_reg.ch_status[ch]);
+		printk("regs->dma_reg.debug_status[%d] = 0x%x\n", ch, regs->dma_reg.debug_status[ch]);
+		printk("regs->dma_reg.rxch_watchdog_timer[%d] = 0x%x\n", ch, regs->dma_reg.rxch_watchdog_timer[ch]);
+	}
+
+	for (ch = 0; ch < tx_queues_cnt; ch++) {
+		printk("regs->dma_reg.tx_ch[%d].control = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].control);
+		printk("regs->dma_reg.tx_ch[%d].list_haddr = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].list_haddr);
+		printk("regs->dma_reg.tx_ch[%d].list_laddr = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].list_laddr);
+		printk("regs->dma_reg.tx_ch[%d].ring_len = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].ring_len);
+		printk("regs->dma_reg.tx_ch[%d].curr_haddr = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].curr_haddr);
+		printk("regs->dma_reg.tx_ch[%d].curr_laddr = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].curr_laddr);
+		printk("regs->dma_reg.tx_ch[%d].tail_ptr = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].tail_ptr);
+		printk("regs->dma_reg.tx_ch[%d].buf_haddr = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].buf_haddr);
+		printk("regs->dma_reg.tx_ch[%d].buf_laddr = 0x%x\n", ch, regs->dma_reg.tx_ch[ch].buf_laddr);
+	}
+
+	for (ch = 0; ch < rx_queues_cnt; ch++) {
+		printk("regs->dma_reg.rx_ch[%d].control = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].control);
+		printk("regs->dma_reg.rx_ch[%d].list_haddr = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].list_haddr);
+		printk("regs->dma_reg.rx_ch[%d].list_laddr = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].list_laddr);
+		printk("regs->dma_reg.rx_ch[%d].ring_len = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].ring_len);
+		printk("regs->dma_reg.rx_ch[%d].curr_haddr = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].ring_len);
+		printk("regs->dma_reg.rx_ch[%d].curr_laddr = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].curr_laddr);
+		printk("regs->dma_reg.rx_ch[%d].tail_ptr = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].tail_ptr);
+		printk("regs->dma_reg.rx_ch[%d].buf_haddr = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].buf_haddr);
+		printk("regs->dma_reg.rx_ch[%d].buf_laddr = 0x%x\n", ch, regs->dma_reg.rx_ch[ch].buf_laddr);
+	}
+
+	for (ch = 0; ch < tx_queues_cnt; ch++) {
+		printk("regs->dma_reg.tx_queue[%d].desc_phy_addr = 0x%x\n", ch, regs->dma_reg.tx_queue[ch].desc_phy_addr);
+		printk("regs->dma_reg.tx_queue[%d].desc_va_addr = 0x%x\n", ch, (u32)(regs->dma_reg.tx_queue[ch].desc_va_addr));
+		#ifdef DMA_OFFLOAD_ENABLE
+		printk("regs->dma_reg.tx_queue[%d].buff_phy_addr = 0x%x\n", ch, regs->dma_reg.tx_queue[ch].buff_phy_addr);
+		printk("regs->dma_reg.tx_queue[%d].buff_va_addr = 0x%x\n", ch, (u32)(regs->dma_reg.tx_queue[ch].buff_va_addr));
+		#endif
+		printk("regs->dma_reg.tx_queue[%d].tx_skbuff = 0x%x\n", ch, (u32)(regs->dma_reg.tx_queue[ch].tx_skbuff));
+		printk("regs->dma_reg.tx_queue[%d].tx_skbuff_dma = 0x%x\n", ch, (u32)(regs->dma_reg.tx_queue[ch].tx_skbuff_dma));
+	}
+
+	for (ch = 0; ch < rx_queues_cnt; ch++) {
+		printk("regs->dma_reg.rx_queue[%d].desc_phy_addr = 0x%x\n", ch, regs->dma_reg.rx_queue[ch].desc_phy_addr);
+		printk("regs->dma_reg.rx_queue[%d].desc_va_addr = 0x%x\n", ch, (u32)(regs->dma_reg.rx_queue[ch].desc_va_addr));
+		#ifdef DMA_OFFLOAD_ENABLE
+		printk("regs->dma_reg.rx_queue[%d].buff_phy_addr = 0x%x\n", ch, regs->dma_reg.rx_queue[ch].buff_phy_addr);
+		printk("regs->dma_reg.rx_queue[%d].buff_va_addr = 0x%x\n", ch, (u32)(regs->dma_reg.rx_queue[ch].buff_va_addr));
+		#endif
+		printk("regs->dma_reg.rx_queue[%d].buf_pool = 0x%x\n", ch, (u32)(regs->dma_reg.rx_queue[ch].buf_pool));
+	}
+
+	/* MAC register dump */
+	printk("regs->mac_reg.mac_tx_config = 0x%x\n", regs->mac_reg.mac_tx_config);
+	printk("regs->mac_reg.mac_rx_config = 0x%x\n", regs->mac_reg.mac_rx_config);
+	printk("regs->mac_reg.mac_pkt_filter = 0x%x\n", regs->mac_reg.mac_pkt_filter);
+	printk("regs->mac_reg.mac_tx_rx_status = 0x%x\n", regs->mac_reg.mac_tx_rx_status);
+	printk("regs->mac_reg.mac_debug = 0x%x\n", regs->mac_reg.mac_debug);
+
+	/* MTL register dump */
+	printk("regs->mtl_reg.op_mode = 0x%x\n", regs->mtl_reg.op_mode);
+	printk("regs->mtl_reg.mtl_rxq_dma_map0 = 0x%x\n",  regs->mtl_reg.mtl_rxq_dma_map0 );
+	printk("regs->mtl_reg.mtl_rxq_dma_map1 = 0x%x\n", regs->mtl_reg.mtl_rxq_dma_map1);
+
+	for (queue = 0; queue < MTL_MAX_TX_QUEUES; queue++) {
+		printk("regs->mtl_reg.tx_info[%d].op_mode = 0x%x\n", queue, regs->mtl_reg.tx_info[queue].op_mode);
+		printk("regs->mtl_reg.tx_info[%d].underflow = 0x%x\n", queue, regs->mtl_reg.tx_info[queue].underflow);
+		printk("regs->mtl_reg.tx_info[%d].debug = 0x%x\n", queue, regs->mtl_reg.tx_info[queue].debug);
+	}
+
+	for (queue = 0; queue < MTL_MAX_RX_QUEUES; queue++) {
+		printk("regs->mtl_reg.rx_info[%d].op_mode = 0x%x\n", queue, regs->mtl_reg.rx_info[queue].op_mode);
+		printk("regs->mtl_reg.rx_info[%d].miss_pkt_overflow = 0x%x\n", queue, regs->mtl_reg.rx_info[queue].miss_pkt_overflow);
+		printk("regs->mtl_reg.rx_info[%d].debug = 0x%x\n", queue, regs->mtl_reg.rx_info[queue].debug);
+		printk("regs->mtl_reg.rx_info[%d].flow_control = 0x%x\n",  queue, regs->mtl_reg.rx_info[queue].flow_control );
+	}
+
+	/* M3 SRAM dump */
+	for (ch = 0; ch < maxq; ch++) {
+		printk("regs->m3_reg.sram_tx_pcie_addr[%d] = 0x%x\n", ch, regs->m3_reg.sram_tx_pcie_addr[ch]);
+		printk("regs->m3_reg.sram_rx_pcie_addr[%d] = 0x%x\n", ch, regs->m3_reg.sram_rx_pcie_addr[ch]);
+	}
+
+	printk("regs->m3_reg.m3_fw_init_done = 0x%x\n", regs->m3_reg.m3_fw_init_done);
+	printk("regs->m3_reg.m3_fw_exit	= 0x%x\n", regs->m3_reg.m3_fw_exit);
+	printk("regs->m3_reg.m3_debug_cnt0 = 0x%x\n", regs->m3_reg.m3_debug_cnt0);
+	printk("regs->m3_reg.m3_debug_cnt1 = 0x%x\n", regs->m3_reg.m3_debug_cnt1);
+	printk("regs->m3_reg.m3_debug_cnt2 = 0x%x\n", regs->m3_reg.m3_debug_cnt2);
+	printk("regs->m3_reg.m3_debug_cnt3 = 0x%x\n", regs->m3_reg.m3_debug_cnt3);
+	printk("regs->m3_reg.m3_debug_cnt4 = 0x%x\n", regs->m3_reg.m3_debug_cnt4);
+	printk("regs->m3_reg.m3_debug_cnt5 = 0x%x\n", regs->m3_reg.m3_debug_cnt5);
+	printk("regs->m3_reg.m3_debug_cnt6 = 0x%x\n", regs->m3_reg.m3_debug_cnt6);
+	printk("regs->m3_reg.m3_debug_cnt7 = 0x%x\n", regs->m3_reg.m3_debug_cnt7);
+	printk("regs->m3_reg.m3_debug_cnt8 = 0x%x\n", regs->m3_reg.m3_debug_cnt8);
+	printk("regs->m3_reg.m3_debug_cnt9 = 0x%x\n", regs->m3_reg.m3_debug_cnt9);
+	printk("regs->m3_reg.m3_debug_cnt10 = 0x%x\n", regs->m3_reg.m3_debug_cnt10);
+	printk("regs->m3_reg.m3_watchdog_exp_cnt = 0x%x\n", regs->m3_reg.m3_watchdog_exp_cnt);
+	printk("regs->m3_reg.m3_watchdog_monitor_cnt = 0x%x\n", regs->m3_reg.m3_watchdog_monitor_cnt);
+	printk("regs->m3_reg.m3_debug_cnt13 = 0x%x\n", regs->m3_reg.m3_debug_cnt13);
+	printk("regs->m3_reg.m3_debug_cnt14 = 0x%x\n", regs->m3_reg.m3_debug_cnt14);
+	printk("regs->m3_reg.m3_systick_cnt_upper_value = 0x%x\n", regs->m3_reg.m3_systick_cnt_upper_value);
+	printk("regs->m3_reg.m3_systick_cnt_lower_value = 0x%x\n", regs->m3_reg.m3_systick_cnt_lower_value);
+	printk("regs->m3_reg.m3_tx_timeout_port0 = 0x%x\n", regs->m3_reg.m3_tx_timeout_port0);
+	printk("regs->m3_reg.m3_tx_timeout_port1 = 0x%x\n", regs->m3_reg.m3_tx_timeout_port1);
+	printk("regs->m3_reg.m3_debug_cnt19 = 0x%x\n", regs->m3_reg.m3_debug_cnt19);
+	
+	/* FRP Table Dump */
+	printk("regs->rxp_cfg->npe = %d\n", regs->rxp_cfg->npe);
+	printk("regs->rxp_cfg->nve = %d\n", regs->rxp_cfg->nve);
+	for (index = 0; index <= (regs->rxp_cfg->nve); index++) {
+		printk("regs->rxp_cfg->entries[%d].match_data = 0x%x\n", index, regs->rxp_cfg->entries[index].match_data);
+		printk("regs->rxp_cfg->entries[%d].match_en = 0x%x\n", index, regs->rxp_cfg->entries[index].match_en);
+		printk("regs->rxp_cfg->entries[%d].af = 0x%x\n", index, regs->rxp_cfg->entries[index].af);
+		printk("regs->rxp_cfg->entries[%d].rf = 0x%x\n", index, regs->rxp_cfg->entries[index].rf);
+		printk("regs->rxp_cfg->entries[%d].im = 0x%x\n", index, regs->rxp_cfg->entries[index].im);
+		printk("regs->rxp_cfg->entries[%d].nc = 0x%x\n", index, regs->rxp_cfg->entries[index].nc);
+		printk("regs->rxp_cfg->entries[%d].frame_offset = 0x%x\n", index, regs->rxp_cfg->entries[index].frame_offset);
+		printk("regs->rxp_cfg->entries[%d].ok_index = 0x%x\n", index, regs->rxp_cfg->entries[index].ok_index);
+		printk("regs->rxp_cfg->entries[%d].dma_ch_no = 0x%x\n", index, regs->rxp_cfg->entries[index].dma_ch_no);
+	}
+
+	/* TAMAP entries */
+	for(index = 0; index <= MAX_CM3_TAMAP_ENTRIES; index++) {
+		printk("regs->tamap[%d].trsl_addr_hi = 0x%x\n", index, regs->tamap[index].trsl_addr_hi);
+		printk("regs->tamap[%d].trsl_addr_low = 0x%x\n", index, regs->tamap[index].trsl_addr_low);
+		printk("regs->tamap[%d].src_addr_hi = 0x%x\n", index, regs->tamap[index].src_addr_hi);
+		printk("regs->tamap[%d].src_addr_low = 0x%x\n", index, regs->tamap[index].src_addr_low);
+		printk("regs->tamap[%d].atr_size = 0x%x\n", index, regs->tamap[index].atr_size);
+		printk("regs->tamap[%d].atr_impl = 0x%x\n", index, regs->tamap[index].atr_impl);
+	}
+	
+	/* Driver & FW Information */
+	printk("regs->info.driver = %s\n", regs->info.driver);
+	printk("regs->info.version = %s\n", regs->info.version);
+	printk("regs->info.fw_version = %s\n", regs->info.fw_version);
+
+	/* statistics */
+	for (ch = 0; ch < tx_queues_cnt; ch++) {
+		printk("regs->stats.rx_buf_unav_irq[%d] = 0x%llx\n", ch, regs->stats.rx_buf_unav_irq[ch]);
+		printk("regs->stats.tx_pkt_n[%d] = 0x%llx\n", ch, regs->stats.tx_pkt_n[ch]);
+		printk("regs->stats.tx_pkt_errors_n[%d] = 0x%llx\n", ch, regs->stats.tx_pkt_errors_n[ch]);
+		printk("regs->stats.rx_pkt_n[%d] = 0x%llx\n", ch, regs->stats.rx_pkt_n[ch]);
+	}
+	printk("regs->stats.mmc_tx_broadcastframe_g = 0x%llx\n", regs->stats.mmc_tx_broadcastframe_g);
+	printk("regs->stats.mmc_tx_multicastframe_g = 0x%llx\n", regs->stats.mmc_tx_multicastframe_g);
+	printk("regs->stats.mmc_tx_64_octets_gb = 0x%llx\n", regs->stats.mmc_tx_64_octets_gb);
+	printk("regs->stats.mmc_tx_framecount_gb = 0x%llx\n", regs->stats.mmc_tx_framecount_gb);
+	printk("regs->stats.mmc_tx_65_to_127_octets_gb = 0x%llx\n", regs->stats.mmc_tx_65_to_127_octets_gb);
+	printk("regs->stats.mmc_tx_128_to_255_octets_gb = 0x%llx\n", regs->stats.mmc_tx_128_to_255_octets_gb);
+	printk("regs->stats.mmc_tx_256_to_511_octets_gb = 0x%llx\n", regs->stats.mmc_tx_256_to_511_octets_gb);
+	printk("regs->stats.mmc_tx_512_to_1023_octets_gb = 0x%llx\n", regs->stats.mmc_tx_512_to_1023_octets_gb);
+	printk("regs->stats.mmc_tx_1024_to_max_octets_gb = 0x%llx\n", regs->stats.mmc_tx_1024_to_max_octets_gb);
+	printk("regs->stats.mmc_tx_unicast_gb = 0x%llx\n", regs->stats.mmc_tx_unicast_gb);
+	printk("regs->stats.mmc_tx_underflow_error = 0x%llx\n", regs->stats.mmc_tx_underflow_error);
+	printk("regs->stats.mmc_tx_framecount_g = 0x%llx\n", regs->stats.mmc_tx_framecount_g);
+	printk("regs->stats.mmc_tx_pause_frame = 0x%llx\n", regs->stats.mmc_tx_pause_frame);
+	printk("regs->stats.mmc_tx_vlan_frame_g = 0x%llx\n", regs->stats.mmc_tx_vlan_frame_g);
+	printk("regs->stats.mmc_tx_lpi_us_cntr = 0x%llx\n", regs->stats.mmc_tx_lpi_us_cntr);
+	printk("regs->stats.mmc_tx_lpi_tran_cntr = 0x%llx\n", regs->stats.mmc_tx_lpi_tran_cntr);
+
+	printk("regs->stats.mmc_rx_framecount_gb = 0x%llx\n", regs->stats.mmc_rx_framecount_gb);
+	printk("regs->stats.mmc_rx_broadcastframe_g = 0x%llx\n", regs->stats.mmc_rx_broadcastframe_g);
+	printk("regs->stats.mmc_rx_multicastframe_g = 0x%llx\n", regs->stats.mmc_rx_multicastframe_g);
+	printk("regs->stats.mmc_rx_crc_error = 0x%llx\n", regs->stats.mmc_rx_crc_error);
+	printk("regs->stats.mmc_rx_jabber_error = 0x%llx\n", regs->stats.mmc_rx_jabber_error);
+	printk("regs->stats.mmc_rx_undersize_g = 0x%llx\n", regs->stats.mmc_rx_undersize_g);
+	printk("regs->stats.mmc_rx_oversize_g = 0x%llx\n", regs->stats.mmc_rx_oversize_g);
+	printk("regs->stats.mmc_rx_64_octets_gb = 0x%llx\n", regs->stats.mmc_rx_64_octets_gb);
+	printk("regs->stats.mmc_rx_65_to_127_octets_gb = 0x%llx\n", regs->stats.mmc_rx_65_to_127_octets_gb);
+	printk("regs->stats.mmc_rx_128_to_255_octets_gb = 0x%llx\n", regs->stats.mmc_rx_128_to_255_octets_gb);
+	printk("regs->stats.mmc_rx_256_to_511_octets_gb = 0x%llx\n", regs->stats.mmc_rx_256_to_511_octets_gb);
+	printk("regs->stats.mmc_rx_512_to_1023_octets_gb = 0x%llx\n", regs->stats.mmc_rx_512_to_1023_octets_gb);
+	printk("regs->stats.mmc_rx_1024_to_max_octets_gb = 0x%llx\n", regs->stats.mmc_rx_1024_to_max_octets_gb);
+	printk("regs->stats.mmc_rx_unicast_g = 0x%llx\n", regs->stats.mmc_rx_unicast_g);
+	printk("regs->stats.mmc_rx_length_error = 0x%llx\n", regs->stats.mmc_rx_length_error);
+	printk("regs->stats.mmc_rx_pause_frames = 0x%llx\n", regs->stats.mmc_rx_pause_frames);
+	printk("regs->stats.mmc_rx_fifo_overflow = 0x%llx\n", regs->stats.mmc_rx_fifo_overflow);
+	printk("regs->stats.mmc_rx_lpi_us_cntr = 0x%llx\n", regs->stats.mmc_rx_lpi_us_cntr);
+	printk("regs->stats.mmc_rx_lpi_tran_cntr = 0x%llx\n", regs->stats.mmc_rx_lpi_tran_cntr);
+
+	return 0;
+}
 
 extern unsigned int mac0_force_speed_mode;
 extern unsigned int mac1_force_speed_mode;
@@ -344,6 +927,8 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 			return -EPERM;
 	}
 
+	priv->saved_gpio_config[gpio_pin].config = 1;
+
 	/* Write data to GPIO pin */
 	if(gpio_pin < GPIO_32) {
 		config = 1 << gpio_pin; 
@@ -363,6 +948,8 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 		writel(val, priv->ioaddr + GPIOO1_OFFSET);
 	}
 
+	priv->saved_gpio_config[gpio_pin].out_val = out_value;
+
 	/* Configure the GPIO pin in output direction */
 	if(gpio_pin < GPIO_32) {
 		config = ~(1 << gpio_pin) ;
@@ -374,6 +961,128 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 		writel(val & config, priv->ioaddr + GPIOE1_OFFSET);
 	}
 
+	return 0;
+}
+
+/**
+ *  tc956x_gpio_restore_configuration - to restore the saved configuration of GPIO
+ *  @priv: driver private structure
+ *  @remarks : Only GPIO0- GPIO06, GPI010-GPIO12 are allowed
+ */
+int tc956x_gpio_restore_configuration(struct tc956xmac_priv *priv)
+{
+	u32 config, val, gpio_pin, out_value;
+
+	DBGPR_FUNC(priv->device, "-->%s", __func__);
+
+	for (gpio_pin = 0; gpio_pin <= GPIO_12; gpio_pin++) {
+
+		/* Restore only the GPIOs which were configured/saved */
+		if (!(priv->saved_gpio_config[gpio_pin].config))
+			continue;
+
+		DBGPR_FUNC(priv->device, "%s : Restoring GPIO configuration for pin: %d, val: %d",
+				__func__, gpio_pin, priv->saved_gpio_config[gpio_pin].out_val);
+
+		/* Only GPIO0- GPIO06, GPI010-GPIO12 are allowed */
+		switch (gpio_pin) {
+			case GPIO_00:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_00;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_00_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_01:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_01;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_01_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_02:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_02;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_02_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_03:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_03;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_03_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_04:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_04;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_04_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_05:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_05;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_05_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_06:
+				val = readl(priv->ioaddr + NFUNCEN4_OFFSET);
+				val &= ~NFUNCEN4_GPIO_06;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN4_GPIO_06_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN4_OFFSET);
+				break;
+			case GPIO_10:
+				val = readl(priv->ioaddr + NFUNCEN5_OFFSET);
+				val &= ~NFUNCEN5_GPIO_10;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN5_GPIO_10_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN5_OFFSET);
+				break;
+			case GPIO_11:
+				val = readl(priv->ioaddr + NFUNCEN5_OFFSET);
+				val &= ~NFUNCEN5_GPIO_11;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN5_GPIO_11_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN5_OFFSET);
+				break;
+			case GPIO_12:
+				val = readl(priv->ioaddr + NFUNCEN6_OFFSET);
+				val &= ~NFUNCEN6_GPIO_12;
+				val |= (NFUNCEN_FUNC0 << NFUNCEN6_GPIO_12_SHIFT);
+				writel(val, priv->ioaddr + NFUNCEN6_OFFSET);
+				break;
+			default : 
+				netdev_err(priv->dev, "Invalid GPIO pin - %d\n", gpio_pin);
+				return -EPERM;
+		}
+
+		out_value = priv->saved_gpio_config[gpio_pin].out_val;
+
+		/* Write data to GPIO pin */
+		if(gpio_pin < GPIO_32) {
+			config = 1 << gpio_pin; 
+			val = readl(priv->ioaddr + GPIOO0_OFFSET);
+			val &= ~config;
+			if(out_value)
+				val |= config;
+
+			writel(val, priv->ioaddr + GPIOO0_OFFSET);
+		}  else {
+			config = 1 << (gpio_pin - GPIO_32);
+			val = readl(priv->ioaddr + GPIOO1_OFFSET);
+			val &= ~config;
+			if(out_value)
+				val |= config;
+
+			writel(val, priv->ioaddr + GPIOO1_OFFSET);
+		}
+
+		/* Configure the GPIO pin in output direction */
+		if(gpio_pin < GPIO_32) {
+			config = ~(1 << gpio_pin) ;
+			val = readl(priv->ioaddr + GPIOE0_OFFSET);
+			writel(val & config, priv->ioaddr + GPIOE0_OFFSET);
+		} else {
+			config = ~(1 << (gpio_pin - GPIO_32)) ;
+			val = readl(priv->ioaddr + GPIOE1_OFFSET);
+			writel(val & config, priv->ioaddr + GPIOE1_OFFSET);
+		}
+	}
 	return 0;
 }
 
@@ -1813,6 +2522,8 @@ static void tc956xmac_mac_an_restart(struct phylink_config *config)
 static void tc956xmac_mac_link_down(struct phylink_config *config,
 				 unsigned int mode, phy_interface_t interface)
 {
+	u32 ch;
+	u32 offload_release_sts = true;
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
 
 	tc956xmac_mac_set_rx(priv, priv->ioaddr, false);
@@ -1825,6 +2536,31 @@ static void tc956xmac_mac_link_down(struct phylink_config *config,
 #ifdef TC956X_PM_DEBUG
 	pm_generic_suspend(priv->device);
 #endif
+
+	mutex_lock(&priv->port_ld_release_lock);
+	/* Checking whether all offload Tx channels released or not*/
+	for (ch = 0; ch < MAX_TX_QUEUES_TO_USE; ch++) {
+		/* If offload channels are not freed, update the flag, so that power saving API will not be called*/
+		if (priv->plat->tx_dma_ch_owner[ch] == USE_IN_OFFLOADER) {
+			offload_release_sts = false;
+			break;
+		}
+	}
+	/* Checking whether all offload Rx channels released or not*/
+	for (ch = 0; ch < MAX_RX_QUEUES_TO_USE; ch++) {
+		/* If offload channels are not freed, update the flag, so that power saving API will not be called*/
+		if (priv->plat->rx_dma_ch_owner[ch] == USE_IN_OFFLOADER) {
+			offload_release_sts = false;
+			break;
+		}
+	}
+
+	/* If all channels are freed, call API for power saving*/
+	if(priv->port_link_down == false && offload_release_sts == true) {
+		tc956xmac_link_change_set_power(priv, LINK_DOWN); /* Save, Assert and Disable Reset and Clock */
+	}
+	priv->port_release = true; /* setting port release to true as link-down invoked, and clear from open or link-up */
+	mutex_unlock(&priv->port_ld_release_lock);
 }
 
 #ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
@@ -2034,6 +2770,13 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 			       struct phy_device *phy)
 {
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
+
+	mutex_lock(&priv->port_ld_release_lock);
+	priv->port_release = false; /* setting port release to false as link-up invoked, and set to true from release or link down */
+	if (priv->port_link_down == true) {
+		tc956xmac_link_change_set_power(priv, LINK_UP); /* Restore, De-assert and Enable Reset and Clock */
+	}
+	mutex_unlock(&priv->port_ld_release_lock);
 
 	tc956xmac_mac_set_rx(priv, priv->ioaddr, true);
 #ifdef EEE
@@ -3567,10 +4310,19 @@ static void tc956xmac_dma_interrupt(struct tc956xmac_priv *priv)
 	if (WARN_ON_ONCE(channels_to_check > ARRAY_SIZE(status)))
 		channels_to_check = ARRAY_SIZE(status);
 
-	for (chan = 0; chan < channels_to_check; chan++)
+	for (chan = 0; chan < channels_to_check; chan++) {
+		/* Assuming DMA Tx and Rx channels are used as pairs */
+		if ((priv->plat->tx_dma_ch_owner[chan] != USE_IN_TC956X_SW) ||
+			(priv->plat->rx_dma_ch_owner[chan] != USE_IN_TC956X_SW))
+			continue;
+
 		status[chan] = tc956xmac_napi_check(priv, chan);
+	}
 
 	for (chan = 0; chan < tx_channel_count; chan++) {
+		if (priv->plat->tx_dma_ch_owner[chan] != USE_IN_TC956X_SW)
+			continue;
+
 		if (unlikely(status[chan] & tx_hard_error_bump_tc)) {
 			/* Try to bump up the dma threshold on this failure */
 			if (unlikely(priv->xstats.threshold != SF_DMA_MODE) &&
@@ -4077,7 +4829,8 @@ static int tc956xmac_hw_setup(struct net_device *dev, bool init_ptp)
 	/* DMA initialization and SW reset */
 	ret = tc956xmac_init_dma_engine(priv);
 	if (ret < 0) {
-		netdev_err(priv->dev, "%s: DMA engine initialization failed\n",
+		netdev_err(priv->dev, 
+		"%s: DMA engine initialization failed check availability of clock if supplied from external source/PHY \n",
 			   __func__);
 		return ret;
 	}
@@ -4247,7 +5000,14 @@ static int tc956xmac_open(struct net_device *dev)
 
 	KPRINT_INFO("---> %s : Port %d", __func__, priv->port_num);
 	phydev = mdiobus_get_phy(priv->mii, addr);
-  
+
+	mutex_lock(&priv->port_ld_release_lock);
+	priv->port_release = false; /* setting port release to false as Open invoked, and set to true from release or link down */
+	if (priv->port_link_down == true) {
+		tc956xmac_link_change_set_power(priv, LINK_UP); /* Restore, De-assert and Enable Reset and Clock */
+	}
+	mutex_unlock(&priv->port_ld_release_lock);
+
 	if (!phydev) {
 		netdev_err(priv->dev, "no phy at addr %d\n", addr);
 		return -ENODEV;
@@ -4278,6 +5038,11 @@ static int tc956xmac_open(struct net_device *dev)
 
 		if (bfsize < BUF_SIZE_16KiB)
 			bfsize = tc956xmac_set_bfsize(dev->mtu, priv->dma_buf_sz);
+
+		/* Overwrite buff size allocated to 2K, to accomodate max mtu supported of 2000 bytes,
+		 * so that no buffer reconfiguration required during MTU change 
+		 */
+		bfsize = BUF_SIZE_2KiB;
 
 		priv->dma_buf_sz = bfsize;
 		buf_sz = bfsize;
@@ -4315,7 +5080,7 @@ static int tc956xmac_open(struct net_device *dev)
 	ret = tc956xmac_hw_setup(dev, true);
 	if (ret < 0) {
 		netdev_err(priv->dev, "%s: Hw setup failed\n", __func__);
-		goto init_error;
+		/*goto init_error;*/
 	}
 
 #ifdef TC956X
@@ -4512,6 +5277,10 @@ dma_desc_error:
 static int tc956xmac_release(struct net_device *dev)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
+	struct phy_device *phydev;
+	int addr = priv->plat->phy_addr;
+	u32 ch;
+	u32 offload_release_sts = true;
 #ifdef ENABLE_TX_TIMER
 	u32 chan;
 #endif
@@ -4526,9 +5295,19 @@ static int tc956xmac_release(struct net_device *dev)
 		phylink_stop(priv->phylink);
 		phylink_disconnect_phy(priv->phylink);
 	}
+
+	mutex_lock(&priv->port_ld_release_lock);
+	if (priv->port_link_down == true) {
+		KPRINT_INFO("Link down happened before %s, restoring clocks to stop DMA\n",__func__);
+		tc956xmac_link_change_set_power(priv, LINK_UP); /* Restore, De-assert and Enable Reset and Clock */
+	}
 	tc956xmac_stop_all_queues(priv);
 
 	tc956xmac_disable_all_queues(priv);
+
+	/* MSI_OUT_EN: Disable all MSI*/
+	writel(0x00000000, priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num));
+
 #ifdef ENABLE_TX_TIMER
 	for (chan = 0; chan < priv->plat->tx_queues_to_use; chan++) {
 		if (priv->plat->tx_dma_ch_owner[chan] == USE_IN_TC956X_SW)
@@ -4546,6 +5325,15 @@ static int tc956xmac_release(struct net_device *dev)
 			free_irq(priv->lpi_irq, dev);
 #endif
 	}
+	phydev = mdiobus_get_phy(priv->mii, addr);
+
+	if(phydev->drv != NULL) {
+		if ((true == priv->plat->phy_interrupt_mode) && (phydev->drv->config_intr)) {
+			DBGPR_FUNC((priv->device), "-->%s Flush work queue\n", __func__);
+			flush_work(&priv->emac_phy_work);
+		}
+	}
+
 	/* Stop TX/RX DMA and clear the descriptors */
 	tc956xmac_stop_all_dma(priv);
 
@@ -4559,6 +5347,30 @@ static int tc956xmac_release(struct net_device *dev)
 
 	tc956xmac_release_ptp(priv);
 
+	/* mutex_lock(&priv->port_ld_release_lock);*/
+	/* Checking whether all offload Tx channels released or not*/
+	for (ch = 0; ch < MAX_TX_QUEUES_TO_USE; ch++) {
+		/* If offload channels are not freed, update the flag, so that power saving API will not be called*/
+		if (priv->plat->tx_dma_ch_owner[ch] == USE_IN_OFFLOADER) {
+			offload_release_sts = false;
+			break;
+		}
+	}
+	/* Checking whether all offload Rx channels released or not*/
+	for (ch = 0; ch < MAX_RX_QUEUES_TO_USE; ch++) {
+		/* If offload channels are not freed, update the flag, so that power saving API will not be called*/
+		if (priv->plat->rx_dma_ch_owner[ch] == USE_IN_OFFLOADER) {
+			offload_release_sts = false;
+			break;
+		}
+	}
+	/* If all channels are freed, call API for power saving*/
+	if (priv->port_link_down == false && offload_release_sts == true) {
+		KPRINT_INFO(" %s, Assert Reset and Disabling clock \n",__func__);
+		tc956xmac_link_change_set_power(priv, LINK_DOWN); /* Save, Assert and Disable Reset and Clock */
+	}
+	priv->port_release = true; /* setting port release to true as release invoked, and clear from open or link-up */
+	mutex_unlock(&priv->port_ld_release_lock);
 	KPRINT_INFO("<--- %s : Port %d", __func__, priv->port_num);
 	return 0;
 }
@@ -5776,18 +6588,20 @@ static int tc956xmac_change_mtu(struct net_device *dev, int new_mtu)
 
 	txfifosz /= priv->plat->tx_queues_to_use;
 
-	if (netif_running(dev)) {
+	/* Dynamic MTU change is supported, so below condition is commented */
+	/*if (netif_running(dev)) {
 		netdev_err(priv->dev, "must be stopped to change its MTU\n");
 		return -EBUSY;
-	}
+	}*/
 
-	new_mtu = TC956XMAC_ALIGN(new_mtu);
+	/* Alignment of MTU reported to upper layers is not required */
+	/*new_mtu = TC956XMAC_ALIGN(new_mtu);*/
 #ifdef TC956X
 	/* Supported frame sizes */
-	if ((new_mtu < MIN_SUPPORTED_MTU) || (new_mtu > JUMBO_LEN)) {
+	if ((new_mtu < MIN_SUPPORTED_MTU) || (new_mtu > MAX_SUPPORTED_MTU)) {
 		NMSGPR_ALERT(priv->device,
 		       "%s: invalid MTU, min %d and max %d MTU are supported\n",
-		       dev->name, MIN_SUPPORTED_MTU, JUMBO_LEN);
+		       dev->name, MIN_SUPPORTED_MTU, MAX_SUPPORTED_MTU);
 		return -EINVAL;
 	}
 
@@ -5973,12 +6787,28 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 	/* Checking if any RBUs occurred and updating the statistics corresponding to channel */
 
 	for (queue = 0; queue < queues_count; queue++) {
-		uiIntSts = readl(priv->ioaddr + XGMAC_DMA_CH_STATUS(queue));
-		if(uiIntSts & XGMAC_RBU) {
-			priv->xstats.rx_buf_unav_irq[queue]++;
-			uiIntclr |= XGMAC_RBU;
+		/* Assuming DMA Tx and Rx channels are used as pairs */
+		if ((priv->plat->tx_dma_ch_owner[queue] != USE_IN_TC956X_SW) ||
+		    (priv->plat->rx_dma_ch_owner[queue] != USE_IN_TC956X_SW)) {
+			uiIntSts = readl(priv->ioaddr + XGMAC_DMA_CH_STATUS(queue));
+			/* Handling Abnormal interrupts of NON S/W path, TI & RI are handled in FW */
+			if (unlikely(uiIntSts & XGMAC_AIS)) {
+				if (unlikely(uiIntSts & XGMAC_RBU)) {
+					priv->xstats.rx_buf_unav_irq[queue]++;
+					uiIntclr |= XGMAC_RBU;
+				}
+				if (unlikely(uiIntSts & XGMAC_TPS)) {
+					priv->xstats.tx_process_stopped_irq[queue]++;
+					uiIntclr |= XGMAC_TPS;
+				}
+				if (unlikely(uiIntSts & XGMAC_FBE)) {
+					priv->xstats.fatal_bus_error_irq[queue]++;
+					uiIntclr |= XGMAC_FBE;
+				}
+				uiIntclr |= XGMAC_AIS;
+			}
+			writel(uiIntclr, (priv->ioaddr + XGMAC_DMA_CH_STATUS(queue)));
 		}
-		writel(uiIntclr, (priv->ioaddr + XGMAC_DMA_CH_STATUS(queue)));
 	}
 
 	/* To handle GMAC own interrupts */
@@ -6023,6 +6853,10 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 	val = readl(priv->ioaddr + TC956X_MSI_INT_STS_OFFSET(priv->port_num));
 	if (val & TC956X_EXT_PHY_ETH_INT) {
 		KPRINT_INFO("PHY Interrupt %s \n", __func__);
+
+		if (priv->port_link_down == true)
+			tc956xmac_link_change_set_power(priv, LINK_UP); /* Restore, De-assert and Enable Reset and Clock */
+
 		/* Queue the work in system_wq */
 		if (priv->tc956x_port_pm_suspend == true) {
 			KPRINT_INFO("%s : (Do not queue PHY Work during suspend. Set WOL Interrupt flag) \n", __func__);
@@ -6037,6 +6871,7 @@ static irqreturn_t tc956xmac_interrupt(int irq, void *dev_id)
 		writel(val, priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->port_num)); /* MSI_OUT_EN: Writing to disable MAC Ext Interrupt*/
 	}
 #ifdef TC956X_SW_MSI
+	val = readl(priv->ioaddr + TC956X_MSI_INT_STS_OFFSET(priv->port_num));
 	if (val & TC956X_SW_MSI_INT) {
 		//DBGPR_FUNC(priv->device, "%s SW MSI INT STS[%08x]\n", __func__, val);
 
@@ -6076,11 +6911,19 @@ int tc956xmac_rx_parser_configuration(struct tc956xmac_priv *priv)
 {
 	int ret = -EINVAL;
 
+	/* Disable XPCS Rx LPI to configure FRP in EEE mode */
+	if (priv->eee_enabled)
+		tc956x_xpcs_ctrl0_lrx(priv, false);
+
 	if (priv->hw->mac->rx_parser_init && priv->plat->rxp_cfg.enable)
 		ret = tc956xmac_rx_parser_init(priv,
 			priv->dev, priv->hw, priv->dma_cap.spram,
 			priv->dma_cap.frpsel, priv->dma_cap.frpes,
 			&priv->plat->rxp_cfg);
+
+	/* Enable XPCS Rx LPI after configuring FRP in EEE mode */
+	if (priv->eee_enabled)
+		tc956x_xpcs_ctrl0_lrx(priv, true);
 
 		/* spram feautre is not present in TC956X */
 	if (ret)
@@ -10360,6 +11203,8 @@ int tc956xmac_dvr_probe(struct device *device,
 	priv->dev = ndev;
 	priv->ioaddr = res->addr;
 
+	memset(priv->saved_gpio_config, 0, sizeof(struct tc956x_gpio_config) * (GPIO_12 + 1));
+
 	ret = tc956x_platform_probe(priv, res);
 	if (ret) {
 		dev_err(priv->device, "Platform probe error %d\n", ret);
@@ -10392,7 +11237,10 @@ int tc956xmac_dvr_probe(struct device *device,
 	priv->port_interface = res->port_interface;
 	priv->eee_enabled = res->eee_enabled;
 	priv->tx_lpi_timer = res->tx_lpi_timer;
-
+	priv->pm_saved_linkdown_rst = 0;
+	priv->pm_saved_linkdown_clk = 0;
+	priv->port_link_down = false;
+	priv->port_release = false;
 #ifdef DMA_OFFLOAD_ENABLE
 	priv->client_priv = NULL;
 	memset(priv->cm3_tamap, 0, sizeof(struct tc956xmac_cm3_tamap) * MAX_CM3_TAMAP_ENTRIES);
@@ -10596,7 +11444,7 @@ int tc956xmac_dvr_probe(struct device *device,
 	/* MTU range: 46 - hw-specific max */
 	ndev->min_mtu = ETH_ZLEN - ETH_HLEN;
 	if (priv->plat->has_xgmac)
-		ndev->max_mtu = XGMAC_JUMBO_LEN;
+		ndev->max_mtu = MAX_SUPPORTED_MTU/*XGMAC_JUMBO_LEN*/;
 	else if ((priv->plat->enh_desc) || (priv->synopsys_id >= DWMAC_CORE_4_00))
 		ndev->max_mtu = JUMBO_LEN;
 	else
@@ -10641,6 +11489,7 @@ int tc956xmac_dvr_probe(struct device *device,
 	}
 
 	mutex_init(&priv->lock);
+	mutex_init(&priv->port_ld_release_lock);
 
 	/* If a specific clk_csr value is passed from the platform
 	 * this means that the CSR Clock Range selection cannot be
@@ -10829,9 +11678,6 @@ int tc956xmac_dvr_remove(struct device *dev)
 #endif
 	tc956xmac_stop_all_dma(priv);
 
-	if (tc956x_platform_remove(priv)) {
-		dev_err(priv->device, "Platform remove error\n");
-	}
 	tc956xmac_mac_set(priv, priv->ioaddr, false);
 	netif_carrier_off(ndev);
 	unregister_netdev(ndev);
@@ -10848,10 +11694,16 @@ int tc956xmac_dvr_remove(struct device *dev)
 		priv->hw->pcs != TC956XMAC_PCS_TBI &&
 		priv->hw->pcs != TC956XMAC_PCS_RTBI)
 		tc956xmac_mdio_unregister(ndev);
+
+	if (tc956x_platform_remove(priv)) {
+		dev_err(priv->device, "Platform remove error\n");
+	}
+
 #ifndef TC956X
 	destroy_workqueue(priv->wq);
 #endif
 	mutex_destroy(&priv->lock);
+	mutex_destroy(&priv->port_ld_release_lock);
 #ifdef TC956X
 	val = ioread32((void __iomem *)(priv->tc956x_SRAM_pci_base_addr + TC956X_M3_FW_EXIT));
 	val += 1;
@@ -11046,6 +11898,135 @@ clean_exit:
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tc956xmac_resume);
+
+/*!
+ * \brief API to save and restore clock and reset during link down and link up.
+ *
+ * \details This fucntion saves the EMAC clock and reset bits before
+ * link down. And restores the same settings after link up.
+ *
+ * \param[in] priv - pointer to device private structure.
+ * \param[in] state - identify LINK DOWN and LINK DOWN operation.
+ *
+ * \return None
+ */
+void tc956xmac_link_change_set_power(struct tc956xmac_priv *priv, enum TC956X_PORT_LINK_CHANGE_STATE state)
+{
+	void *nrst_reg = NULL, *nclk_reg = NULL, *commonrst_reg = NULL, *commonclk_reg = NULL;
+	u32 nrst_val = 0, nclk_val = 0, commonrst_val = 0, commonclk_val = 0;
+	static u32 pm_saved_cmn_linkdown_rst = 0, pm_saved_cmn_linkdown_clk = 0;
+	int ret;
+	bool enable_en = true;
+
+	if (mac_power_save_at_link_down == ENABLE) {
+		KPRINT_INFO("-->%s : Port %d", __func__, priv->port_num);
+		/* Select register address by port */
+		if (priv->port_num == 0) {
+			nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
+			nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
+		} else {
+			nrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL1_OFFSET;
+			nclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL1_OFFSET;
+		}
+		if (state == LINK_DOWN) {
+			KPRINT_INFO("%s : Port %d Set Power for Link Down", __func__, priv->port_num);
+			nrst_val = readl(nrst_reg);
+			nclk_val = readl(nclk_reg);
+			KPRINT_INFO("%s : Port %d Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
+				nrst_val, nclk_val);
+			/* Save register values before Asserting reset and Clock Disable */
+			priv->pm_saved_linkdown_rst = ((~nrst_val) & NRSTCTRL_LINK_DOWN_SAVE); /* Save Non-Common De-Asserted Resets */
+			priv->pm_saved_linkdown_clk = (nclk_val & NCLKCTRL_LINK_DOWN_SAVE); /* Save Non-Common Enabled Clocks */
+			KPRINT_INFO("%s : Port %d priv->pm_saved_linkdown_rst %x priv->pm_saved_linkdown_clk %x", __func__, 
+				priv->port_num, priv->pm_saved_linkdown_rst, priv->pm_saved_linkdown_clk);
+			/* Assert Reset and Disable Clock */
+			nrst_val = nrst_val | NRSTCTRL_LINK_DOWN;
+			nclk_val = nclk_val & ~NCLKCTRL_LINK_DOWN;
+			KPRINT_INFO("%s : Port %d Wr RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
+				nrst_val, nclk_val);
+			writel(nrst_val, nrst_reg);
+			writel(nclk_val, nclk_reg);
+			tc956xmac_link_down_counter++; /* Increment counter for Link Down */
+			if (tc956xmac_link_down_counter == TC956X_ALL_MAC_PORT_LINK_DOWN) {
+				/* Save Common register values */
+				commonrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
+				commonclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
+				commonrst_val = readl(commonrst_reg);
+				commonclk_val = readl(commonclk_reg);
+				KPRINT_INFO("%s : Port %d Common Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
+					commonrst_val, commonclk_val);
+				pm_saved_cmn_linkdown_rst = ((~commonrst_val) & NRSTCTRL_LINK_DOWN_CMN_SAVE); /* Save Common De-Asserted Resets */
+				pm_saved_cmn_linkdown_clk = commonclk_val & NCLKCTRL_LINK_DOWN_CMN_SAVE; /* Save Common Enabled Clocks */
+				KPRINT_INFO("%s : Port %d pm_saved_cmn_linkdown_rst %x pm_saved_cmn_linkdown_clk %x", __func__, 
+					priv->port_num, pm_saved_cmn_linkdown_rst, pm_saved_cmn_linkdown_clk);
+			}
+			priv->port_link_down = true; /* Set per port flag to true */
+		} else if (state == LINK_UP) {
+			KPRINT_INFO("%s : Port %d Set Power for Link Up", __func__, priv->port_num);
+			if (tc956xmac_link_down_counter == TC956X_ALL_MAC_PORT_LINK_DOWN) {
+				/* Restore Common register values */
+				KPRINT_INFO("%s : Port %d pm_saved_cmn_linkdown_clk %x, pm_saved_cmn_linkdown_rst %x", __func__, 
+					priv->port_num, pm_saved_cmn_linkdown_clk, pm_saved_cmn_linkdown_rst);
+				/* Enable Common Clock and De-Assert Common Resets */
+				commonclk_reg = priv->tc956x_SFR_pci_base_addr + NCLKCTRL0_OFFSET;
+				commonrst_reg = priv->tc956x_SFR_pci_base_addr + NRSTCTRL0_OFFSET;
+				commonclk_val = readl(commonclk_reg);
+				commonrst_val = readl(commonrst_reg);
+				KPRINT_INFO("%s : Port %d Common Rd CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, 
+					commonclk_val, commonrst_val);
+				/* Clear Common Clocks only when both port suspends */
+				commonclk_val = (commonclk_val | pm_saved_cmn_linkdown_clk); /* Enable Common Saved Clock */
+				commonrst_val = (commonrst_val & (~pm_saved_cmn_linkdown_rst)); /* De-assert Common Saved Reset */
+				writel(commonclk_val, commonclk_reg);
+				writel(commonrst_val, commonrst_reg);
+				KPRINT_INFO("%s : Port %d Common Wr CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, 
+					commonclk_val, commonrst_val);
+				KPRINT_INFO("%s : Port %d Common Rd CLK Reg:%x, RST Reg:%x", __func__, priv->port_num, 
+					readl(commonclk_reg), readl(commonrst_reg));
+			}
+			/* Restore register values */
+			KPRINT_INFO("%s : Port %d pm_saved_linkdown_clk %x, pm_saved_linkdown_rst %x", __func__, 
+				priv->port_num, priv->pm_saved_linkdown_clk, priv->pm_saved_linkdown_rst);
+			nclk_val = readl(nclk_reg);
+			nrst_val = readl(nrst_reg);
+			KPRINT_INFO("%s : Port %d Rd CLK Reg:%x, RST Reg:%x", __func__, priv->port_num, 
+				nrst_val, nclk_val);
+			/* Restore values same as before link down */
+			nclk_val = (nclk_val | priv->pm_saved_linkdown_clk); /* Enable Saved Clock */
+			nrst_val = (nrst_val & (~(priv->pm_saved_linkdown_rst))); /* De-assert Saved Reset */
+			writel(nclk_val, nclk_reg);
+			writel(nrst_val, nrst_reg);
+			KPRINT_INFO("%s : Port %d Wr CLK Reg:%x, RST Reg:%x ", __func__, priv->port_num, 
+				nclk_val, nrst_val);
+
+			tc956xmac_link_down_counter--; /* Decrement Counter Only when this api called */
+			priv->port_link_down = false;
+
+			/* Re-Init XPCS module as MACxPONRST is asserted during link-down */
+			ret = tc956x_xpcs_init(priv, priv->xpcsaddr);
+			if (ret < 0)
+				KPRINT_INFO("XPCS initialization error\n");
+
+			/*C37 AN enable*/
+			if (priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
+				enable_en = false;
+			else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII) {
+				if (priv->is_sgmii_2p5g == true)
+					enable_en = false;
+				else
+					enable_en = true;
+			} else
+				enable_en = true;
+
+			tc956x_xpcs_ctrl_ane(priv, enable_en);
+		}
+		KPRINT_INFO("%s : Port %d Rd RST Reg:%x, CLK Reg:%x", __func__, priv->port_num, 
+			readl(nrst_reg), readl(nclk_reg));
+		KPRINT_INFO("<--%s : Port %d", __func__, priv->port_num);
+	} else {
+		KPRINT_INFO("-->%s : status of Power saving at Link down %d", __func__, mac_power_save_at_link_down);
+	}
+}
 
 #ifndef MODULE
 static int __init tc956xmac_cmdline_opt(char *str)

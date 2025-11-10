@@ -20,14 +20,14 @@
 #include <linux/net_tstamp.h>
 #include <linux/reset.h>
 #include "net/page_pool.h"
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
+#if defined(CONFIG_QGKI_MSM_BOOT_TIME_MARKER) || defined(CONFIG_MSM_GVM_BOOT_TIME_MARKER)
 #include <soc/qcom/boot_stats.h>
 #endif
 
 #define MAX_NUM_CH 8
 struct stmmac_resources {
 	void __iomem *addr;
-	const char *mac;
+	u8 mac[ETH_ALEN];
 	int irq[MAX_NUM_CH];
 	u32 ch;
 };
@@ -88,6 +88,7 @@ enum filter_type {
 	UNICAST_TYPE,
 	MULTICAST_TYPE,
 	VLAN_TYPE,
+	VLAN_PRIORITY,
 };
 
 struct stmmac_priv {
@@ -150,6 +151,8 @@ struct stmmac_priv {
 	unsigned long state;
 	struct workqueue_struct *wq;
 	struct work_struct service_task;
+	u32 adv_ts;
+	u8 prio;
 };
 
 enum stmmac_state {
