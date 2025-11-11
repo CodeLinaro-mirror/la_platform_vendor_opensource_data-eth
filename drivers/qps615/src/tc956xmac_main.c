@@ -350,7 +350,7 @@ static void tc956xmac_exit_fs(struct net_device *dev);
 #endif
 #endif /* TC956X_SRIOV_PF */
 #ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
-extern int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data);
+extern int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_keee *data);
 #endif
 #ifdef TC956X_SRIOV_PF
 extern struct tx956x_shrd_mem tx956x_pci_shrd_mem[TC956X_TOT_CASCADE_DEV];
@@ -711,14 +711,14 @@ int tc956x_dump_regs(struct net_device *net_device, struct tc956x_regs *regs)
 	}
 
 	/* Driver & FW Information */
-	strlcpy(regs->info.driver, TC956X_RESOURCE_NAME, sizeof(regs->info.driver));
-	strlcpy(regs->info.version, DRV_MODULE_VERSION, sizeof(regs->info.version));
+	strscpy(regs->info.driver, TC956X_RESOURCE_NAME, sizeof(regs->info.driver));
+	strscpy(regs->info.version, DRV_MODULE_VERSION, sizeof(regs->info.version));
 
 	reg = readl(priv->tc956x_SRAM_pci_base_addr + TC956X_M3_DBG_VER_START);
 	fw_version = (struct tc956x_version *)(&reg);
 	scnprintf(fw_version_str, sizeof(fw_version_str), "FW Version %s_%d.%d-%d", (fw_version->rel_dbg == 'D')?"DBG":"REL",
 					fw_version->major, fw_version->minor, fw_version->sub_minor);
-	strlcpy(regs->info.fw_version, fw_version_str, sizeof(regs->info.fw_version));
+	strscpy(regs->info.fw_version, fw_version_str, sizeof(regs->info.fw_version));
 
 	/* Updating statistics */
 	tc956xmac_mmc_read(priv, priv->mmcaddr, &priv->mmc);
@@ -4592,7 +4592,7 @@ static int tc956xmac_init_phy(struct net_device *dev)
 	int ret = -ENODEV; /* Query No. QPSSW-245, TC956X_Host_Driver-industrial_limited_tested_20250926_V_06-00-00-QPSSW-245.patch */
 	struct phy_device *phydev = NULL;
 	int addr = priv->plat->phy_addr;
-	struct ethtool_eee edata;
+	struct ethtool_keee edata;
 
 	node = priv->plat->phylink_node; /*phylink_node should be updated with DT information in platform specific code */
 
@@ -4694,7 +4694,7 @@ static int tc956xmac_init_phy(struct net_device *dev)
 	}
 	/* Enable or disable EEE Advertisement based on eee_enabled settings which might be set using module param */
 	edata.eee_enabled = priv->eee_enabled;
-	edata.advertised = 0;
+	bitmap_zero(edata.advertised, __ETHTOOL_LINK_MODE_MASK_NBITS);
 
 	if (priv->phylink) {
 		if ((priv->plat->interface != PHY_INTERFACE_MODE_RGMII) &&
@@ -6260,7 +6260,7 @@ static void tc956xmac_dma_interrupt(struct tc956xmac_priv *priv)
 	u32 channels_to_check = tx_channel_count > rx_channel_count ?
 				tx_channel_count : rx_channel_count;
 	u32 chan;
-	int status[max_t(u32, MTL_MAX_TX_QUEUES, MTL_MAX_RX_QUEUES)];
+	int status[MAX_QUEUES];
 
 	/* Make sure we never check beyond our status buffer. */
 	if (WARN_ON_ONCE(channels_to_check > ARRAY_SIZE(status)))
@@ -10288,7 +10288,7 @@ static void tc956xmac_poll_controller(struct net_device *dev)
 int tc956xmac_rx_parser_configuration(struct tc956xmac_priv *priv)
 {
 	int ret = -EINVAL, re_init_eee = 0, dly_cnt = 0, ret_val;
-	struct ethtool_eee edata;
+	struct ethtool_keee edata;
 
 #ifndef TC956X_SRIOV_VF
 	/* Disable EEE before configuring FRP */
@@ -15362,7 +15362,7 @@ static void parse_config_file(uint8_t port_id, uint8_t dev_id, struct net_device
 		}
 	}
 
-	vfree(data);
+	kvfree(data);
 	KPRINT_INFO("<--%s", __func__);
 }
 #endif

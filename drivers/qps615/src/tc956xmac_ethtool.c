@@ -94,7 +94,7 @@ extern void tc956x_filter_debug(struct tc956xmac_priv *priv);
 #endif
 #ifndef TC956X_SRIOV_VF
 void tc956xmac_get_pauseparam(struct net_device *netdev, struct ethtool_pauseparam *pause);
-int tc956xmac_ethtool_op_get_eee(struct net_device *dev, struct ethtool_eee *edata);
+int tc956xmac_ethtool_op_get_eee(struct net_device *dev, struct ethtool_keee *edata);
 #endif
 #ifdef TC956X_5_G_2_5_G_EEE_SUPPORT
 #define TC956X_ADVERTISED_2500baseT_Full ETHTOOL_LINK_MODE_2500baseT_Full_BIT
@@ -941,18 +941,18 @@ static void tc956xmac_ethtool_getdrvinfo(struct net_device *dev,
 								fw_version->major, fw_version->minor,
 								fw_version->sub_minor);
 
-	strlcpy(info->fw_version, fw_version_str, sizeof(info->fw_version));
+	strscpy(info->fw_version, fw_version_str, sizeof(info->fw_version));
 
 	if (priv->plat->has_gmac || priv->plat->has_gmac4)
-		strlcpy(info->driver, GMAC_ETHTOOL_NAME, sizeof(info->driver));
+		strscpy(info->driver, GMAC_ETHTOOL_NAME, sizeof(info->driver));
 	else if (priv->plat->has_xgmac)
-		strlcpy(info->driver, XGMAC_ETHTOOL_NAME, sizeof(info->driver));
+		strscpy(info->driver, XGMAC_ETHTOOL_NAME, sizeof(info->driver));
 	else
-		strlcpy(info->driver, MAC100_ETHTOOL_NAME,
+		strscpy(info->driver, MAC100_ETHTOOL_NAME,
 			sizeof(info->driver));
 
-	strlcpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
-	strlcpy(info->bus_info, pci_name(pdev), sizeof(info->bus_info));
+	strscpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
+	strscpy(info->bus_info, pci_name(pdev), sizeof(info->bus_info));
 
 	info->n_priv_flags = TC956X_PRIV_FLAGS_STR_LEN;
 }
@@ -1732,12 +1732,16 @@ int genphy_c45_eee_is_active_local(struct phy_device *phydev, unsigned long *adv
  * capabilities.
  */
 int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
-			       struct ethtool_eee *data)
+			       struct ethtool_keee *data)
 {
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(adv) = {};
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(lp) = {};
 	bool overflow = false, is_enabled;
 	int ret;
+	struct ethtool_eee *eee = kzalloc(sizeof(struct ethtool_eee), GFP_KERNEL);
+
+	if (!eee)
+		return -ENOMEM;
 
 	ret = genphy_c45_eee_is_active_local(phydev, adv, lp, &is_enabled);
 	if (ret < 0)
@@ -1746,16 +1750,27 @@ int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
 	data->eee_enabled = is_enabled;
 	data->eee_active = ret;
 
-	if (!ethtool_convert_link_mode_to_legacy_u32(&data->supported,
+	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->supported,
+							    data->supported))
+		overflow = true;
+	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->advertised,
+							    data->advertised))
+		overflow = true;
+	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->lp_advertised,
+							    data->lp_advertised))
+		overflow = true;
+	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->supported,
 						     phydev->supported_eee))
 		overflow = true;
-	if (!ethtool_convert_link_mode_to_legacy_u32(&data->advertised, adv))
+	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->advertised, adv))
 		overflow = true;
-	if (!ethtool_convert_link_mode_to_legacy_u32(&data->lp_advertised, lp))
+	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->lp_advertised, lp))
 		overflow = true;
 
 	if (overflow)
 		phydev_warn(phydev, "Not all supported or advertised EEE link modes were passed to the user space\n");
+
+	kfree(eee);
 
 	return 0;
 }
@@ -1768,7 +1783,7 @@ int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
  * Description: it reportes the Supported/Advertisement/LP Advertisement
  * capabilities.
  */
-int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *data)
+int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_keee *data)
 {
 	int ret;
 
@@ -1787,7 +1802,7 @@ int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *dat
  * @pl: a pointer to a &struct phylink returned from phylink_create()
  * @eee: a pointer to a &struct ethtool_eee for the read parameters
  */
-int phylink_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *eee)
+int phylink_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_keee *eee)
 {
 	int ret = -EOPNOTSUPP;
 
@@ -1800,7 +1815,7 @@ int phylink_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee 
 }
 #endif
 #ifdef DEBUG_EEE
-int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_eee *data)
+int phy_ethtool_get_eee_local(struct phy_device *phydev, struct ethtool_keee *data)
 {
 	int val;
 
@@ -1946,10 +1961,14 @@ static inline u16 tc956x_ethtool_adv_to_mmd_eee_adv2_t(u32 adv)
 	return reg;
 }
 
-int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data)
+int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_keee *data)
 {
 	int ret;
 	int cap2p5, old_adv_2p5, adv_2p5 = 0;
+	struct ethtool_eee *eee = kzalloc(sizeof(struct ethtool_eee), GFP_KERNEL);
+
+        if (!eee)
+                return -ENOMEM;
 
 	if (!phydev->drv)
 		return -EIO;
@@ -1964,9 +1983,12 @@ int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data)
 	if (old_adv_2p5 < 0)
 		return old_adv_2p5;
 	/* EEE advertise checking API corrected for 2.5G and 5G speeds. */
+        if (!ethtool_convert_link_mode_to_legacy_u32(&eee->advertised,
+							data->advertised))
+		 phydev_warn(phydev, "Overflow while converting advertised EEE link modes\n");
 	if (data->eee_enabled) {
-		adv_2p5 = !data->advertised ? cap2p5 :
-		      tc956x_ethtool_adv_to_mmd_eee_adv2_t(data->advertised) & cap2p5;
+		adv_2p5 = !eee->advertised ? cap2p5 :
+		      tc956x_ethtool_adv_to_mmd_eee_adv2_t(eee->advertised) & cap2p5;
 		/* Mask prohibited EEE modes */
 		adv_2p5 &= ~phydev->eee_broken_modes;
 	}
@@ -1991,7 +2013,7 @@ int phy_ethtool_set_eee_2p5(struct phy_device *phydev, struct ethtool_eee *data)
 #endif
 
 int tc956xmac_ethtool_op_get_eee(struct net_device *dev,
-				     struct ethtool_eee *edata)
+				     struct ethtool_keee *edata)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
 	int ret;
@@ -2028,7 +2050,7 @@ int tc956xmac_ethtool_op_get_eee(struct net_device *dev,
 #endif
 #ifdef TC956X_SRIOV_VF
 static int tc956xmac_ethtool_op_get_eee(struct net_device *dev,
-				     struct ethtool_eee *edata)
+				     struct ethtool_keee *edata)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
 
@@ -2037,8 +2059,9 @@ static int tc956xmac_ethtool_op_get_eee(struct net_device *dev,
 	return 0;
 }
 #endif
+
 static int tc956xmac_ethtool_op_set_eee(struct net_device *dev,
-				     struct ethtool_eee *edata)
+				     struct ethtool_keee *edata)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
 #ifndef TC956X_SRIOV_VF
@@ -2402,7 +2425,7 @@ static int tc956xmac_set_rxfh(struct net_device *dev, const u32 *indir,
 #endif
 
 static int tc956xmac_get_ts_info(struct net_device *dev,
-			      struct ethtool_ts_info *info)
+			      struct kernel_ethtool_ts_info *info)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
 
