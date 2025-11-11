@@ -610,7 +610,8 @@ static void dwxgmac2_get_hw_feature(struct tc956xmac_priv *priv,
 		break;
 	}
 #ifdef TC956X_WITHOUT_MDIO
-	if (priv->plat->interface == PHY_INTERFACE_MODE_RGMII)
+	if (priv->plat->interface == PHY_INTERFACE_MODE_RGMII ||
+	priv->plat->interface == PHY_INTERFACE_MODE_RGMII_ID)
 		dma_cap->sma_mdio = 0;
 #endif
 }
