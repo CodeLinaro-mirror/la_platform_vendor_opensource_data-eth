@@ -195,6 +195,7 @@
 #include <linux/interrupt.h>
 #include <linux/iopoll.h>
 #include <linux/ip.h>
+#include <linux/of_net.h>
 #include <linux/tcp.h>
 #include <linux/skbuff.h>
 #include <linux/ethtool.h>
@@ -248,17 +249,6 @@
 
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
 #define PPS_START_DELAY		100000000	/* 100 ms, in unit of ns */
-
-#include <linux/i2c.h>
-#define EEPROM_I2C_ADDRESS	0x50
-#define EEPROM_I2C_ADAPTER_ID	1
-#define EEPROM_READ_BYTE	300
-#define EEPROM_WRITE_OFFSET_BYTE	2
-
-typedef enum {
-	MAC_SRC_CONFIG_FILE = 0x0,
-	MAC_SRC_PLATFORM_EEPROM = 0x1,
-} MacSrcType_t;
 
 #ifdef TC956X_DYNAMIC_LOAD_CBS
 int prev_speed;
@@ -7446,7 +7436,7 @@ static int tc956xmac_open(struct net_device *dev)
 	char *pwol_dev_name;
 
 	NMSGPR_INFO(priv->device, "---> light weight = %d %s : Port %d interface %s", priv->link_down_rst, __func__, priv->port_num, dev->name);
-
+        NMSGPR_INFO(priv->device,"after applying new Patch");
     	/* Query No. QPSSW-245, TC956X_Host_Driver-industrial_limited_tested_20250926_V_06-00-00-QPSSW-245.patch */
 	if (priv->dma_cap.sma_mdio == TC956X_MDIO_CONN_PRESENT)
 	phydev = mdiobus_get_phy(priv->mii, addr);
@@ -15162,292 +15152,6 @@ static unsigned char tc956x_get_rx_channel_count(struct tc956xmac_resources *res
 #ifndef EEPROM_MAC_ADDR
 
 /*!
- * \brief API to validate MAC ID
- *
- * \param[in] char *s - pointer to MAC ID string
- *
- * \return boolean
- *
- * \retval true on success and false on failure.
- */
-static bool isMAC(char *s)
-{
-	int i = 0;
-
-	if (s == NULL)
-		return false;
-
-	for (i = 0; i < 17; i++) {
-		if (i % 3 != 2 && !isxdigit(s[i]))
-			return false;
-		if (i % 3 == 2 && s[i] != ':')
-			return false;
-	}
-
-	return true;
-}
-
-/*!
- * \brief API to extract MAC ID from given string
- *
- * \param[in] char *string - pointer to MAC ID string
- *
- * \return None
- */
-static void extract_macid(char *string, uint8_t vf_id)
-{
-	char *token_m = NULL;
-	int j = 0;
-	int mac_id = 0;
-
-#ifdef TC956X_SRIOV_PF
-	static int addr_found;
-
-	/* Extract MAC ID byte by byte */
-	token_m = strsep(&string, ":");
-
-	while (token_m != NULL) {
-		sscanf(token_m, "%x", &mac_id);
-		if (addr_found < TC956X_MAC_ADDR_CNT) {
-			dev_addr[addr_found][j++] = mac_id;
-			token_m = strsep(&string, ":");
-		} else
-			break;
-	}
-	KPRINT_DEBUG1("MAC Addr : %pM\n", &dev_addr[addr_found][0]);
-#elif defined TC956X_SRIOV_VF
-	static int k;
-	int addr_found = 0;
-
-	/* Extract MAC ID byte by byte */
-	token_m = strsep(&string, ":");
-
-	while (token_m != NULL) {
-		sscanf(token_m, "%x", &mac_id);
-
-		if (addr_found < 2) {
-			dev_addr[k][addr_found + vf_id][j++] = mac_id;
-			token_m = strsep(&string, ":");
-		} else
-			break;
-	}
-	KPRINT_INFO("MAC Addr : %pM\n", &dev_addr[k][addr_found + vf_id][0]);
-
-	k++;
-#endif
-	addr_found++;
-}
-
-/*!
- * \brief API to extract MAC ID from given string
- *
- * \param[in] char *string - pointer to MAC ID string
- *
- * \return None
- */
-static void extract_macid_eeprom(char *string, uint8_t vf_id)
-{
-	char *token_m = NULL;
-	int j = 0;
-	int mac_id = 0;
-
-#ifdef TC956X_SRIOV_PF
-	static int addr_found_eeprom;
-
-	/* Extract MAC ID byte by byte */
-	token_m = strsep(&string, ":");
-
-	while (token_m != NULL) {
-		sscanf(token_m, "%x", &mac_id);
-		if (addr_found_eeprom < TC956X_MAC_ADDR_CNT) {
-			dev_addr[addr_found_eeprom][j++] = mac_id;
-			token_m = strsep(&string, ":");
-		} else
-			break;
-	}
-	KPRINT_DEBUG1("MAC Addr : %pM\n", &dev_addr[addr_found_eeprom][0]);
-#elif defined TC956X_SRIOV_VF
-	static int k;
-	int addr_found_eeprom = 0;
-
-	/* Extract MAC ID byte by byte */
-	token_m = strsep(&string, ":");
-
-	while (token_m != NULL) {
-		sscanf(token_m, "%x", &mac_id);
-
-		if (addr_found_eeprom < 2) {
-			dev_addr[k][addr_found_eeprom + vf_id][j++] = mac_id;
-			token_m = strsep(&string, ":");
-		} else
-			break;
-	}
-	KPRINT_INFO("MAC Addr : %pM\n", &dev_addr[k][addr_found_eeprom + vf_id][0]);
-
-	k++;
-#endif
-	addr_found_eeprom++;
-}
-
-/*!
- * \brief API to parse and extract the user configured MAC ID
- *
- * \param[in] file_buf - Pointer to file data buffer
- *
- * \return boolean
- *
- * \return - True on Success and False in failure
- */
-static bool lookfor_macid(char *file_buf, uint8_t port_id, uint8_t dev_id, MacSrcType_t mac_src)
-{
-	char *string = NULL, *token_n = NULL, *token_s = NULL, *token_m = NULL;
-	char *dev_no = NULL, *port_no = NULL;
-	bool status = false;
-	int tc956x_device_no = 0;
-	int total_valid_addr = 0;
-
-	string = file_buf;
-
-	/* Parse Line-0 */
-	token_n = strsep(&string, "\n");
-	while (token_n != NULL) {
-		/* Check if line is enabled */
-		if (token_n[0] != '#') {
-			/* Extract the token based space character */
-			token_s = strsep(&token_n, " ");
-			if (token_s != NULL) {
-				if (strncmp(token_s, config_param_list[0].mdio_key, 9) == 0) {
-					token_s = strsep(&token_n, " ");
-					dev_no = &token_n[6];
-					port_no = &token_n[7];
-					token_m = strsep(&token_s, ":");
-					sscanf(token_m, "%d", &tc956x_device_no);
-#if (!defined(TC956X_AUTOMOTIVE_CONFIG) && !defined(TC956X_ENABLE_MAC2MAC_BRIDGE) && !defined(TC956X_CPE_CONFIG))
-#ifdef TC956X_SRIOV_VF
-					if (((tc956x_device_no != mdio_bus_id) &&
-						(*port_no != (char)(port_id + 49))) ||
-						(*dev_no != (char)(dev_id + 49)))
-#else
-					if (((tc956x_device_no != mdio_bus_id) &&
-						(*port_no != (char)(port_id + 49))) ||
-						(*dev_no != (char)(dev_id + 48)))
-#endif
-#else
-					if (tc956x_device_no != mdio_bus_id)
-#endif
-					{
-						token_n = strsep(&string, "\n");
-						if (token_n == NULL)
-							break;
-						continue;
-					}
-				}
-			}
-
-			/* Extract the token based space character */
-			token_s = strsep(&token_n, " ");
-			if (token_s != NULL) {
-				/* Compare if parsed string matches with
-				 * key listed in configuration table
-				 */
-				if (strncmp(token_s, config_param_list[0].mac_key, 6) == 0) {
-
-					KPRINT_INFO("MAC_ID Key is found\n");
-					/* Read next word */
-					token_s = strsep(&token_n, "\n");
-					if (token_s != NULL) {
-
-						/* Check if MAC ID length
-						 * and MAC ID is valid
-						 */
-						if ((isMAC(token_s) == true)
-							&& (strlen(token_s) ==
-							config_param_list[0].mac_str_len)) {
-							/* If user configured
-							 * MAC ID is valid,
-							 * assign default MAC ID
-							 */
-							if (mac_src == MAC_SRC_CONFIG_FILE) {
-								extract_macid(token_s, dev_id);
-							} else {
-								extract_macid_eeprom(token_s, dev_id);
-							}
-							total_valid_addr++;
-
-							if (total_valid_addr > 1)
-								status = true;
-						} else {
-							KPRINT_INFO ("Valid Mac not found");
-						}
-					}
-				}
-			}
-		}
-		/* Read next lile */
-		token_n = strsep(&string, "\n");
-
-		if (token_n == NULL)
-			break;
-	}
-	return status;
-}
-
-/*!
- * \brief Parse the EEPROM for MAC address
- *
- * \param[in] None
- *
- * \return True on Success and False in failure
- *
- */
-static int qps615_eeprom_readmac(uint8_t port_id, uint8_t dev_id)
-{
-	struct i2c_adapter *adapter;
-	int ret, i;
-	u8 wr_data[EEPROM_WRITE_OFFSET_BYTE] = {0, 0};
-	u8 rd_data[EEPROM_READ_BYTE];
-	struct i2c_msg msg[2];
-
-	adapter = i2c_get_adapter(EEPROM_I2C_ADAPTER_ID);
-	if (!adapter) {
-		/* error, no such I2C adaptor. */
-		KPRINT_ERR("Chip at i2c Invalid i2c adapter %d\n", EEPROM_I2C_ADAPTER_ID);
-		return -ENODEV;
-	}
-
-	msg[0].addr = EEPROM_I2C_ADDRESS;
-	msg[0].len = EEPROM_WRITE_OFFSET_BYTE;
-	msg[0].flags = 0;
-	msg[0].buf = wr_data;
-
-	msg[1].addr = EEPROM_I2C_ADDRESS;
-	msg[1].len = EEPROM_READ_BYTE;
-	msg[1].flags = I2C_M_RD;
-	msg[1].buf = rd_data;
-
-	ret = i2c_transfer(adapter, msg, 2);
-	if (ret != 2){
-		KPRINT_ERR("EEPROM I2C wrong response\n");
-		return ret;
-	} else {
-		/* Parse the EEPROM result */
-		for (i = 0; i < CONFIG_PARAM_NUM; i++) {
-			if (strstr((const char *)rd_data, config_param_list[i].mdio_key)) {
-				KPRINT_ERR("EEPROM Pattern Match\n");
-				if (strncmp(config_param_list[i].mdio_key, "MDIOBUSID", 9) == 0) {
-					/* MAC ID Configuration */
-					KPRINT_ERR("MAC_ID EEPROM Configuration\n");
-					lookfor_macid(rd_data, port_id, dev_id, MAC_SRC_PLATFORM_EEPROM);
-				}
-			} else {
-				KPRINT_ERR("Pattern NOT Match\n");
-			}
-		}
-	}
-	return 0;
-}
-
-/*!
  * \brief Parse the user configuration file for various config
  *
  * \param[in] None
@@ -15459,6 +15163,7 @@ static void parse_config_file(uint8_t port_id, uint8_t dev_id, struct net_device
 {
 	KPRINT_INFO("Defaulting to random MAC address\n");
 	eth_random_addr(&dev_addr[tc956xmac_pm_usage_counter][0]);
+	dev->addr_assign_type = NET_ADDR_RANDOM;
 	KPRINT_INFO("tc956xmac_pm_usage_counter=%d\n",tc956xmac_pm_usage_counter);
 	return;
 }
@@ -15834,8 +15539,6 @@ int tc956xmac_vf_dvr_probe(struct device *device,
 #else
 	/* To be enabled for config.ini parsing */
 	parse_config_file(priv->port_num, 0, priv->dev);
-	/* To be enabled for EEPROM MAC parsing */
-	qps615_eeprom_readmac(priv->port_num, 0);
 #endif
 
 #endif /* EEPROM_MAC_ADDR */

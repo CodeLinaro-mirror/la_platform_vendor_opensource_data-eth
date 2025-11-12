@@ -502,13 +502,11 @@ struct tc956xmac_resources {
 	unsigned int tx_lpi_timer; /* Parameter to store kernel module parameter for LPI Auto Entry Timer */
 #endif
 	uint16_t pci_bd; /* PCI bus and device ID of self */
-
 	unsigned int mdc_clk;
 	unsigned int c45_state;
 	unsigned int link_down_macrst;
 	uint16_t pci_bdf; /* PCI bus, device ID and Fun ID of self */
 	uint16_t probe_seq_no;
-	unsigned int start_phy_addr;
 };
 
 struct tc956xmac_tx_info {
