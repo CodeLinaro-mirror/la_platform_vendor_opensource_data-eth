@@ -521,7 +521,7 @@ static void stmmac_init_ipa_rx_ch(struct stmmac_priv *priv, struct channel_info 
 	stmmac_set_rx_tail_ptr(priv, priv->ioaddr, rx_q->rx_tail_addr, chan);
 
 	stmmac_set_rx_ring_len(priv, priv->ioaddr, (channel->desc_cnt - 1), chan);
-	stmmac_set_dma_bfsize(priv, priv->ioaddr, (channel->buf_size/8), chan);
+	stmmac_set_dma_bfsize(priv, priv->ioaddr, channel->buf_size, chan);
 
 	ioss_log_msg(NULL, "desc_cnt = %d $ buf_size = %d",
 				channel->desc_cnt,
@@ -667,6 +667,7 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		queue_num = DEFAULT_QUEUE_RX_TX;
 	}
 
+	stmmac_enable_sph(priv, priv->ioaddr, 0, channel->channel_num);
 	channel->buff_pool_addr.buff_pool_va_addrs_base = kcalloc(channel_input->desc_cnt,
 								  sizeof(void *),
 								  (gfp_t)channel_input->flags);
@@ -831,6 +832,8 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		dealloc_ipa_rx_resources(ndev, channel);
 	}
+
+	stmmac_enable_sph(priv, priv->ioaddr, 1, channel->channel_num);
 
 	kfree(channel->buff_pool_addr.buff_pool_va_addrs_base);
 	kfree(channel->buff_pool_addr.buff_pool_dma_addrs_base);
@@ -1938,8 +1941,8 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 				} else {
 					priv->qos_l3_l4_filters++;
 					dma_filter_node->applied = true;
-					ioss_qos_dev_log(NULL, "[iemac qos]: applied src port %d filter, proto = %d, ch = %d, idx = %d\n",
-							 dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto,
+					ioss_qos_dev_log(NULL, "[iemac qos]: applied src port %d filter, proto = %s, ch = %d, idx = %d\n",
+							 dma_filter_node->src_port.port_num, ioss_protocol_name(dma_filter_node->src_port.proto),
 							 dma_filter_node->dma_ch, i);
 
 					priv->app_filters[i].src_port.port_num = dma_filter_node->src_port.port_num;
@@ -1949,8 +1952,8 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 				}
 			} else {
 				dma_filter_node->applied = false;
-				ioss_qos_dev_err(NULL, "[iemac qos]: filters exhausted, couldn't apply filter for src port = %d, proto = %d, ch = %d\n",
-						dma_filter_node->src_port.port_num, dma_filter_node->src_port.proto, dma_filter_node->dma_ch);
+				ioss_qos_dev_err(NULL, "[iemac qos]: filters exhausted, couldn't apply filter for src port = %d, proto = %s, ch = %d\n",
+						dma_filter_node->src_port.port_num, ioss_protocol_name(dma_filter_node->src_port.proto), dma_filter_node->dma_ch);
 			}
 			break;
 		case DEST_PORT:
@@ -1968,8 +1971,8 @@ void stmmac_enable_qos_filtering(struct net_device *ndev, struct qos_struct *qos
 				} else {
 					priv->qos_l3_l4_filters++;
 					dma_filter_node->applied = true;
-					ioss_qos_dev_log(NULL, "[iemac qos]: applied dest port %d filter, proto = %d, ch = %d idx = %d\n",
-							 dma_filter_node->dst_port.port_num, dma_filter_node->dst_port.proto,
+					ioss_qos_dev_log(NULL, "[iemac qos]: applied dest port %d filter, proto = %s, ch = %d idx = %d\n",
+							 dma_filter_node->dst_port.port_num, ioss_protocol_name(dma_filter_node->dst_port.proto),
 							 dma_filter_node->dma_ch, i);
 
 					priv->app_filters[i].dst_port.port_num = dma_filter_node->dst_port.port_num;

@@ -56,32 +56,3 @@ ddk_headers(
     ],
 )
 
-ddk_headers(
-    name = "atlantic_fwd_headers",
-    hdrs = glob([
-        "drivers/atlantic_fwd/atl_common.h",
-        "drivers/atlantic_fwd/atl_compat.h",
-        "drivers/atlantic_fwd/atl_desc.h",
-        "drivers/atlantic_fwd/atl_drviface.h",
-        "drivers/atlantic_fwd/atl_dump.h",
-        "drivers/atlantic_fwd/atl_ethtool.h",
-        "drivers/atlantic_fwd/atl_fw.h",
-        "drivers/atlantic_fwd/atl_fwd.h",
-        "drivers/atlantic_fwd/atl_hw.h",
-        "drivers/atlantic_fwd/atl_hw_ptp.h",
-        "drivers/atlantic_fwd/atl_log.h",
-        "drivers/atlantic_fwd/atl_mdio.h",
-        "drivers/atlantic_fwd/atl_ptp.h",
-        "drivers/atlantic_fwd/atl_regs.h",
-        "drivers/atlantic_fwd/atl_ring.h",
-        "drivers/atlantic_fwd/atl_ring_desc.h",
-        "drivers/atlantic_fwd/atl_stats.h",
-        "drivers/atlantic_fwd/atl_trace.h",
-        "drivers/atlantic_fwd/atl2_fw.h",
-        "drivers/atlantic_fwd/atl_fwdnl.h",
-        "drivers/atlantic_fwd/atl_macsec.h",
-    ]),
-    includes = [
-        "drivers/atlantic_fwd",
-    ],
-)

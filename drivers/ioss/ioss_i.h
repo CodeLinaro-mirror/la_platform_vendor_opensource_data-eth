@@ -134,6 +134,7 @@ int ioss_list_iter_action(struct list_head *head,
 const char *ioss_if_state_name(enum ioss_interface_state state);
 const char *ioss_ch_dir_name(enum ioss_channel_dir dir);
 const char *ioss_traffic_name(enum ioss_traffic_type t);
+const char *ioss_protocol_name(enum protocol proto);
 
 #define if_st_s(iface) ioss_if_state_name(iface->state)
 

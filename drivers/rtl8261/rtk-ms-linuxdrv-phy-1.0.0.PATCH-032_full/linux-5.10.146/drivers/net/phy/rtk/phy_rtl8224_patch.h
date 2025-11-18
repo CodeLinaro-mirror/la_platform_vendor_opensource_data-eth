@@ -1,0 +1,114 @@
+/*
+ * SPDX-License-Identifier: GPL-2.0-only
+ *
+ * Copyright (c) 2025 Realtek Semiconductor Corp. All rights reserved.
+ */
+
+
+#ifndef __HAL_PHY_PHY_RTL8224_PATCH_H__
+#define __HAL_PHY_PHY_RTL8224_PATCH_H__
+
+/*
+ * Include Files
+ */
+#if defined(RTK_PHYDRV_IN_LINUX)
+  #include "rtk_osal.h"
+  #include "rtk_phylib_def.h"
+#else
+  #include <common/rt_type.h>
+  #include <rtk/port.h>
+#endif
+
+/* Function Name:
+ *      phy_rtl8224_sdsReg_get
+ * Description:
+ *      Get SerDes Register
+ * Input:
+ *      unit        - unit id
+ *      baseport    - base port id on the PHY chip
+ *      sdsPage     - the SerDes page
+ *      sdsReg      - the SerDes register
+ * Output:
+ *      pData       - return register value
+ * Return:
+ *      RT_ERR_OK
+ *      RT_ERR_FAILED
+ *      RT_ERR_NOT_SUPPORTED
+ *      RT_ERR_ABORT
+ * Note:
+ *      None
+ */
+extern int32
+phy_rtl8224_sdsReg_get(uint32 unit, rtk_port_t baseport, uint32 sdsPage, uint32 sdsReg, uint32 *pData);
+
+/* Function Name:
+ *      phy_rtl8224_sdsReg_set
+ * Description:
+ *      Set SerDes Register
+ * Input:
+ *      unit        - unit id
+ *      baseport    - base port id on the PHY chip
+ *      sdsPage     - the SerDes page
+ *      sdsReg      - the SerDes register
+ *      wData       - the write data
+ * Output:
+ *      None
+ * Return:
+ *      RT_ERR_OK
+ *      RT_ERR_FAILED
+ *      RT_ERR_NOT_SUPPORTED
+ *      RT_ERR_ABORT
+ * Note:
+ *      None
+ */
+
+extern int32
+phy_rtl8224_sdsReg_set(uint32 unit, rtk_port_t baseport, uint32 sdsPage, uint32 sdsReg, uint32 wData);
+
+
+/* Function Name:
+ *      phy_rtl8224_patch
+ * Description:
+ *      Apply patch data to PHY
+ * Input:
+ *      unit        - unit id
+ *      baseport    - base port id on the PHY chip
+ *      portOffset  - the index offset base on baseport for the port to patch
+ * Output:
+ *      None
+ * Return:
+ *      RT_ERR_OK
+ *      RT_ERR_FAILED
+ *      RT_ERR_NOT_SUPPORTED
+ *      RT_ERR_ABORT
+ * Note:
+ *      None
+ */
+extern int32
+phy_rtl8224_patch(uint32 unit, rtk_port_t baseport, uint8 portOffset);
+
+/* Function Name:
+ *      phy_rtl8224_broadcast_patch
+ * Description:
+ *      Apply patch data to PHY
+ * Input:
+ *      unit        - unit id
+ *      baseport    - base port id on the PHY chip
+ *      portOffset  - the index offset base on baseport for the port to patch
+ *      perChip     - 1 for per-chip mode, 0 for per-bus mode
+ * Output:
+ *      None
+ * Return:
+ *      RT_ERR_OK
+ *      RT_ERR_FAILED
+ *      RT_ERR_NOT_SUPPORTED
+ *      RT_ERR_ABORT
+ * Note:
+ *      None
+ */
+extern int32
+phy_rtl8224_broadcast_patch(uint32 unit, uint8 port, uint8 portOffset, uint8 perChip);
+
+
+#endif /* __HAL_PHY_PHY_RTL8224_PATCH_H__ */
+

@@ -34,16 +34,24 @@ file_exists() {
 set_ipa_offload() {
 	local ipa_offload="$1"
 	local file="/sys/class/net/$interface/suspend_ipa_offload"
+	local disable_ioss_auto_resume_file="/sys/class/net/$interface/disable_ioss_auto_resume"
 
 	file_exists "$file"
 	if [ $? -eq $ENOENT ]; then
 		return $EINVAL
 	fi
 
+	file_exists "$disable_ioss_auto_resume_file"
+	if [ $? -eq $ENOENT ]; then
+		return $EINVAL
+	fi
+
 	if [[ "$ipa_offload" == "enable" ]]; then
+		echo 0 > /sys/class/net/$interface/disable_ioss_auto_resume
 		echo 0 > /sys/class/net/$interface/suspend_ipa_offload
 	elif [[ "$ipa_offload" == "disable" ]]; then
 		echo 1 > /sys/class/net/$interface/suspend_ipa_offload
+		echo 1 > /sys/class/net/$interface/disable_ioss_auto_resume
 	else
 		echo "Invalid value - $ipa_offload for configuring IPA offload"
 	fi
