@@ -156,6 +156,8 @@ static ssize_t sysfs_read_idev_statistics(struct device *dev, struct device_attr
 			 dev_stats.emac_rx_pause_frames);
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "emac_tx_pause_frames",
 			 dev_stats.emac_tx_pause_frames);
+	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "emac_multicast_packets_rx",
+			dev_stats.emac_multicast_packets_rx);
 
 	memcpy(user_buf, buf, len);
 	kfree(buf);
@@ -225,6 +227,7 @@ static ssize_t sysfs_read_idev_stats(struct device *dev, struct device_attribute
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", dev_stats.emac_tx_drops);
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", dev_stats.emac_rx_pause_frames);
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu", dev_stats.emac_tx_pause_frames);
+	len += scnprintf(buf + len, BUF_LEN - len, "%llu", dev_stats.emac_multicast_packets_rx);
 	len += scnprintf(buf + len, BUF_LEN - len, "\n");
 
 	memcpy(user_buf, buf, len);
