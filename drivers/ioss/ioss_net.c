@@ -589,6 +589,13 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 	int rc;
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
+	if (iface->state == IOSS_IF_ST_ERROR) {
+		iface->state = IOSS_IF_ST_OFFLINE;
+		ioss_dev_dbg(idev,
+			"Interface %s state changed to %s",
+			idev->net_dev->name, if_st_s(iface));
+	}
+
 	if (iface->state != IOSS_IF_ST_OFFLINE) {
 		ioss_dev_dbg(idev,
 			"Interface %s state is %s; required is %s",
