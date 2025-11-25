@@ -1801,6 +1801,18 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 		val |= (NFUNCEN_FUNC2 << NFUNCEN7_GPIO_13_SHIFT);
 		writel(val, priv->ioaddr + NFUNCEN7_OFFSET);
 		break;
+	case GPIO_35:
+		val = readl(priv->ioaddr + NFUNCEN1_OFFSET);
+		val &= ~NFUNCEN1_GPIO_35;
+		val |= (NFUNCEN_FUNC0 << NFUNCEN1_GPIO_35_SHIFT);
+		writel(val, priv->ioaddr + NFUNCEN1_OFFSET);
+		break;
+	case GPIO_36:
+		val = readl(priv->ioaddr + NFUNCEN1_OFFSET);
+		val &= ~NFUNCEN1_GPIO_36;
+		val |= (NFUNCEN_FUNC0 << NFUNCEN1_GPIO_36_SHIFT);
+		writel(val, priv->ioaddr + NFUNCEN1_OFFSET);
+		break;
 	default:
 		netdev_err(priv->dev, "Invalid GPIO pin - %d\n", gpio_pin);
 		return -EPERM;

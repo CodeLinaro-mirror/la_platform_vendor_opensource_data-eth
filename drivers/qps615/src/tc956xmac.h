@@ -936,7 +936,7 @@ struct tc956xmac_priv {
 						appropriate sequence of link down & up */
 
 #endif
-	struct tc956x_gpio_config saved_gpio_config[GPIO_13 + 1]; /* Only GPIO0- GPIO06, GPI010-GPIO13 are used */
+	struct tc956x_gpio_config saved_gpio_config[GPIO_36 + 1]; /* Only GPIO0- GPIO06, GPI010-GPIO13 are used */
 
 #ifdef TC956X_SRIOV_PF
 #ifdef CONFIG_DEBUG_FS

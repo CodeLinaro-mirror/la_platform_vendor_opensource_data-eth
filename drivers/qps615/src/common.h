@@ -1742,6 +1742,10 @@ RXQ1 used for MAC2MAC */
 
 #define NFUNCEN_FUNC0		(0)
 #define NFUNCEN_FUNC1		(1)
+#define NFUNCEN1_GPIO_35	GENMASK(19, 16)
+#define NFUNCEN1_GPIO_35_SHIFT  (16)
+#define NFUNCEN1_GPIO_36	GENMASK(23,20)
+#define NFUNCEN1_GPIO_36_SHIFT  (20)
 #define NFUNCEN_FUNC2		(2)
 #define NFUNCEN4_GPIO_00	GENMASK(3, 0)
 #define NFUNCEN4_GPIO_00_SHIFT	(0)
@@ -1782,6 +1786,8 @@ RXQ1 used for MAC2MAC */
 #define GPIO_12			(12)
 #define GPIO_13			(13)
 #define GPIO_32			(32)
+#define GPIO_35			(35)
+#define GPIO_36			(36)
 
 #define TRIG00_SHIFT		4
 #define TRIG10_SHIFT		12
