@@ -111,6 +111,8 @@ static int tc956x_phy_power_off(struct tc956xmac_priv *priv)
 static int tc956x_platform_of_parse(struct device *dev,
 				    struct tc956x_qcom_priv *qpriv)
 {
+	int ret = 0;
+
 	qpriv->has_always_on_supplies = of_property_read_bool(dev->of_node, "qcom,always-on-supply");
 
 	if(!qpriv->has_always_on_supplies) {
@@ -135,9 +137,14 @@ static int tc956x_platform_of_parse(struct device *dev,
 	}
 
 	qpriv->wol_irq = of_irq_get_byname(dev->of_node, "wol_irq");
-	if (qpriv->wol_irq <= 0) {
-		dev_err(dev, "Failed to get 'wol_irq' IRQ with error %d\n", qpriv->wol_irq);
-		return -EINVAL;
+	if (qpriv->wol_irq < 0) {
+		ret = qpriv->wol_irq;
+
+		if (ret == -EPROBE_DEFER)
+			return ret;
+
+		dev_info(dev, "No 'wol_irq' IRQ defined (ret = %d), WOL IRQ disabled\n", ret);
+		qpriv->wol_irq = 0;
 	}
 
 	if(!qpriv->has_always_on_supplies) {
@@ -159,16 +166,22 @@ static int tc956x_platform_of_parse(struct device *dev,
 
 	qpriv->pinctrl = devm_pinctrl_get(dev);
 	if (IS_ERR_OR_NULL(qpriv->pinctrl)) {
-		dev_err(dev, "Failed to get pinctrl handle\n");
-		goto err_pinctrl_get;
+		ret = PTR_ERR(qpriv->pinctrl);
+		if (ret == -ENODEV || ret == -EINVAL) {
+			qpriv->pinctrl = NULL;
+		} else {
+			dev_err(dev, "Failed to get pinctrl handle\n");
+			goto err_pinctrl_get;
+		}
 	}
 
-	qpriv->pinctrl_default = pinctrl_lookup_state(qpriv->pinctrl, PINCTRL_STATE_DEFAULT);
-	if (IS_ERR_OR_NULL(qpriv->pinctrl_default)) {
-		dev_err(dev, "Failed to look up '%s' pinctrl state\n", PINCTRL_STATE_DEFAULT);
-		goto err_pinctrl_lookup_state;
+	if (qpriv->pinctrl) {
+		qpriv->pinctrl_default = pinctrl_lookup_state(qpriv->pinctrl, PINCTRL_STATE_DEFAULT);
+		if (IS_ERR_OR_NULL(qpriv->pinctrl_default)) {
+			dev_err(dev, "Failed to look up '%s' pinctrl state\n", PINCTRL_STATE_DEFAULT);
+			goto err_pinctrl_lookup_state;
+		}
 	}
-
 	return 0;
 
 err_pinctrl_lookup_state:
@@ -219,12 +232,13 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 	} else
 		gpiod_set_value(qpriv->phy_rst_gpio_som, 0);
 
-	ret = pinctrl_select_state(qpriv->pinctrl, qpriv->pinctrl_default);
-	if (ret) {
-		dev_err(priv->device, "Failed to select the 'default' pincrl state\n");
-		goto err_pinctrl_select_state;
+	if (qpriv->pinctrl) {
+		ret = pinctrl_select_state(qpriv->pinctrl, qpriv->pinctrl_default);
+		if (ret) {
+			dev_err(priv->device, "Failed to select the 'default' pincrl state\n");
+			goto err_pinctrl_select_state;
+		}
 	}
-
 	ret = tc956x_phy_power_on(priv);
 	if (ret) {
 		dev_err(priv->device, "Failed to power on PHY with error %d\n", ret);
@@ -264,7 +278,8 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 			devm_regulator_put(qpriv->phy_supply);
 	}
 
-	devm_pinctrl_put(qpriv->pinctrl);
+	if (qpriv->pinctrl)
+		devm_pinctrl_put(qpriv->pinctrl);
 	kfree(priv->plat_priv);
 	priv->plat_priv = NULL;
 
