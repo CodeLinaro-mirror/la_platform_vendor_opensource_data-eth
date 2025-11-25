@@ -1736,12 +1736,8 @@ int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
 {
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(adv) = {};
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(lp) = {};
-	bool overflow = false, is_enabled;
+	bool is_enabled;
 	int ret;
-	struct ethtool_eee *eee = kzalloc(sizeof(struct ethtool_eee), GFP_KERNEL);
-
-	if (!eee)
-		return -ENOMEM;
 
 	ret = genphy_c45_eee_is_active_local(phydev, adv, lp, &is_enabled);
 	if (ret < 0)
@@ -1750,27 +1746,9 @@ int genphy_c45_ethtool_get_eee_local(struct phy_device *phydev,
 	data->eee_enabled = is_enabled;
 	data->eee_active = ret;
 
-	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->supported,
-							    data->supported))
-		overflow = true;
-	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->advertised,
-							    data->advertised))
-		overflow = true;
-	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->lp_advertised,
-							    data->lp_advertised))
-		overflow = true;
-	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->supported,
-						     phydev->supported_eee))
-		overflow = true;
-	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->advertised, adv))
-		overflow = true;
-	if (!ethtool_convert_link_mode_to_legacy_u32(&eee->lp_advertised, lp))
-		overflow = true;
-
-	if (overflow)
-		phydev_warn(phydev, "Not all supported or advertised EEE link modes were passed to the user space\n");
-
-	kfree(eee);
+	linkmode_copy(data->supported, phydev->supported_eee);
+	linkmode_copy(data->advertised, adv);
+	linkmode_copy(data->lp_advertised, lp);
 
 	return 0;
 }
