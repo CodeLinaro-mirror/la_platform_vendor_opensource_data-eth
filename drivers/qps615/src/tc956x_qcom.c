@@ -19,9 +19,11 @@ struct tc956x_qcom_priv {
 	struct pinctrl_state *pinctrl_default;
 	struct regulator *phy_supply;
 	u32 phy_rst_gpio;
+	u32 phy_reg_gpio;
 	u32 phy_rst_delay_us;
 	int wol_irq;
 	bool has_always_on_supplies;
+	bool gpio_phy_supply;
 	struct gpio_desc *phy_rst_gpio_som;
 };
 
@@ -38,18 +40,31 @@ static int tc956x_deassert_phy_reset(struct tc956xmac_priv *priv)
 	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 1);
 }
 
+static int tc956x_enable_phy_reg_gpio(struct tc956xmac_priv *priv)
+{
+	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_reg_gpio, 1);
+}
+
+static int tc956x_disable_phy_reg_gpio(struct tc956xmac_priv *priv)
+{
+	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_reg_gpio, 0);
+}
+
 static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
 {
 	int ret = 0;
 	struct tc956x_qcom_priv *qpriv = to_priv(priv);
 
 	if(!qpriv->has_always_on_supplies) {
-		ret = regulator_enable(to_priv(priv)->phy_supply);
-		if (ret) {
-			dev_err(priv->device, "Failed to enable PHY supply with error %d\n", ret);
-			return ret;
+		if (qpriv->gpio_phy_supply) {
+			tc956x_enable_phy_reg_gpio(priv);
+		} else {
+			ret = regulator_enable(to_priv(priv)->phy_supply);
+			if (ret) {
+				dev_err(priv->device, "Failed to enable PHY supply with error %d\n", ret);
+				return ret;
+			}
 		}
-
 		ret = tc956x_deassert_phy_reset(priv);
 		if (ret) {
 			dev_err(priv->device, "Failed to deassert QPS615 GPIO0%d\n", qpriv->phy_rst_gpio);
@@ -77,11 +92,15 @@ static int tc956x_phy_power_off(struct tc956xmac_priv *priv)
 				return ret;
 		}
 
-		ret = regulator_disable(qpriv->phy_supply);
-		if (ret) {
-			dev_err(priv->device, "Failed to disable PHY supply with error %d\n", ret);
-			if (tc956x_deassert_phy_reset(priv))
-				dev_err(priv->device, "Failed to deassert PHY\n");
+		if (qpriv->gpio_phy_supply) {
+			tc956x_disable_phy_reg_gpio(priv);
+		} else {
+			ret = regulator_disable(qpriv->phy_supply);
+			if (ret) {
+				dev_err(priv->device, "Failed to disable PHY supply with error %d\n", ret);
+				if (tc956x_deassert_phy_reset(priv))
+					dev_err(priv->device, "Failed to deassert PHY\n");
+			}
 		}
 	} else
 		gpiod_set_value(qpriv->phy_rst_gpio_som, 0);
@@ -122,10 +141,19 @@ static int tc956x_platform_of_parse(struct device *dev,
 	}
 
 	if(!qpriv->has_always_on_supplies) {
-		qpriv->phy_supply = devm_regulator_get(dev, "phy");
-		if (IS_ERR(qpriv->phy_supply)) {
-			dev_err(dev, "Failed to acquire supply 'phy-supply': %ld\n", PTR_ERR(qpriv->phy_supply));
-			return -EINVAL;
+		qpriv->gpio_phy_supply = of_property_read_bool(dev->of_node, "qcom,gpio-phy-power");
+
+		if (qpriv->gpio_phy_supply) {
+			if (of_property_read_u32(dev->of_node,"qcom,phy-reg-gpio", &qpriv->phy_reg_gpio)) {
+				dev_err(dev, "Failed to get phy supply gpio\n");
+				return -EINVAL;
+			}
+		} else {
+			qpriv->phy_supply = devm_regulator_get(dev, "phy");
+			if (IS_ERR(qpriv->phy_supply)) {
+				dev_err(dev, "Failed to acquire supply 'phy-supply': %ld\n", PTR_ERR(qpriv->phy_supply));
+				return -EINVAL;
+			}
 		}
 	}
 
@@ -229,8 +257,12 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 	if (ret)
 		dev_err(priv->device, "Failed to power off PHY with error %d\n", ret);
 
-	if (!qpriv->has_always_on_supplies)
-		devm_regulator_put(qpriv->phy_supply);
+	if (!qpriv->has_always_on_supplies) {
+		if (qpriv->gpio_phy_supply)
+			tc956x_disable_phy_reg_gpio(priv);
+		else
+			devm_regulator_put(qpriv->phy_supply);
+	}
 
 	devm_pinctrl_put(qpriv->pinctrl);
 	kfree(priv->plat_priv);
