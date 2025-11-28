@@ -1443,8 +1443,7 @@ static int tc956xmac_xgmac3_default_data(struct pci_dev *pdev,
 
 	if (plat->port_interface == ENABLE_XFI_INTERFACE) {
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
-		KPRINT_INFO("%s Setting interface to PHY_INTERFACE_MODE_10GKR for downstream Aquantia", __func__);
-		plat->interface = PHY_INTERFACE_MODE_10GKR;
+		plat->interface = PHY_INTERFACE_MODE_10GBASER;
 #else
 		plat->interface = PHY_INTERFACE_MODE_10GKR;
 #endif
