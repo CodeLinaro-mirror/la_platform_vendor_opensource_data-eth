@@ -1801,6 +1801,18 @@ int tc956x_GPIO_OutputConfigPin(struct tc956xmac_priv *priv, u32 gpio_pin, u8 ou
 		val |= (NFUNCEN_FUNC2 << NFUNCEN7_GPIO_13_SHIFT);
 		writel(val, priv->ioaddr + NFUNCEN7_OFFSET);
 		break;
+	case GPIO_35:
+		val = readl(priv->ioaddr + NFUNCEN1_OFFSET);
+		val &= ~NFUNCEN1_GPIO_35;
+		val |= (NFUNCEN_FUNC0 << NFUNCEN1_GPIO_35_SHIFT);
+		writel(val, priv->ioaddr + NFUNCEN1_OFFSET);
+		break;
+	case GPIO_36:
+		val = readl(priv->ioaddr + NFUNCEN1_OFFSET);
+		val &= ~NFUNCEN1_GPIO_36;
+		val |= (NFUNCEN_FUNC0 << NFUNCEN1_GPIO_36_SHIFT);
+		writel(val, priv->ioaddr + NFUNCEN1_OFFSET);
+		break;
 	default:
 		netdev_err(priv->dev, "Invalid GPIO pin - %d\n", gpio_pin);
 		return -EPERM;
@@ -7753,7 +7765,7 @@ static int tc956xmac_open(struct net_device *dev)
 		/* Do not re-request WOL irq resources during resume sequence. */
 		if (priv->tc956x_port_pm_suspend == false) {
 			/* Request the Wake IRQ in case of another line is used for WoL */
-			if (priv->wol_irq != dev->irq) {
+			if (priv->wol_irq && priv->wol_irq != dev->irq) {
 				pwol_dev_name = priv->int_name_wol;
 				snprintf(pwol_dev_name, sizeof(priv->int_name_wol), "%s_wol", dev->name);
 				ret = request_irq(priv->wol_irq, tc956xmac_wol_interrupt,
@@ -8054,7 +8066,7 @@ static int tc956xmac_release(struct net_device *dev)
 
 		/* Do not Free Host Irq resources during suspend sequence */
 		if (priv->tc956x_port_pm_suspend == false) {
-			if (priv->wol_irq != dev->irq)
+			if (priv->wol_irq && priv->wol_irq != dev->irq)
 				free_irq(priv->wol_irq, dev);
 	#ifndef TC956X
 			if (priv->lpi_irq > 0)
