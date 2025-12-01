@@ -298,8 +298,6 @@ static void ioss_bus_remove(struct device *dev)
 
 	ioss_dev_log(idev, "De-initializing device");
 
-	ioss_qos_remove_idev(idev);
-
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
 	ioss_sysfs_remove_idev(idev);
@@ -316,6 +314,9 @@ static void ioss_bus_remove(struct device *dev)
 	if (rc) {
 		ioss_dev_err(idev, "Failed to unwatch device");
 	}
+
+	/* Since IOSS is offline now, do QOS-related clean-up */
+	ioss_qos_remove_idev(idev);
 
 	rc = ioss_dev_op(idev, close_device, idev);
 	if (rc) {
