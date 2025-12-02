@@ -153,8 +153,7 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 	return size;
 }
 
-/* By default assign port #0 to have LLCC enabled. Only one port can get LLCC. */
-static int enable_tcm_eth = 1;
+static int enable_tcm_eth = 0;
 
 module_param(enable_tcm_eth, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(enable_tcm_eth, "Enable use of LLCC TCM memory for Ethernet port: Value 1 = eth0, 2 = eth1, 0 = disabled");
