@@ -7436,7 +7436,6 @@ static int tc956xmac_open(struct net_device *dev)
 	char *pwol_dev_name;
 
 	NMSGPR_INFO(priv->device, "---> light weight = %d %s : Port %d interface %s", priv->link_down_rst, __func__, priv->port_num, dev->name);
-        NMSGPR_INFO(priv->device,"after applying new Patch");
     	/* Query No. QPSSW-245, TC956X_Host_Driver-industrial_limited_tested_20250926_V_06-00-00-QPSSW-245.patch */
 	if (priv->dma_cap.sma_mdio == TC956X_MDIO_CONN_PRESENT)
 	phydev = mdiobus_get_phy(priv->mii, addr);
