@@ -113,7 +113,7 @@ static phys_addr_t llcc_mem_pa(struct ioss_device *idev,
 		void *addr, dma_addr_t daddr,
 		struct ioss_mem_allocator *alctr)
 {
-	return tcm_mem->phys_addr + (tcm_mem->virt_addr - addr);
+	return tcm_mem->phys_addr + (addr - tcm_mem->virt_addr);
 }
 
 static size_t llcc_mem_get(void)
