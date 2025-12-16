@@ -2261,6 +2261,7 @@ static int stmmac_clear_qos_cache(struct ioss_device *idev)
 
 	if (priv->plat->qos_active) {
 		for (i = 0; i < 32; i++) {
+			memset(&priv->app_filters[i], 0, sizeof(struct dma_flt));
 			priv->app_filters[i].action = IDX_UNUSED;
 		}
 

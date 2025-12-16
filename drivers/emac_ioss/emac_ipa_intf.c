@@ -2014,6 +2014,7 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, int filter_type, enum 
 				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting vlan %d filter failed\n",
 					        	priv->app_filters[i].vlan_id);
 			} else {
+				memset(&priv->app_filters[i], 0, sizeof(struct dma_flt));
 				priv->app_filters[i].action = IDX_UNUSED;
 				ioss_qos_dev_log(NULL, "[iemac qos]: vlan filter %d deleted, ch = %d\n",
 					         priv->app_filters[i].vlan_id, priv->app_filters[i].dma_ch);
@@ -2030,6 +2031,7 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, int filter_type, enum 
 			if(ret) {
 				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting src ip filter failed\n");
 			} else {
+				memset(&priv->app_filters[i], 0, sizeof(struct dma_flt));
 				priv->app_filters[i].action = IDX_UNUSED;
 				ioss_qos_dev_log(NULL, "[iemac qos]: src ip filter deleted\n");
 			}
@@ -2045,6 +2047,7 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, int filter_type, enum 
 			if(ret) {
 				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting dest ip filter failed\n");
 			} else {
+				memset(&priv->app_filters[i], 0, sizeof(struct dma_flt));
 				priv->app_filters[i].action = IDX_UNUSED;
 				ioss_qos_dev_log(NULL, "[iemac qos]: dest ip filter deleted\n");
 			}
@@ -2060,6 +2063,7 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, int filter_type, enum 
 			if(ret) {
 				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting src port filter failed\n");
 			} else {
+				memset(&priv->app_filters[i], 0, sizeof(struct dma_flt));
 				priv->app_filters[i].action = IDX_UNUSED;
 				ioss_qos_dev_log(NULL, "[iemac qos]: src port filter deleted\n");
 			}
@@ -2074,6 +2078,7 @@ void stmmac_remove_qos_filtering(struct net_device *ndev, int filter_type, enum 
 			if(ret) {
 				ioss_qos_dev_err(NULL, "[iemac qos]: Deleting dest port filter failed at index %d, ret = %d\n",i, ret);
 			} else {
+				memset(&priv->app_filters[i], 0, sizeof(struct dma_flt));
 				priv->app_filters[i].action = IDX_UNUSED;
 				ioss_qos_dev_log(NULL, "[iemac qos]: dest port filter deleted\n");
 			}
