@@ -63,6 +63,8 @@ static void __netdev_get_stats64(struct net_device *net_dev,
 	struct ioss_device_stats glue_stats;
 	struct ioss_device *idev = NULL;
 	int rc;
+	int ipa_ret;
+	struct ipa_drop_stats drop_stats;
 #endif
 
 	if (!net_dev)
@@ -102,6 +104,12 @@ static void __netdev_get_stats64(struct net_device *net_dev,
 		return;
 	}
 
+	memset(&drop_stats, 0, sizeof(struct ipa_drop_stats));
+	ipa_ret = ipa_client_get_stats(-1, iface->instance_id, &drop_stats);
+
+	if (ipa_ret)
+		ioss_dev_log(idev, " ipa_client_get_stats failed %s", net_dev->name);
+
 	stats->multicast = glue_stats.emac_multicast_packets_rx;
 	stats->rx_packets = glue_stats.emac_rx_packets;
 	stats->tx_packets = glue_stats.emac_tx_packets;
@@ -110,6 +118,7 @@ static void __netdev_get_stats64(struct net_device *net_dev,
 	stats->rx_dropped += glue_stats.emac_rx_drops;
 	stats->tx_errors += glue_stats.emac_tx_errors;
 	stats->rx_errors = glue_stats.emac_rx_errors;
+	stats->tx_dropped += drop_stats.drop_packet_cnt;
 #endif
 }
 
