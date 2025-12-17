@@ -3,6 +3,7 @@
  * STMMAC Ethtool support
  *
  * Copyright (C) 2007-2009  STMicroelectronics Ltd
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  *****************************************************************************/
@@ -137,9 +138,9 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 static void stmmac_ethtool_getdrvinfo(struct net_device *dev,
 				      struct ethtool_drvinfo *info)
 {
-	strlcpy(info->driver, GMAC_ETHTOOL_NAME, sizeof(info->driver));
+	strscpy(info->driver, GMAC_ETHTOOL_NAME, sizeof(info->driver));
 
-	strlcpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
+	strscpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
 }
 
 static u32 stmmac_ethtool_getmsglevel(struct net_device *dev)
@@ -236,7 +237,7 @@ static const struct ethtool_ops stmmac_ethtool_ops = {
 	.get_rxnfc = stmmac_get_rxnfc,
 };
 
-void stmmac_set_ethtool_ops(struct net_device *netdev)
+void stmmac_thin_set_ethtool_ops(struct net_device *netdev)
 {
 	netdev->ethtool_ops = &stmmac_ethtool_ops;
 }

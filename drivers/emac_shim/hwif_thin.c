@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /* Copyright (c) 2018 Synopsys, Inc. and/or its affiliates.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * stmmac HW Interface Handling
  */
 
@@ -28,16 +29,16 @@ static const struct stmmac_hwif_entry {
 } stmmac_hw[] = {
 	/* NOTE: New HW versions shall go to the end of this table */
 	{
-		.desc = &dwmac4_desc_ops,
-		.dma = &dwmac4_dma_ops,
-		.mac = &dwmac4_ops,
+		.desc = &dwmac4_thin_desc_ops,
+		.dma = &dwmac4_thin_dma_ops,
+		.mac = &dwmac4_thin_ops,
 		.mode = NULL,
-		.setup = dwmac4_setup,
+		.setup = dwmac4_thin_setup,
 		.quirks = stmmac_dwmac4_quirks,
 	},
 };
 
-int stmmac_hwif_init(struct stmmac_priv *priv)
+int stmmac_thin_hwif_init(struct stmmac_priv *priv)
 {
 	const struct stmmac_hwif_entry *entry;
 	struct mac_device_info *mac;

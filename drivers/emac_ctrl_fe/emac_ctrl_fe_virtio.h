@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #ifndef _EMAC_CTRL_FE_VIRTIO_DRIVER_H_
@@ -8,7 +9,9 @@
 #include <linux/virtio_config.h>
 
 /*Virtio ID of EMAC*/
-#define VIRTIO_ID_EMAC_CTL_FE       38
+#define VIRTIO_DT_QCOM_BASE         (49152)
+#define VIRTIO_ID_EMAC_CTL_FE       (VIRTIO_DT_QCOM_BASE + 8)
+#define WAIT_HOST_REPLY_MAX_TIMEOUT (200)
 
 /* VIRTIO Driver Feature Flags*/
 #define VERSION_MAJOR                0
@@ -94,6 +97,7 @@ enum emac_ctrl_fe_to_be_cmds {
 	VIRTIO_EMAC_DMA_VIRT_VLAN_FTR_ADD=6,
 	VIRTIO_EMAC_DMA_VIRT_VLAN_FTR_DEL=7,
 	VIRTIO_EMAC_DMA_STOP_ACK=8,
+	VIRTIO_EMAC_DMA_DISABLE_MAC_FILTER=9,
 };
 
 /*Analogous to emac_ctrl_fe_gvm_event
@@ -140,10 +144,11 @@ struct emac_ctrl_fe_virtio_dev {
 	enum emac_ctrl_fe_state_type   emac_ctrl_fe_state;
 	bool                           emac_ctrl_fe_ready;
 	struct list_head               emac_ctrl_fe_ready_cb_list;
-	struct mutex                   emac_ctl_fe_lock;
+	spinlock_t                     emac_ctl_fe_lock;
 
 	enum emac_dma_drv_state_type   emac_dma_drv_state;
 
+	struct semaphore               emac_ctl_fe_sem;
 };
 
 #endif /* _EMAC_CTRL_FE_VIRTIO_DRIVER_H_ */
