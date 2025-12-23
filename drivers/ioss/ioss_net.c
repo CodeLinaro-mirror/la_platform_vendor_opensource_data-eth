@@ -59,6 +59,11 @@ static void __netdev_get_stats64(struct net_device *net_dev,
 {
 	struct ioss_interface *iface = NULL;
 	const struct net_device_ops *real_ops = NULL;
+#ifdef FEATURE_PRPLWRT
+	struct ioss_device_stats glue_stats;
+	struct ioss_device *idev = NULL;
+	int rc;
+#endif
 
 	if (!net_dev)
 		return;
@@ -82,6 +87,30 @@ static void __netdev_get_stats64(struct net_device *net_dev,
 	/* Add exception path stats */
 	stats->rx_packets += iface->exception_stats.rx_packets;
 	stats->rx_bytes += iface->exception_stats.rx_bytes;
+
+#ifdef FEATURE_PRPLWRT
+	/*Add stats from ethernet driver*/
+	memset(&glue_stats, 0, sizeof(struct ioss_device_stats));
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return;
+
+	rc = ioss_dev_op(idev, get_device_statistics, idev, &glue_stats);
+
+	if (rc){
+		ioss_dev_log(idev, "get_device_statistics callback failed %s", net_dev->name);
+		return;
+	}
+
+	stats->multicast = glue_stats.emac_multicast_packets_rx;
+	stats->rx_packets = glue_stats.emac_rx_packets;
+	stats->tx_packets = glue_stats.emac_tx_packets;
+	stats->rx_bytes = glue_stats.emac_rx_bytes;
+	stats->tx_bytes = glue_stats.emac_tx_bytes;
+	stats->rx_dropped += glue_stats.emac_rx_drops;
+	stats->tx_errors += glue_stats.emac_tx_errors;
+	stats->rx_errors = glue_stats.emac_rx_errors;
+#endif
 }
 
 static void __hijack_netdev_ops(struct ioss_interface *iface)
