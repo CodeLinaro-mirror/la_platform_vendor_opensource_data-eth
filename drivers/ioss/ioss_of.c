@@ -82,6 +82,16 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 		goto err;
 	}
 
+	key = "qcom,channel-num";
+	if (of_property_read_u32(np, key, &ch->channel_num)) {
+		ioss_dev_log(idev, "Optional key %s not found", key);
+	}
+
+	key = "qcom,queue-number";
+	if (of_property_read_u32(np, key, &ch->queue_number)) {
+		ioss_dev_log(idev, "Optional key %s not found", key);
+	}
+
 	key = "qcom,mod-count-min";
 	if (of_property_read_u32(np, key, &ch->event.mod_count_min)) {
 		ioss_dev_err(idev, "Failed to parse key %s", key);

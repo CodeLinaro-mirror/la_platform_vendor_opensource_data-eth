@@ -349,6 +349,7 @@ struct ioss_channel {
 	int multi_rx_queues;
 
 	int channel_num;
+	int queue_number;
 	u32 tc_mapping;
 };
 
