@@ -2,6 +2,7 @@
 
 obj-m += ioss/
 obj-m += emac_ioss/
+#obj-m += stmmac_ioss/
 
 ifeq ($(KP_MODULE_ROOT),)
 	KP_MODULE_ROOT=$(KERNEL_SRC)/$(M)

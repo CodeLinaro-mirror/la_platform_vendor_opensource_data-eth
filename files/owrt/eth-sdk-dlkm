@@ -38,11 +38,13 @@ case "$1" in
 	echo "IOSS:start/load" > /dev/kmsg
 	insmod /lib/modules/ethernet/ioss.ko
 	insmod /lib/modules/ethernet/iemac_ioss.ko
+	# insmod /lib/modules/ethernet/stmmac_ioss.ko
 	echo "done loading IOSS and EMAC_IOSS modules"
 	;;
   stop)
 	echo -n "Unloading EMAC_IOSS and IOSS modules "
 	rmmod iemac_ioss
+	# rmmod stmmac_ioss
 	rmmod ioss
 	;;
   restart)
