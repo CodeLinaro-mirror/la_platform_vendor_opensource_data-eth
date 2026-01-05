@@ -5,6 +5,7 @@
 
 #include "ioss_i.h"
 #include <linux/cdev.h>
+#include <linux/version.h>
 
 /* Wake lock duration to allow the device to settle after a resume */
 #define IOSS_RESUME_SETTLE_MS 5000
@@ -54,7 +55,11 @@ static void ioss_unregister_panic_notifier(struct ioss_device *idev)
 	idev->panic_nb.notifier_call = NULL;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 static int ioss_bus_match(struct device *dev, struct device_driver *drv)
+#else
+static int ioss_bus_match(struct device *dev, const struct device_driver *drv)
+#endif
 {
 	struct device *real_dev = dev->parent;
 	struct ioss_driver *idrv = to_ioss_driver(drv);

@@ -18,6 +18,7 @@
 #include <linux/pm_wakeup.h>
 #include <linux/refcount.h>
 #include <linux/ethtool.h>
+#include <linux/version.h>
 
 #include "ioss_qos.h"
 
@@ -219,7 +220,11 @@ struct ioss_interface {
 #define ioss_iface_to_netdev(iface) \
 		(iface->dev.parent ? to_net_dev(iface->dev.parent) : NULL)
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
 static inline int __match_iface(struct device *dev, void *data)
+#else
+static inline int __match_iface(struct device *dev, const void *data)
+#endif
 {
 	return dev->type == &ioss_iface_type;
 }
@@ -394,7 +399,11 @@ struct ioss_device {
 
 #define ioss_idev_to_real(idev) (idev->dev.parent)
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
 static inline int __match_idev(struct device *dev, void *data)
+#else
+static inline int __match_idev(struct device *dev, const void *data)
+#endif
 {
 	return dev->type == &ioss_idev_type;
 }
