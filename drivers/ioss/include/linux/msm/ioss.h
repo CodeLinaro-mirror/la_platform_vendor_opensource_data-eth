@@ -492,6 +492,7 @@ struct ioss_device_stats {
 	u64 emac_tx_drops;
 	u64 emac_rx_pause_frames;
 	u64 emac_tx_pause_frames;
+	u64 emac_multicast_packets_rx;
 };
 
 struct ioss_channel_stats {
