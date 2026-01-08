@@ -341,6 +341,10 @@ struct ioss_channel {
 	bool allocated;
 	bool enabled;
 
+	/* TCM (LLCC) usage tracking */
+	u32 tcm_desc_bytes;
+	u32 tcm_buff_bytes;
+
 	void *ioss_priv;
 	int multi_rx_queues;
 
