@@ -267,6 +267,9 @@ static int ioss_net_select_llcc_config(struct ioss_channel *ch)
 	ch->config.ring_size = ring_size;
 	ch->config.buff_alctr = &ioss_llcc_alctr;
 
+	/* Track per-channel TCM (LLCC) usage (buffers only) */
+	ch->tcm_buff_bytes = mem_size;
+
 	return 0;
 }
 #endif
@@ -293,6 +296,10 @@ static void ioss_net_deselect_channel_config(struct ioss_channel *ch)
 	if (ch->config.buff_alctr == &ioss_llcc_alctr)
 		ioss_llcc_alctr.put();
 #endif
+
+	/* Clear per-channel TCM (LLCC) usage */
+	ch->tcm_buff_bytes = 0;
+
 	ch->config = ch->default_config;
 }
 
