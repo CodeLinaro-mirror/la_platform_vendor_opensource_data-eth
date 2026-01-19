@@ -10,7 +10,6 @@ endif
 
 ifeq ($(CONFIG_ARCH_SDXPINN), y)
 obj-m += drivers/r8125_ioss/
-obj-m += drivers/r8168/src/
 obj-m += drivers/r8168_ioss/
 obj-m += drivers/aqc_ioss/
 endif
