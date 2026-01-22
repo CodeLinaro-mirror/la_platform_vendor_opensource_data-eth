@@ -146,6 +146,7 @@
 #define DMA_CONTROL_SR			BIT(0)
 #define DMA_RBSZ_MASK			GENMASK(14, 1)
 #define DMA_RBSZ_SHIFT			1
+#define DMA_CONTROL_RPF			BIT(31)
 
 /* Interrupt status per channel */
 #define DMA_CHAN_STATUS_REB		GENMASK(21, 19)
@@ -183,7 +184,7 @@
 
 #define DMA_CHAN_INTR_NORMAL		(DMA_CHAN_INTR_ENA_NIE | \
 					 DMA_CHAN_INTR_ENA_RIE | \
-					 DMA_CHAN_INTR_ENA_TIE | DMA_CHAN_INTR_ENA_ERE)
+					 DMA_CHAN_INTR_ENA_TIE)
 
 #define DMA_CHAN_INTR_ABNORMAL		(DMA_CHAN_INTR_ENA_AIE | \
 					 DMA_CHAN_INTR_ENA_FBE | \
@@ -192,6 +193,5 @@
 
 /* DMA default interrupt mask for 4.00 */
 #define DMA_CHAN_INTR_DEFAULT_MASK	(0)
-#define DMA_CHAN_INTR_DEFAULT_RX	(DMA_CHAN_INTR_ENA_RIE)
-#define DMA_CHAN_INTR_DEFAULT_TX	(DMA_CHAN_INTR_ENA_TIE)
+
 #endif /* __DWMAC4_THIN_H__ */
