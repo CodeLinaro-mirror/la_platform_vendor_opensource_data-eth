@@ -165,7 +165,7 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 #endif
 #endif
 
-	dev_dbg(priv->device, "QPS615 platform probing has started\n");
+	dev_info(priv->device, "QPS615 platform probing has started\n");
 
 	qpriv = kzalloc(sizeof(*qpriv), GFP_KERNEL);
 	if (!qpriv) {
@@ -223,7 +223,7 @@ int tc956x_platform_remove(struct tc956xmac_priv *priv)
 	int ret = 0;
 	struct tc956x_qcom_priv *qpriv = to_priv(priv);
 
-	dev_dbg(priv->device, "Freeing QPS615 platform resources\n");
+	dev_info(priv->device, "Freeing QPS615 platform resources\n");
 
 	ret = tc956x_phy_power_off(priv);
 	if (ret)
@@ -297,14 +297,14 @@ int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_
 		dev_err(dev, "Failed to get phy port interface\n");
 		return ret;
 	} else {
-		dev_err(dev, "phy port interface overlay to %d from %d\n", interface, res->port_interface);
+		dev_dbg(dev, "phy port interface overlay to %d from %d\n", interface, res->port_interface);
 		res->port_interface = interface;
 
 		if (of_property_read_u32(dev->of_node, "qcom,mdc-clk", &mdc_clk)) {
 			dev_err(dev, "Failed to get mdc clk\n");
 			return ret;
 		} else {
-			dev_err(dev, "mdc clk overlay to %d\n", mdc_clk);
+			dev_dbg(dev, "mdc clk overlay to %d\n", mdc_clk);
 			res->mdc_clk = mdc_clk;
 		}
 
@@ -312,7 +312,7 @@ int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_
 			dev_err(dev, "Failed to get c45 state\n");
 			return ret;
 		} else {
-			dev_err(dev, "c45 state overlay to %d\n", c45_state);
+			dev_dbg(dev, "c45 state overlay to %d\n", c45_state);
 			res->c45_state = c45_state;
 		}
 
@@ -320,7 +320,7 @@ int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_
 			dev_err(dev, "Failed to get link down macrst\n");
 			return ret;
 		} else {
-			dev_err(dev, "link down macrst overlay to %d\n", link_down_macrst);
+			dev_dbg(dev, "link down macrst overlay to %d\n", link_down_macrst);
 			res->link_down_macrst = link_down_macrst;
 		}
 		ret = 1;
