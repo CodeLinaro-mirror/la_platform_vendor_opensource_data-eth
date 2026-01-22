@@ -4,9 +4,15 @@ load("//build/kernel/kleaf:kernel.bzl", "ddk_module")
 
 def define_modules(target, variant):
     kernel_build_variant = "{}_{}".format(target, variant)
+    ioss_copts = []
+    emac_ioss_copts = ["-Wno-error"]
 
     #The below will take care of the defconfig
     include_defconfig = ":{}_defconfig".format(variant)
+
+    if target == "sdxkova.prpl":
+     ioss_copts =  ["-DFEATURE_PRPLWRT"]
+     emac_ioss_copts = ["-DFEATURE_PRPLWRT","-Wno-error"]
 
     mod_list = []
 
@@ -34,6 +40,7 @@ def define_modules(target, variant):
             "//build_dir/target-aarch64_cortex-a53_musl/linux-sdx85/dataipa-1.0:include_headers",
             "//build_dir/target-aarch64_cortex-a53_musl/linux-sdx85/dataipa-1.0:{}-defconfig_ipam".format(kernel_build_variant),
         ],
+        copts = ioss_copts,
     )
     mod_list.append("{}-defconfig_ioss".format(kernel_build_variant))
 
@@ -53,9 +60,7 @@ def define_modules(target, variant):
             "//build_dir/target-aarch64_cortex-a53_musl/linux-sdx85/dataipa-1.0:include_headers",
             ":{}-defconfig_ioss".format(kernel_build_variant),
         ],
-        copts = [
-            "-Wno-error",
-        ],
+        copts = emac_ioss_copts,
     )
     mod_list.append("{}-defconfig_emac_ioss".format(kernel_build_variant))
 

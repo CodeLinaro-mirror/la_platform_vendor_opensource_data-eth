@@ -59,6 +59,13 @@ static void __netdev_get_stats64(struct net_device *net_dev,
 {
 	struct ioss_interface *iface = NULL;
 	const struct net_device_ops *real_ops = NULL;
+#ifdef FEATURE_PRPLWRT
+	struct ioss_device_stats glue_stats;
+	struct ioss_device *idev = NULL;
+	int rc;
+	int ipa_ret;
+	struct ipa_drop_stats drop_stats;
+#endif
 
 	if (!net_dev)
 		return;
@@ -82,6 +89,37 @@ static void __netdev_get_stats64(struct net_device *net_dev,
 	/* Add exception path stats */
 	stats->rx_packets += iface->exception_stats.rx_packets;
 	stats->rx_bytes += iface->exception_stats.rx_bytes;
+
+#ifdef FEATURE_PRPLWRT
+	/*Add stats from ethernet driver*/
+	memset(&glue_stats, 0, sizeof(struct ioss_device_stats));
+	idev = ioss_iface_dev(iface);
+	if(!idev)
+		return;
+
+	rc = ioss_dev_op(idev, get_device_statistics, idev, &glue_stats);
+
+	if (rc){
+		ioss_dev_log(idev, "get_device_statistics callback failed %s", net_dev->name);
+		return;
+	}
+
+	memset(&drop_stats, 0, sizeof(struct ipa_drop_stats));
+	ipa_ret = ipa_client_get_stats(-1, iface->instance_id, &drop_stats);
+
+	if (ipa_ret)
+		ioss_dev_log(idev, " ipa_client_get_stats failed %s", net_dev->name);
+
+	stats->multicast = glue_stats.emac_multicast_packets_rx;
+	stats->rx_packets = glue_stats.emac_rx_packets;
+	stats->tx_packets = glue_stats.emac_tx_packets;
+	stats->rx_bytes = glue_stats.emac_rx_bytes;
+	stats->tx_bytes = glue_stats.emac_tx_bytes;
+	stats->rx_dropped += glue_stats.emac_rx_drops;
+	stats->tx_errors += glue_stats.emac_tx_errors;
+	stats->rx_errors = glue_stats.emac_rx_errors;
+	stats->tx_dropped += drop_stats.drop_packet_cnt;
+#endif
 }
 
 static void __hijack_netdev_ops(struct ioss_interface *iface)
@@ -617,6 +655,12 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		return;
 	}
 
+	if (iface->link_speed == (u32)SPEED_UNKNOWN) {
+		ioss_dev_err(idev,"incorrect link speed");
+		iface->state = IOSS_IF_ST_ERROR;
+		return;
+	}
+
 	ioss_dev_log(idev, "Bringing up %s", idev->net_dev->name);
 
 	rc = ioss_ipa_validate_channels(iface);
@@ -800,6 +844,7 @@ static void ioss_refresh_work(struct work_struct *work)
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 	struct ioss_device *idev = ioss_iface_dev(iface);
 	struct device *dev = &idev->dev;
+	int retry = 5;
 
 	if (!net_dev)
 		return;
@@ -808,7 +853,11 @@ static void ioss_refresh_work(struct work_struct *work)
 
 	ioss_dev_dbg(idev, "Refreshing interface %s", idev->net_dev->name);
 
-	iface->link_speed = __fetch_ethtool_link_speed(net_dev);
+	do {
+		iface->link_speed = __fetch_ethtool_link_speed(net_dev);
+		if (iface->link_speed != (u32)SPEED_UNKNOWN)
+			break;
+	} while (--retry > 0);
 
 	if (netif_running(net_dev) && netif_carrier_ok(net_dev)
 	    && !(dev->offline) && !idev->unbinding)

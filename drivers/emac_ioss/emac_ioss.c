@@ -20,6 +20,7 @@
 #include "emac_ipa_intf.h"
 #include "dwmac-qcom-ethqos.h"
 #include "common.h"
+#include <linux/rtnetlink.h>
 
 void *ipc_stmmac_log_ctxt;
 struct qos_struct qos_tables;
@@ -415,9 +416,13 @@ static int stmmac_ioss_device_statistics(struct ioss_device *idev,
 	memset(&stats, 0, sizeof(stats));
 	stats.n_stats = strings_count;
 
-	rtnl_lock();
-	ops->get_ethtool_stats(idev->net_dev, &stats, data);
-	rtnl_unlock();
+	if (!rtnl_is_locked()) {
+		rtnl_lock();
+		ops->get_ethtool_stats(idev->net_dev, &stats, data);
+		rtnl_unlock();
+	} else {
+		ops->get_ethtool_stats(idev->net_dev, &stats, data);
+	}
 
 	ops->get_strings(idev->net_dev, ETH_SS_STATS, strings);
 
@@ -435,6 +440,24 @@ static int stmmac_ioss_device_statistics(struct ioss_device *idev,
 		__get_stats_data("mmc_rx_pause_frames", data, strings, strings_count);
 	statistics->emac_tx_pause_frames =
 		__get_stats_data("mmc_tx_pause_frame", data, strings, strings_count);
+#ifdef FEATURE_PRPLWRT
+	statistics->emac_rx_drops =
+		__get_stats_data("mmc_rx_discard_packet", data, strings, strings_count);
+	statistics->emac_multicast_packets_rx =
+		__get_stats_data("mmc_rx_multicastframe_g", data, strings, strings_count);
+	statistics->emac_tx_errors =
+		__get_stats_data("mmc_tx_underflow_error", data, strings, strings_count);
+	statistics->emac_rx_errors =
+		__get_stats_data("mmc_rx_length_error", data, strings, strings_count) +
+		__get_stats_data("mmc_rx_crc_error", data, strings, strings_count) +
+		__get_stats_data("mmc_rx_align_error", data, strings, strings_count) +
+		__get_stats_data("mmc_rx_run_error", data, strings, strings_count) +
+		__get_stats_data("mmc_rx_jabber_error", data, strings, strings_count) +
+		__get_stats_data("mmc_rx_watchdog_error", data, strings, strings_count) +
+		__get_stats_data("mmc_rx_packet_assembly_err_cntr", data, strings, strings_count) +
+		__get_stats_data("mmc_rx_packet_smd_err_cntr", data, strings, strings_count) +
+		__get_stats_data("mmc_rx_fifo_overflow", data, strings, strings_count);
+#endif
 
 	kfree_sensitive(data);
 	kfree_sensitive(strings);
@@ -2261,6 +2284,7 @@ static int stmmac_clear_qos_cache(struct ioss_device *idev)
 
 	if (priv->plat->qos_active) {
 		for (i = 0; i < 32; i++) {
+			memset(&priv->app_filters[i], 0, sizeof(struct dma_flt));
 			priv->app_filters[i].action = IDX_UNUSED;
 		}
 
