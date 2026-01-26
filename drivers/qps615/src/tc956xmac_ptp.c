@@ -293,9 +293,9 @@ static struct ptp_clock_info tc956xmac_ptp_clock_ops = {
 	.adjtime = tc956xmac_adjust_time,
 	.gettime64 = tc956xmac_get_time,
 	.settime64 = tc956xmac_set_time,
-#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
+//#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 	.enable = tc956xmac_enable,
-#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
+//#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 };
 
 /**

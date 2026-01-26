@@ -58,6 +58,7 @@ def define_modules(target, variant):
         "-DTC956X",
         "-DCONFIG_TC956X_PLATFORM_SUPPORT",
         "-DTC956X_SRIOV_PF",
+	"-DTC956X_AUTOMOTIVE_CONFIG",
         "-DFIRMWARE_NAME=\\\"qps615_fw.bin\\\"",
     ],
     )

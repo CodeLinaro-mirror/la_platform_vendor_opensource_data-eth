@@ -68,7 +68,8 @@
 #include "tc956xmac_ioctl.h"
 
 //#define TC956X
-//#define TC956X_IOCTL_REG_RD_WR_ENABLE
+#define TC956X_IOCTL_REG_RD_WR_ENABLE
+
 
 //#define TC956X_PCIE_GEN3_SETTING
 //#define TC956X_PCIE_DISABLE_DSP1 /*Enable this macro to disable DSP1 port*/

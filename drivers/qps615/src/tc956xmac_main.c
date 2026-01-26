@@ -2252,13 +2252,15 @@ static void tc956xmac_service_event_schedule(struct tc956xmac_priv *priv)
 }
 #endif
 
-#if defined(TC956X_SRIOV_PF) && !defined(TC956X_AUTOMOTIVE_CONFIG) && !defined(TC956X_ENABLE_MAC2MAC_BRIDGE) && !defined(TC956X_CPE_CONFIG)
+#if defined(TC956X_SRIOV_PF)
 /**
  * tc956xmac_service_mbx_event_schedule - Schedule work queue
  * @priv: driver private structure
  */
 void tc956xmac_service_mbx_event_schedule(struct tc956xmac_priv *priv)
 {
+	if (!priv || !priv->mbx_wq)
+		return;
 	if (!test_bit(TC956XMAC_DOWN, &priv->state) &&
 	    !test_and_set_bit(TC956XMAC_SERVICE_SCHED, &priv->state))
 		queue_work(priv->mbx_wq, &priv->service_mbx_task);
