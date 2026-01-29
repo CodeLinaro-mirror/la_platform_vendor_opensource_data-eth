@@ -15570,9 +15570,14 @@ int tc956xmac_vf_dvr_probe(struct device *device,
 #endif
 
 	ret = tc956xmac_tc_init(priv, NULL);
+	/* TC commands are tested only for kernel versions 5.4, 6.1 and 6.6
+	* For other kernel versions, dont enable TC support
+	*/
+#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)) ||\
+ ((LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)) &&(LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0))))
 	if (!ret)
 		ndev->hw_features |= NETIF_F_HW_TC;
-
+#endif
 	/* Enable TSO module if any Queue TSO is Enabled */
 	for (queue = 0; queue < MTL_MAX_TX_QUEUES; queue++) {
 #ifdef TC956X_SRIOV_VF
