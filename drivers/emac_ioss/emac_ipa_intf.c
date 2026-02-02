@@ -546,6 +546,13 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 	}
 
 	stmmac_enable_sph(priv, priv->ioaddr, 0, channel->channel_num);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+	priv->hw->hw_vlan_en = false;
+
+	stmmac_set_hw_vlan_mode(priv, priv->hw);
+#endif
+
 	channel->buff_pool_addr.buff_pool_va_addrs_base = kcalloc(channel_input->desc_cnt,
 								  sizeof(void *),
 								  (gfp_t)channel_input->flags);
@@ -698,6 +705,12 @@ int release_channel(struct net_device *ndev, struct channel_info *channel)
 	}
 
 	stmmac_enable_sph(priv, priv->ioaddr, 1, channel->channel_num);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+	priv->hw->hw_vlan_en = true;
+
+	stmmac_set_hw_vlan_mode(priv, priv->hw);
+#endif
 
 	kfree(channel->buff_pool_addr.buff_pool_va_addrs_base);
 	kfree(channel->buff_pool_addr.buff_pool_dma_addrs_base);
