@@ -34,18 +34,20 @@ set -e
 
 case "$1" in
   start)
-	echo -n "Starting/Loading IOSS and EMAC_IOSS modules: "
+	echo -n "Starting/Loading Data-ETH modules: "
 	echo "IOSS:start/load" > /dev/kmsg
+	insmod /lib/modules/ethernet/qca81xx-phy.ko
 	insmod /lib/modules/ethernet/ioss.ko
 	insmod /lib/modules/ethernet/iemac_ioss.ko
 	# insmod /lib/modules/ethernet/stmmac_ioss.ko
-	echo "done loading IOSS and EMAC_IOSS modules"
+	echo "done loading Data-ETH modules"
 	;;
   stop)
-	echo -n "Unloading EMAC_IOSS and IOSS modules "
+	echo -n "Unloading Data-ETH  modules "
 	rmmod iemac_ioss
 	# rmmod stmmac_ioss
 	rmmod ioss
+	rmmod qca81xx-phy
 	;;
   restart)
 	$0 stop

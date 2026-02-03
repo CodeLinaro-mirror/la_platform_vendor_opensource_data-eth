@@ -2,6 +2,7 @@
 
 obj-m += ioss/
 obj-m += emac_ioss/
+obj-m += qca-nss-phy/linux_std/qca81xx/
 #obj-m += stmmac_ioss/
 
 ifeq ($(KP_MODULE_ROOT),)
