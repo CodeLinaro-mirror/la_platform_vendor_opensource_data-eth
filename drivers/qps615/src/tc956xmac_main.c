@@ -15823,6 +15823,11 @@ int tc956xmac_vf_dvr_probe(struct device *device,
 #endif
 	}
 #endif
+	/* Set vlan_features to enable offload features on VLAN interfaces */
+	ndev->vlan_features = ndev->features & ~(NETIF_F_HW_VLAN_CTAG_TX |
+						NETIF_F_HW_VLAN_CTAG_RX |
+						NETIF_F_HW_VLAN_CTAG_FILTER);
+
 	priv->mac_table =
 		kcalloc(TC956X_MAX_PERFECT_ADDRESSES - XGMAC_ADDR_ADD_SKIP_OFST,
 			sizeof(struct tc956x_mac_addr), GFP_KERNEL);
