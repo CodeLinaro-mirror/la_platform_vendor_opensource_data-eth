@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
+# IOSS and glue drivers
 obj-m += ioss/
-obj-m += emac_ioss/
+obj-m += stmmac_ioss/
+
+# PHY drivers
 obj-m += qca-nss-phy/linux_std/qca81xx/
-#obj-m += stmmac_ioss/
