@@ -3315,7 +3315,7 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		portX_c45_state[res.device_num] = (portX_c45_state[res.device_num] > 1) ? true : portX_c45_state[res.device_num];
 		plat->c45_needed = portX_c45_state[res.device_num];
 
-		macX_link_down_macrst[res.device_num] = (macX_link_down_macrst[res.device_num] > ENABLE) ? ENABLE : macX_link_down_macrst[res.device_num];
+		macX_link_down_macrst[res.device_num] = (macX_link_down_macrst[res.device_num] > ENABLE) ? DISABLE : macX_link_down_macrst[res.device_num];
 		plat->link_down_macrst = macX_link_down_macrst[res.device_num];
 
 	}
