@@ -617,6 +617,12 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		return;
 	}
 
+	if (iface->link_speed == (u32)SPEED_UNKNOWN) {
+		ioss_dev_err(idev,"incorrect link speed");
+		iface->state = IOSS_IF_ST_ERROR;
+		return;
+	}
+
 	ioss_dev_log(idev, "Bringing up %s", idev->net_dev->name);
 
 	rc = ioss_ipa_validate_channels(iface);
@@ -800,13 +806,18 @@ static void ioss_refresh_work(struct work_struct *work)
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 	struct ioss_device *idev = ioss_iface_dev(iface);
 	struct device *dev = &idev->dev;
+	int retry = 5;
 
 	if (!net_dev)
 		return;
 
 	ioss_dev_dbg(idev, "Refreshing interface %s", idev->net_dev->name);
 
-	iface->link_speed = __fetch_ethtool_link_speed(net_dev);
+	do {
+		iface->link_speed = __fetch_ethtool_link_speed(net_dev);
+		if (iface->link_speed != (u32)SPEED_UNKNOWN)
+			break;
+	} while (--retry > 0);
 
 	if (netif_running(net_dev) && netif_carrier_ok(net_dev)
 	    && !(dev->offline) && !idev->unbinding)
