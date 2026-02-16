@@ -147,10 +147,14 @@ enum TC956X_PORT_LINK_CHANGE_STATE {
 /* PHY/MDIO configurations */
 enum TC956X_PHY_MDIO_AVAILABILITY {
 	PHY_ON_MDIO_ON = 0, /* PHY and MDIO available */
-	PHY_ON_MDIO_OFF,    /* PHY available and MDIO not available */ /* Not supported currently */
+	PHY_ON_MDIO_OFF,    /* PHY available and MDIO not available */ 
 	PHY_OFF_MDIO_ON,    /* PHY not available and MDIO available */ /* Not supported currrently */
 	PHY_OFF_MDIO_OFF    /* PHY not available and MDIO not available */
 };
+/* Query No. QPSSW-245, TC956X_Host_Driver-industrial_limited_tested_20250926_V_06-00-00-QPSSW-245.patch */
+#define TC956X_MDIO_CONN_ABSENT 					0
+#define TC956X_MDIO_CONN_PRESENT 					1
+#define TC956X_MDIO_CONN_ABSENT_PHYLINK_PRESENT 	2
 
 #if defined(TC956X_SRIOV_PF)
 //#define TC956X_PCIE_LINK_STATE_LATENCY_CTRL
