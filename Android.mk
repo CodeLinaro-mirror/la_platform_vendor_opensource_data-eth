@@ -5,7 +5,7 @@ LOCAL_PATH := $(call my-dir)
 ifneq ($(call is-board-platform-in-list, gen5), true)
 
 # Build/Package only in case of supported target
-ifeq ($(call is-board-platform-in-list, gen4 pineapple), true)
+ifeq ($(call is-board-platform-in-list, gen4), true)
 
 LOCAL_PATH := $(call my-dir)
 LOCAL_MODULE_DDK_BUILD := true
