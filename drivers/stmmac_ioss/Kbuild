@@ -1,0 +1,8 @@
+ccflags-y += -I$(src)/../ioss/include/
+ccflags-y += -I$(srctree)/drivers/net/ethernet/stmicro/
+
+obj-m += stmmac_ioss.o
+
+stmmac_ioss-y := \
+        stmmac_ioss_main.o \
+        stmmac_ioss_stats.o
