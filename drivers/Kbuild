@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+obj-m += ioss/
+obj-m += emac_ioss/
+obj-m += qca-nss-phy/linux_std/qca81xx/
+#obj-m += stmmac_ioss/
