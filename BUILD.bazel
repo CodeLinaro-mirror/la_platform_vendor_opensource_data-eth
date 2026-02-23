@@ -3,9 +3,11 @@ load("//build/kernel/kleaf:kernel.bzl", "ddk_headers")
 
 define_modules("sa510m", "perf")
 define_modules("sa510m.1g", "perf")
+define_modules("kera-le", "perf")
 
 define_modules("sa510m", "debug")
 define_modules("sa510m.1g", "debug")
+define_modules("kera-le", "debug")
 
 package(
     default_visibility = [
@@ -24,5 +26,31 @@ ddk_headers(
     includes = [
         "drivers/ioss",
         "drivers/ioss/include/linux/msm",
+    ],
+)
+
+ddk_headers(
+    name = "tc956x_headers",
+    hdrs = [
+        "drivers/qps615/src/tc956xmac.h",
+        "drivers/qps615/src/tc956xmac_config.h",
+        "drivers/qps615/src/tc956xmac_ioctl.h",
+        "drivers/qps615/src/tc956xmac_pcs.h",
+        "drivers/qps615/src/tc956xmac_ptp.h",
+        "drivers/qps615/src/tc956xmac_inc.h",
+        "drivers/qps615/src/tc956x_pma.h",
+        "drivers/qps615/src/tc956x_ipa_intf.h",
+        "drivers/qps615/src/tc956x_pcie_logstat.h",
+        "drivers/qps615/src/tc956x_pf_mbx.h",
+        "drivers/qps615/src/tc956x_pf_rsc_mng.h",
+        "drivers/qps615/src/common.h",
+        "drivers/qps615/src/descs.h",
+        "drivers/qps615/src/dwxgmac2.h",
+        "drivers/qps615/src/hwif.h",
+        "drivers/qps615/src/mmc.h",
+        "drivers/qps615/src/tc956x_xpcs.h",
+    ],
+    includes = [
+        "drivers/qps615/src",
     ],
 )
