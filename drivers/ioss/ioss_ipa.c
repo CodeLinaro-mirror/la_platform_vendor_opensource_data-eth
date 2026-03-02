@@ -49,9 +49,6 @@ static void ioss_ipa_notify_cb(void *priv,
 	struct ioss_channel *ch = priv;
 	struct sk_buff *skb = (struct sk_buff *)data;
 	struct ioss_interface *iface = ch->iface;
-#ifdef CONFIG_MSM_BOOT_TIME_MARKER
-	struct rtnl_link_stats64 netdev_stats;
-#endif
 	struct ioss_device *idev = ioss_ch_dev(ch);
 
 	if (evt != IPA_RECEIVE)
@@ -60,12 +57,8 @@ static void ioss_ipa_notify_cb(void *priv,
 	iface->exception_stats.rx_packets++;
 
 #ifdef CONFIG_MSM_BOOT_TIME_MARKER
-	if(iface->exception_stats.rx_packets == 1) {
-		memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
-		dev_get_stats(ioss_iface_to_netdev(iface), &netdev_stats);
-		if (netdev_stats.rx_packets == 1)
-			update_marker("M - Ethernet first packet received");
-	}
+	if(iface->exception_stats.rx_packets == 1)
+		update_marker("M - Ethernet first exception packet received");
 #endif
 
 	iface->exception_stats.rx_bytes += skb->len;
