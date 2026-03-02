@@ -249,9 +249,42 @@ static int ioss_plat_resume_handler(struct device *dev)
 			ioss_plat_real_resume(dev);
 }
 
+static int ioss_plat_runtime_suspend_handler(struct device *dev)
+{
+	const struct dev_pm_ops *real_pm_ops = __real_pm_ops(dev);
+
+	if (real_pm_ops && real_pm_ops->runtime_suspend)
+		return real_pm_ops->runtime_suspend(dev);
+
+	return 0;
+}
+
+static int ioss_plat_runtime_resume_handler(struct device *dev)
+{
+	const struct dev_pm_ops *real_pm_ops = __real_pm_ops(dev);
+
+	if (real_pm_ops && real_pm_ops->runtime_resume)
+		return real_pm_ops->runtime_resume(dev);
+
+	return 0;
+}
+
+static int ioss_plat_runtime_idle_handler(struct device *dev)
+{
+	const struct dev_pm_ops *real_pm_ops = __real_pm_ops(dev);
+
+	if (real_pm_ops && real_pm_ops->runtime_idle)
+		return real_pm_ops->runtime_idle(dev);
+
+	return 0;
+}
+
 static const struct dev_pm_ops __ioss_plat_pm_ops = {
 	.suspend = ioss_plat_suspend_handler,
 	.resume = ioss_plat_resume_handler,
+	.runtime_suspend = ioss_plat_runtime_suspend_handler,
+	.runtime_resume = ioss_plat_runtime_resume_handler,
+	.runtime_idle = ioss_plat_runtime_idle_handler,
 };
 
 int ioss_plat_register_driver(struct ioss_driver *idrv, struct module *owner)
