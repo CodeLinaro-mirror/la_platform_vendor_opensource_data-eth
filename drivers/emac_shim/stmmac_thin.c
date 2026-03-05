@@ -1929,10 +1929,15 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 		stmmac_set_desc_addr(priv, p, buf->addr);
 
 		rx_q->rx_count_frames++;
-		rx_q->rx_count_frames += priv->rx_coal_frames;
-		if (rx_q->rx_count_frames > priv->rx_coal_frames)
+		/* Enable IOC only after fixed number of packets.
+		 */
+		if (rx_q->rx_count_frames >= priv->rx_coal_frames)
 			rx_q->rx_count_frames = 0;
-		use_rx_wd = priv->use_riwt && rx_q->rx_count_frames;
+		/* Check if Coalesce is enabled, and watchdog is always enabled
+		 * because Rx Watchdog is available in the COREs newer than the 3.40
+		 */
+		use_rx_wd = !priv->rx_coal_frames;
+		use_rx_wd |= rx_q->rx_count_frames > 0;
 
 		dma_wmb();
 		stmmac_set_rx_owner(priv, p, use_rx_wd);
