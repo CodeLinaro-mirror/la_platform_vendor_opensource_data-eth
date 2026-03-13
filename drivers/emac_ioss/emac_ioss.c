@@ -117,17 +117,20 @@ static void stmmac_ioss_free_buf(struct net_device *ndev, void *buf, size_t size
 static int stmmac_ioss_open_device(struct ioss_device *idev)
 {
 	struct stmmac_ioss_device *stmmac_dev;
+	struct stmmac_priv *priv = netdev_priv(idev->net_dev);
 
 	ioss_dev_dbg(idev, "Enter");
+
+	if(priv->plat->rss_en) {
+		ioss_dev_log(idev, "Since RSS is enabled IOSS is being disabled");
+		return -EOPNOTSUPP;
+	}
 
 	stmmac_dev = kzalloc(sizeof(*stmmac_dev), GFP_KERNEL);
 	if (!stmmac_dev)
 		return -ENOMEM;
 
 	stmmac_dev->idev = idev;
-	stmmac_dev->_priv = netdev_priv(idev->net_dev);
-
-	idev->private = stmmac_dev;
 
 	return 0;
 }
