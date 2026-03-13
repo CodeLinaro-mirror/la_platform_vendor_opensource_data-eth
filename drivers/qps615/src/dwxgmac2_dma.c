@@ -658,11 +658,8 @@ static void dwxgmac2_get_hw_feature(struct tc956xmac_priv *priv,
 
 	/* Overwrite the MDIO DMA capabilities when user selects without MDIO and without PHY cofiguration for the particular interface */
 	if (priv->plat->mac_no_mdio_no_phy == PHY_OFF_MDIO_OFF) {
-		DBGPR_FUNC(priv->device, "%s Disabling MDIO and PHY for BDF:0x%x\n", __func__, priv->pci_bdf);
-		dma_cap->sma_mdio = TC956X_MDIO_CONN_ABSENT;
-	} else if (priv->plat->mac_no_mdio_no_phy == PHY_ON_MDIO_OFF) { /* PHY is there but MDIO not available *//* Query No. QPSSW-245, TC956X_Host_Driver-industrial_limited_tested_20250926_V_06-00-00-QPSSW-245.patch */
-		DBGPR_FUNC(priv->device, "%s Disabling only MDIO for BDF:0x%x\n", __func__, priv->pci_bdf);
-		dma_cap->sma_mdio = TC956X_MDIO_CONN_ABSENT_PHYLINK_PRESENT;
+		DBGPR_FUNC(priv->device, "%s Disabling MDIO for BDF:0x%x\n", __func__, priv->pci_bdf);
+		dma_cap->sma_mdio = 0;
 	}
 }
 
