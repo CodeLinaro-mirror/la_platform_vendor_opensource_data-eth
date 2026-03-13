@@ -1,21 +1,25 @@
 TARGET_DATAETH_ENABLE := false
 
 ifeq ($(TARGET_KERNEL_DLKM_DISABLE), true)
-	TARGET_DATAETH_ENABLE := true
+    TARGET_DATAETH_ENABLE := true
 else
-	TARGET_DATAETH_ENABLE := true
+    TARGET_DATAETH_ENABLE := true
 endif
 
 ifeq ($(TARGET_DATAETH_ENABLE), true)
-	DATA_DLKM_BOARD_PLATFORMS_LIST := pineapple
-	DATA_DLKM_BOARD_PLATFORMS_LIST += sun
-	DATA_DLKM_BOARD_PLATFORMS_LIST += parrot
-	DATA_DLKM_BOARD_PLATFORMS_LIST += monaco
-	DATA_DLKM_BOARD_PLATFORMS_LIST += tuna
+    DATA_DLKM_BOARD_PLATFORMS_LIST := pineapple
+    DATA_DLKM_BOARD_PLATFORMS_LIST += sun
+    DATA_DLKM_BOARD_PLATFORMS_LIST += parrot
+    DATA_DLKM_BOARD_PLATFORMS_LIST += monaco
+    DATA_DLKM_BOARD_PLATFORMS_LIST += tuna
 
-	ifneq ($(TARGET_BOARD_AUTO),true)
-		ifneq (,$(call is-board-platform-in-list2,$(DATA_DLKM_BOARD_PLATFORMS_LIST)))
-			BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/r8125.ko
-		endif
-	endif
+    ifneq ($(TARGET_BOARD_AUTO), true)
+        ifneq (,$(call is-board-platform-in-list2,$(DATA_DLKM_BOARD_PLATFORMS_LIST)))
+            BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/r8125.ko
+            # Add only for sun target
+            ifeq ($(TARGET_BOARD_PLATFORM), sun)
+                BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/tc956x_pcie_eth.ko
+            endif
+        endif
+    endif
 endif
