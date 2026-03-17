@@ -42,6 +42,19 @@ include $(DLKM_DIR)/Build_external_kernelmodule.mk
 # as well if corresponding flags are added in KBUILD_OPTIONS from upper
 # level Makefiles.
 
+################################ r8125 ################################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
+LOCAL_MODULE              := r8125.ko
+LOCAL_MODULE_KBUILD_NAME  := r8125.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+#Enabling BAZEL
+LOCAL_MODULE_DDK_BUILD := true
+LOCAL_MODULE_KO_DIRS := drivers/r8125/src
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+#######################################################################
 
 ################################ qps615 ################################
 include $(CLEAR_VARS)
