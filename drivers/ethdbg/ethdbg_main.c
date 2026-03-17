@@ -17,7 +17,7 @@
 #include <linux/mutex.h>
 #include "ethdbg.h"
 
-static LIST_HEAD(ethdbg_interfaces);
+LIST_HEAD(ethdbg_interfaces);
 static DEFINE_MUTEX(ethdbg_lock);
 
 static char interface_name[IFNAMSIZ] = "";
@@ -151,6 +151,7 @@ static int register_interface_device(struct ethdbg_interface *iface,
 
 	INIT_LIST_HEAD(&dev->map_regions);
 	dev->net_dev = net_dev;
+	dev->netdev_priv = netdev_priv(net_dev);
 	dev_hold(net_dev);
 	iface->device = dev;
 
@@ -159,8 +160,15 @@ static int register_interface_device(struct ethdbg_interface *iface,
 
 	/* Register UIO device */
 	ret = ethdbg_uio_add(iface);
+	if (ret)
+		return ret;
 
-	return ret;
+	/* Register for panic capture */
+	ret = ethdbg_panic_register(dev, iface->interface_name);
+	if (ret)
+		pr_err("Failed to register panic capture: %d\n", ret);
+
+	return 0;
 }
 
 static void unregister_interface_device(struct ethdbg_interface *iface)
@@ -170,10 +178,11 @@ static void unregister_interface_device(struct ethdbg_interface *iface)
 	if (!iface)
 		return;
 
-	ethdbg_uio_del(iface);
-
 	dev = iface->device;
 	if (dev) {
+		ethdbg_panic_unregister(dev);
+		ethdbg_uio_del(iface);
+
 		if (dev->net_dev)
 			dev_put(dev->net_dev);
 		kfree(dev);
@@ -266,11 +275,17 @@ static int __init ethdbg_init(void)
 {
 	int ret;
 
+	/* Register panic notifier */
+	ret = ethdbg_panic_init();
+	if (ret)
+		return ret;
+
 	/* Register netdevice notifier */
 	ethdbg_netdev_notifier.notifier_call = ethdbg_netdev_event;
 	ret = register_netdevice_notifier(&ethdbg_netdev_notifier);
 	if (ret) {
 		pr_err("Failed to register netdevice notifier: %d\n", ret);
+		ethdbg_panic_deinit();
 		return ret;
 	}
 
@@ -292,6 +307,9 @@ static void __exit ethdbg_exit(void)
 		kfree(iface);
 	}
 	mutex_unlock(&ethdbg_lock);
+
+	/* Unregister panic notifier */
+	ethdbg_panic_deinit();
 }
 module_exit(ethdbg_exit);
 
