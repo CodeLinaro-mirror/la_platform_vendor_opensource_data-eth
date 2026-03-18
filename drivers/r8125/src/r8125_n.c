@@ -7322,6 +7322,7 @@ rtl_ethtool_set_eee(struct net_device *net, struct ethtool_keee *edata)
         */
 
         rtl8125_adv_to_linkmode(advertising, tp->advertising);
+        /*  Commented out as edata->advertised set by network stack will not match what device advertised
         if (linkmode_empty(edata->advertised)) {
                 linkmode_and(edata->advertised, advertising, eee->supported);
         } else if (linkmode_andnot(tmp, edata->advertised, advertising)) {
@@ -7329,6 +7330,7 @@ rtl_ethtool_set_eee(struct net_device *net, struct ethtool_keee *edata)
                 rc = -EINVAL;
                 goto out;
         }
+        */
 
         if (linkmode_andnot(tmp, edata->advertised, eee->supported)) {
                 dev_printk(KERN_WARNING, tp_to_dev(tp), "EEE advertised must be a subset of support \n");
@@ -15160,7 +15162,7 @@ rtl8125_init_software_variable(struct net_device *dev)
                 tp->EnableRss = 1;
 #else
         if (tp->HwSuppRssVer > 0 && tp->HwCurrIsrVer > 1) {
-                u8 rss_queue_num = 4;
+                u8 rss_queue_num = 4; //Hardcoded for Paloma FR as symbol missing in gki_symbols
                 tp->num_rx_rings = (tp->HwSuppNumRxQueues > rss_queue_num)?
                                    rss_queue_num : tp->HwSuppNumRxQueues;
 
