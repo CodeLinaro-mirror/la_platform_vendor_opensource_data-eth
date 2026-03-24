@@ -290,6 +290,10 @@ MODULE_PARM_DESC(buf_sz, "DMA buffer size");
 
 #define	TC956XMAC_RX_COPYBREAK	256
 
+#ifndef MAX_T
+#define MAX_T(type, a, b) __cmp(max, (type)(a), (type)(b))
+#endif
+
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
