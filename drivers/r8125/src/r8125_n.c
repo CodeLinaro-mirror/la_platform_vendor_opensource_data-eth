@@ -8179,8 +8179,12 @@ rtl8125_hw_phy_config_8125b_2(struct net_device *dev)
         */
 
 #ifdef ENABLE_LIB_SUPPORT
-        /* disable phy speed down */
-        ClearEthPhyOcpBit(tp, 0xA442, BIT_3 | BIT_2);
+        /* enable phy speed down (retry = 7) */
+        ClearAndSetEthPhyOcpBit(tp,
+                                0xA442,
+                                BIT_4,
+                                BIT_3 | BIT_2
+                               );
 #endif /* ENABLE_LIB_SUPPORT */
 
         if (aspm) {
