@@ -1,5 +1,7 @@
 /* Copyright (c)2021, The Linux Foundation. All rights reserved.
  *
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
  * only version 2 as published by the Free Software Foundation.
@@ -189,5 +191,12 @@ TRACE_EVENT(stmmac_poll_exit,
 
 /* This part must be outside protection */
 #undef TRACE_INCLUDE_PATH
-#define TRACE_INCLUDE_PATH ../../techpack/data-eth/drivers/emac_shim
+
+/* Define_trace present at different locations for LA and LV*/
+#if IS_ENABLED(CONFIG_RENAME_DEVICES)
+#define TRACE_INCLUDE_PATH ../../vendor/qcom/opensource/data-eth/drivers/emac_shim
+#else
+#define TRACE_INCLUDE_PATH ../../../../../../../../vendor/qcom/opensource/data-eth/drivers/emac_shim
+#endif
+
 #include <trace/define_trace.h>
