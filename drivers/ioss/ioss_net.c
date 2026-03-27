@@ -244,55 +244,28 @@ static int ioss_net_device_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-#ifdef LLCC_ENABLE
-static int ioss_net_select_llcc_config(struct ioss_channel *ch)
-{
-	u32 ring_size;
-	size_t mem_size;
-	struct ioss_device *idev = ioss_ch_dev(ch);
-
-	mem_size = ioss_llcc_alctr.get();
-
-	ioss_dev_cfg(idev, "Received %lu bytes for LLCC", mem_size);
-
-	if (!mem_size)
-		return -ENOMEM;
-
-	ring_size = mem_size / ch->config.buff_size;
-
-	ioss_dev_cfg(idev,
-		"Calculated ring size of %u with LLCC buffer size of %u bytes",
-		ring_size, ch->config.buff_size);
-
-	ch->config.ring_size = ring_size;
-	ch->config.buff_alctr = &ioss_llcc_alctr;
-
-	return 0;
-}
-#endif
-
 static void ioss_net_select_channel_config(struct ioss_channel *ch)
 {
-#ifdef LLCC_ENABLE
 	struct ioss_device *idev = ioss_ch_dev(ch);
-	u32 link_speed = ch->iface->link_speed;
-	u32 line_rate_for_llcc = idev->root->line_rate_for_llcc;
-#endif
 
 	ch->config = ch->default_config;
 
 #ifdef LLCC_ENABLE
-	if (idev->llcc_enabled && ch->direction == IOSS_CH_DIR_TX && link_speed >= line_rate_for_llcc)
-		ioss_net_select_llcc_config(ch);
+	if (ch->tcm_desc_en)
+		ch->config.desc_alctr = &ioss_tcm_desc_alctr;
+
+	if (ch->tcm_buf_en)
+		ch->config.buff_alctr = &ioss_tcm_buf_alctr;
 #endif
+
+	ioss_dev_cfg(idev, "Channel %d: Selected allocators - desc=%s, buf=%s",
+		     ch->id,
+		     ch->config.desc_alctr ? ch->config.desc_alctr->name : "default",
+		     ch->config.buff_alctr ? ch->config.buff_alctr->name : "default");
 }
 
 static void ioss_net_deselect_channel_config(struct ioss_channel *ch)
 {
-#ifdef LLCC_ENABLE
-	if (ch->config.buff_alctr == &ioss_llcc_alctr)
-		ioss_llcc_alctr.put();
-#endif
 	ch->config = ch->default_config;
 }
 
