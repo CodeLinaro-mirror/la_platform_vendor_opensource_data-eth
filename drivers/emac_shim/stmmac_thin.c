@@ -1216,7 +1216,8 @@ static int stmmac_hw_setup(struct net_device *dev)
 	int ret;
 
 	dev_info(priv->device, "%s: ch = %u\n", __func__, chan);
-	priv->mac_addr(dev);
+	if(!priv->is_gy_en)
+		priv->mac_addr(dev);
 
 	/* DMA initialization and SW reset */
 	ret = stmmac_init_dma_engine(priv);
@@ -1246,8 +1247,6 @@ static int stmmac_hw_setup(struct net_device *dev)
 	if (priv->tso)
 		stmmac_enable_tso(priv, priv->ioaddr, 1, chan);
 
-	/* Start the ball rolling... */
-	stmmac_start_dma(priv);
 	return 0;
 }
 
@@ -1284,10 +1283,16 @@ static int stmmac_open(struct net_device *dev)
 	priv->dev_opened = true;
 	priv->dev_inited = false;
 
-	if (priv->emac_state > EMAC_INIT_ST)
+	if (priv->emac_state > EMAC_INIT_ST && !priv->dev_inited)
 		ret = stmmac_dvr_init(dev);
 	if (!ret && priv->emac_state == EMAC_LINK_UP_ST)
 		stmmac_mac_link_up(dev);
+
+	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST ) {
+		priv->ethqos_client_connect(priv->plat->bsp_priv,false);
+		if(priv->clks_config)
+			priv->clks_config(priv->plat->bsp_priv, true);
+	}
 
 	dev_info(priv->device, "%s: ret = %d\n", __func__, ret);
 	return ret;
@@ -1305,16 +1310,20 @@ static int stmmac_release(struct net_device *dev)
 	u32 ch = priv->queue;
 	int filter_del;
 
-	dev_info(priv->device, "%s Enter\n", __func__);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	priv->dev_inited = false;
 	priv->dev_opened = false;
 
+	if (!priv->is_gy_en && priv->del_mc_broadcast_filter){
 	filter_del = priv->del_mc_broadcast_filter();
 	if(filter_del)
-	  pr_info("qcom_ethqos_thin: Filter delete unsuccessful");
+		pr_info("qcom-ethqos-thin: Filter delete unsuccessful");
 	else
-	  pr_info("qcom_ethqos_thin: Filter delete successful");
+		pr_info("qcom-ethqos-thin: Filter delete successful");
+	}
 
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_stop_queue(priv);
 
 	stmmac_disable_queue(priv);
@@ -1331,6 +1340,10 @@ static int stmmac_release(struct net_device *dev)
 
 	/* Release and free the Rx/Tx resources */
 	free_dma_desc_resources(priv);
+	}
+
+	if(priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, false);
 
 	netif_carrier_off(dev);
 
@@ -2052,6 +2065,12 @@ read_again:
 			prev_len = len;
 			len = stmmac_get_rx_frame_len(priv, p, coe);
 		}
+
+		/* ACS is disabled; strip manually. */
+		if (priv->is_gy_en && likely(!(status & rx_not_ls))) {
+				len -= ETH_FCS_LEN;
+		}
+
 		if (!skb) {
 			skb = napi_alloc_skb(&ch->rx_napi, len);
 			if (!skb) {
@@ -2212,7 +2231,7 @@ static void stmmac_set_rx_mode(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
-	if (priv->emac_state > EMAC_INIT_ST) {
+	if (!priv->is_gy_en && priv->emac_state > EMAC_INIT_ST) {
 		if (!netdev_mc_empty(dev)) {
 			priv->filter_type = MULTICAST_TYPE;
 			priv->add_filter(dev);
@@ -2312,7 +2331,7 @@ static int stmmac_set_mac_address(struct net_device *ndev, void *addr)
 	if (ret)
 		return ret;
 
-	if (priv->emac_state > EMAC_INIT_ST)
+	if (!priv->is_gy_en && priv->emac_state > EMAC_INIT_ST)
 		ret = priv->mac_addr(ndev);
 
 	return ret;
@@ -2467,6 +2486,7 @@ void stmmac_mac_link_down(struct net_device *ndev)
 	}
 #endif
 }
+EXPORT_SYMBOL_GPL(stmmac_mac_link_down);
 
 void stmmac_mac_link_up(struct net_device *ndev)
 {
@@ -2477,9 +2497,13 @@ void stmmac_mac_link_up(struct net_device *ndev)
 
 	priv = netdev_priv(ndev);
 	if (priv->dev_inited) {
+		/* Start the ball rolling... */
+		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
+		dev_info(priv->device, "Ethernet is Ready. Link is UP");
 	}
 }
+EXPORT_SYMBOL_GPL(stmmac_mac_link_up);
 
 void stmmac_ch_status(struct net_device *ndev)
 {
@@ -2499,6 +2523,7 @@ void stmmac_ch_status(struct net_device *ndev)
 				       priv->queue);
 	}
 }
+EXPORT_SYMBOL_GPL(stmmac_ch_status);
 
 int stmmac_dvr_init(struct net_device *dev)
 {
@@ -2581,6 +2606,7 @@ dma_desc_error:
 	mutex_unlock(&priv->lock);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(stmmac_dvr_init);
 
 /**
  * stmmac_thin_dvr_probe
@@ -2602,7 +2628,12 @@ int stmmac_thin_dvr_probe(struct device *device,
 	struct stmmac_channel *ch;
 
 	/* Set tx used queue to 4 so NW stack can trigger tx queue selection */
+#if IS_ENABLED(CONFIG_EMAC_SHIM_GY)
+		ndev = devm_alloc_etherdev_mqs(device, sizeof(struct stmmac_priv), 4, 1);
+#else
 	ndev = alloc_netdev_mqs(sizeof(struct stmmac_priv), "eth1", NET_NAME_ENUM,ether_setup, 4, 1);
+#endif
+
 
 	if (!ndev)
 		return -ENOMEM;
@@ -2783,9 +2814,12 @@ int stmmac_thin_suspend(struct device *dev)
 	if (!ndev || !netif_running(ndev))
 		return 0;
 
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	mutex_lock(&priv->lock);
-
 	netif_device_detach(ndev);
+
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_stop_queue(priv);
 
 	stmmac_disable_queue(priv);
@@ -2797,9 +2831,12 @@ int stmmac_thin_suspend(struct device *dev)
 	free_dma_desc_resources(priv);
 
 	netif_carrier_off(ndev);
+	}
 
 	mutex_unlock(&priv->lock);
-
+	if(priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, false);
+	dev_info(priv->device, "%s: Exit\n", __func__);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_suspend);
@@ -2835,12 +2872,16 @@ int stmmac_thin_resume(struct device *dev)
 	if (!ndev)
 		return -ENOMEM;
 
-	pr_info("%s: Enter\n", __func__);
 	if (!netif_running(ndev))
 		return 0;
 
-	mutex_lock(&priv->lock);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
+	if (priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, true);
 
+	mutex_lock(&priv->lock);
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_reset_queues_param(priv);
 	ret = alloc_dma_desc_resources(priv);
 	if (ret < 0) {
@@ -2873,7 +2914,9 @@ int stmmac_thin_resume(struct device *dev)
 
 	stmmac_start_queue(priv);
 	netif_device_attach(ndev);
+	}
 	mutex_unlock(&priv->lock);
+	dev_info(priv->device, "%s: Exit\n", __func__);
 
 	return 0;
 init_error:

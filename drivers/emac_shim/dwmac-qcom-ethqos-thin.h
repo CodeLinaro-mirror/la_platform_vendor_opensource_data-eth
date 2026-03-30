@@ -7,15 +7,19 @@
 
 //#include <linux/msm-bus.h>
 #include <linux/ipc_logging.h>
+#include <linux/pm_domain.h>
+#include <linux/pm_runtime.h>
 #include "../include/linux/emac_ctrl_fe_api.h"
 
 extern void *ipc_emac_thin_log_ctxt;
+extern void *ipc_emac_thin_log_ctxt_gy;
 
 #define IPCLOG_STATE_PAGES 50
 #define __FILENAME__ (strrchr(__FILE__, '/') ? \
 		strrchr(__FILE__, '/') + 1 : __FILE__)
 
 #define DRV_NAME "qcom-ethqos-thin"
+#define DRV_NAME_GY "qcom-ethqos-thin-gy"
 #define ETHQOSDBG(fmt, args...) \
 do {\
 	pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args);\
@@ -62,6 +66,7 @@ struct qcom_ethqos {
 };
 
 void *qcom_ethqos_thin_get_priv(struct qcom_ethqos *ethqos);
+void *qcom_ethqos_thin_get_priv_gy(struct qcom_ethqos *ethqos);
 
 #define QTAG_VLAN_ETH_TYPE_OFFSET 16
 #define QTAG_UCP_FIELD_OFFSET 14
