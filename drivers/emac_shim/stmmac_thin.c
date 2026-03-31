@@ -1289,9 +1289,10 @@ static int stmmac_open(struct net_device *dev)
 		stmmac_mac_link_up(dev);
 
 	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST ) {
-		priv->ethqos_client_connect(priv->plat->bsp_priv,false);
 		if(priv->clks_config)
 			priv->clks_config(priv->plat->bsp_priv, true);
+        dev_dbg(priv->device, "%s:Invoke ethqos_client_connect\n", __func__);
+        priv->ethqos_client_connect(priv->plat->bsp_priv);
 	}
 
 	dev_info(priv->device, "%s: ret = %d\n", __func__, ret);
@@ -2657,7 +2658,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 		priv->tx_irq[i] = res->tx_irq[i];
 
 	if (!IS_ERR_OR_NULL(res->mac))
-		memcpy((void*) priv->dev->dev_addr, (void*)res->mac, ETH_ALEN);
+		eth_hw_addr_set(priv->dev, res->mac);
 
 	dev_set_drvdata(device, priv->dev);
 
@@ -2741,28 +2742,11 @@ int stmmac_thin_dvr_probe(struct device *device,
 
 	mutex_init(&priv->lock);
 
-	/* If a specific clk_csr value is passed from the platform
-	 * this means that the CSR Clock Range selection cannot be
-	 * changed at run-time and it is fixed. Viceversa the driver'll try to
-	 * set the MDC clock dynamically according to the csr actual
-	 * clock input.
-	 */
-	ret = register_netdev(ndev);
-	dev_info(priv->device, "register_netdev[%s] ret=%d\n", ndev->name, ret);
-	if (ret) {
-		dev_err(priv->device, "%s: ERROR %i registering the device\n",
-			__func__, ret);
-		goto error_netdev_register;
-	}
-
 	/* Disable tx_coal_timer if plat provides callback */
 	priv->tx_coal_timer_disable = false;
 
 	return ret;
 
-error_netdev_register:
-	netif_napi_del(&ch->rx_napi);
-	netif_napi_del(&ch->tx_napi);
 error_hw_init:
 	destroy_workqueue(priv->wq);
 

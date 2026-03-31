@@ -149,6 +149,10 @@ static void emac_fe_ev_wq(struct work_struct *work)
 				ETHQOSINFO("init driver on HW up\n");
 				stmmac_dvr_init(priv->dev);
 				priv->add_filter(priv->dev);
+				vlan.vlan_status = ADD_ALL_GVM_THIN_VLAN;
+				vlan.vid = 0;
+				vlan.gvm_link_state = EMAC_LINK_UP;
+				send_with_retry(vlan);
 			}
 			break;
 		case EMAC_HW_DOWN:
@@ -279,7 +283,7 @@ static void qcom_ethqos_client_receive(struct kthread_work *work) {
 		len = kernel_recvmsg(client_sk.conn_socket, &msg, &vec, 1, max_size, msg.msg_flags);
 		if (len <= 0) {
 			ETHQOSERR("packet receive failed with error: %d\n",len);
-			wait_event_timeout(conn_wait_queue, 0, 0.01 * HZ);
+			wait_event_timeout(conn_wait_queue, 0, msecs_to_jiffies(10));
 			retries++;
 			if (retries == MAX_RECEIVE_RETRIES) {
 				ETHQOSERR("Exhaust receive retries...\n");
@@ -294,7 +298,7 @@ static void qcom_ethqos_client_receive(struct kthread_work *work) {
 	/* Process each 4-byte chunk as a separate state */
 	while (offset + sizeof(int) <= len) {
 		memcpy(&received_int, buf + offset, sizeof(int));
-		ETHQOSINFO("Received msg length: %d | current offset: %d| received event : %d\n",
+		ETHQOSDBG("Received msg length: %d | current offset: %d| received event : %d\n",
 			    len, offset, received_int);
 
 		ret = qcom_ethqos_data_ready_notify(client_sk.ethqos,received_int);
@@ -359,7 +363,9 @@ connect:
 		/*retry mechanish here*/
 		if (client_sk.connect_retry_cnt > 0)
 		{
-			wait_event_timeout(conn_wait_queue, 0, 2 * HZ);
+			ETHQOSINFO("connect failed(cn=%d), retry=%d, wait 50ms\n",
+				   cn, 11 - client_sk.connect_retry_cnt);
+			wait_event_timeout(conn_wait_queue, 0, msecs_to_jiffies(50));
 			 --client_sk.connect_retry_cnt;
 			 goto connect;
 		}
@@ -376,7 +382,7 @@ release:
 	return;
 }
 
-int qcom_ethqos_client_connect(void *prv, bool is_resume) {
+int qcom_ethqos_client_connect(void *prv) {
 	struct qcom_ethqos *ethqos = prv;
 
 	ETHQOSINFO("Client module start\n");
@@ -384,20 +390,10 @@ int qcom_ethqos_client_connect(void *prv, bool is_resume) {
 	client_sk.ethqos = ethqos;
 	client_sk.connect_retry_cnt = 10;
 
-	if(!is_resume)
-	{
-		kthread_init_work(&client_sk.init_client, qcom_ethqos_client_start);
-		kthread_init_worker(&client_sk.kworker);
-		client_sk.task = kthread_run(kthread_worker_fn, &client_sk.kworker, "eth_adapt_rx");
-		if (IS_ERR(client_sk.task))
-		{
-			ETHQOSERR("%s: Error allocating wq\n", __func__);
-			return -1;
-		}
-	}
+	/* eth_adapt_rx kthread is created once in probe; just queue the work. */
 	kthread_queue_work(&client_sk.kworker, &client_sk.init_client);
 
-	ETHQOSERR("Client module exit\n");
+	ETHQOSDBG("Client module exit\n");
 	return 0;
 }
 
@@ -423,7 +419,7 @@ int send_with_retry(struct vlan_info vlan)
 				if (ret == -EPIPE || ret == -ECONNRESET || ret == -ECONNABORTED) {
 					ETHQOSINFO(" lost connection!!!\n");
 					qcom_ethqos_client_sock_cleanup();
-					qcom_ethqos_client_connect(client_sk.ethqos, false);
+					qcom_ethqos_client_connect(client_sk.ethqos);
 				}
 				ETHQOSINFO("send failed, retrying...ret = %d\n", ret);
 			} else if (vlan.vlan_status != HEALTH_MONITOR) {
@@ -432,7 +428,7 @@ int send_with_retry(struct vlan_info vlan)
 			}
 		}
 		retries++;
-		wait_event_timeout(conn_wait_queue, 0, 0.001 * HZ);
+		wait_event_timeout(conn_wait_queue, 0, msecs_to_jiffies(5));
 	}
 	return -1;
 }
@@ -517,7 +513,7 @@ static int qcom_ethqos_add_filter(struct net_device *ndev)
 		ETHQOSINFO("vlan %d is UP\n", priv->vid);
 		break;
 	default:
-		ETHQOSINFO("Wrong filter type %d\n", priv->filter_type);
+		ETHQOSDBG("No filter configured yet, type=%d\n", priv->filter_type);
 		break;
 	}
 	return ret;
@@ -559,7 +555,7 @@ static void qcom_ethqos_client_poll(struct kthread_work *work)
 			ETHQOSDBG("Sending health monitor\n");
 			send_with_retry(vlan);
 		}
-		wait_event_timeout(conn_wait_queue, 0, 1 * HZ);
+		wait_event_timeout(conn_wait_queue, 0, msecs_to_jiffies(1000));
 	}
 }
 
@@ -573,6 +569,9 @@ void qcom_ethqos_client_poll_worker_start(void)
 		ETHQOSERR("Failed to create poll worker thread\n");
 		return;
 	}
+
+	/* Elevate polling thread priority (nice=-5) */
+	set_user_nice(client_sk.poll_task, -5);
 
 	kthread_init_work(&client_sk.poll_work, qcom_ethqos_client_poll);
 	kthread_queue_work(&client_sk.poll_worker, &client_sk.poll_work);
@@ -709,8 +708,6 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	struct net_device *ndev;
 	struct stmmac_priv *priv;
 
-	ETHQOSINFO("Start GY probe\n");
-
 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(36));
 	if (ret) {
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
@@ -724,10 +721,12 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	place_marker("M - Ethernet probe start");
 #endif
 
+	ETHQOSINFO("Start GY probe\n");
+
 	ipc_emac_thin_log_ctxt_gy = ipc_log_context_create(IPCLOG_STATE_PAGES,
 						   "emac_gy", 0);
 	if (!ipc_emac_thin_log_ctxt_gy)
-		ETHQOSERR("Error creating logging context for emac_gy\n");
+		ETHQOSDBG("IPC logging context for emac_gy not available\n");
 	else
 		ETHQOSDBG("IPC logging has been enabled for emac_gy\n");
 	ret = stmmac_thin_get_platform_resources(pdev, &stmmac_res);
@@ -764,7 +763,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	ETHQOSDBG("emac_core_version = 0x%x\n", ethqos->emac_ver);
 
 	/* Allocate workqueue */
-	ethqos->wq = create_singlethread_workqueue("ethqos_wq");
+	ethqos->wq = alloc_workqueue("ethqos_wq", WQ_HIGHPRI | WQ_UNBOUND, 1);
 	if (!ethqos->wq) {
 		ETHQOSERR("Failed to create workqueue\n");
 		ret = -ENOMEM;
@@ -797,13 +796,45 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 				ETHQOSERR("Failed : enable the pm runtime : %d\n",ret_domain);
 			else {
 				priv->clks_config = qcom_ethqos_domain_transition_d0d1;
-				ETHQOSINFO("GVM ETH Power domain loaded successfully.\n");
+				ETHQOSDBG("GVM ETH Power domain loaded successfully.\n");
 			}
 		}
 	}
 	priv->emac_state = EMAC_INIT_ST;
 	qcom_ethqos_client_poll_worker_start();
+
+	/* Create eth_adapt_rx kthread here (probe context, no rtnl_lock held)
+	 * so that client_connect() only needs kthread_queue_work, avoiding a
+	 * kthread_create wait_for_completion stall inside rtnl_lock.
+	 */
+	kthread_init_work(&client_sk.init_client, qcom_ethqos_client_start);
+	kthread_init_worker(&client_sk.kworker);
+	client_sk.task = kthread_run(kthread_worker_fn,
+				     &client_sk.kworker, "eth_adapt_rx");
+	if (IS_ERR(client_sk.task)) {
+		ETHQOSERR("Error creating eth_adapt_rx kthread\n");
+		ret = PTR_ERR(client_sk.task);
+		client_sk.task = NULL;
+		client_sk.poll_active = 0;
+		kthread_cancel_work_sync(&client_sk.poll_work);
+		kthread_flush_work(&client_sk.poll_work);
+		goto err_kthread;
+	}
+	set_user_nice(client_sk.task, -10);
+
 	register_netdevice_notifier(&netdev_notifier);
+
+	ret = register_netdev(ndev);
+	if (ret) {
+		ETHQOSERR("register_netdev failed: %d\n", ret);
+		unregister_netdevice_notifier(&netdev_notifier);
+		kthread_stop(client_sk.task);
+		client_sk.task = NULL;
+		client_sk.poll_active = 0;
+		kthread_cancel_work_sync(&client_sk.poll_work);
+		kthread_flush_work(&client_sk.poll_work);
+		goto err_reg_netdev;
+	}
 
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe end");
@@ -811,6 +842,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	ETHQOSINFO("End\n");
 	return 0;
 
+err_reg_netdev:
+	netif_napi_del(&priv->channel.rx_napi);
+	netif_napi_del(&priv->channel.tx_napi);
+err_kthread:
 err_reg:
 	destroy_workqueue(ethqos->wq);
 err_smmu:
@@ -837,6 +872,10 @@ static void qcom_ethqos_remove(struct platform_device *pdev)
 	kthread_cancel_work_sync(&client_sk.poll_work);
 	kthread_flush_work(&client_sk.poll_work);
 	qcom_ethqos_client_sock_cleanup();
+	if (client_sk.task) {
+		kthread_stop(client_sk.task);
+		client_sk.task = NULL;
+	}
 	destroy_workqueue(ethqos->wq);
 	stmmac_thin_pltfr_remove(pdev);
 
@@ -918,7 +957,7 @@ static int qcom_ethqos_resume(struct device *dev)
 	}
 
 	if (ethqos->suspended)
-		qcom_ethqos_client_connect(client_sk.ethqos, false);
+		qcom_ethqos_client_connect(client_sk.ethqos);
 
 	ETHQOSDBG("<--Resume Exit\n");
 	return ret;

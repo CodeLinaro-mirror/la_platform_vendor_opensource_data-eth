@@ -237,7 +237,7 @@ stmmac_thin_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch)
 		if (PTR_ERR(plat->stmmac_rst) == -EPROBE_DEFER)
 			goto error_hw_init;
 
-		dev_info(&pdev->dev, "no reset control found\n");
+		dev_dbg(&pdev->dev, "no reset control found\n");
 		plat->stmmac_rst = NULL;
 	}
 
