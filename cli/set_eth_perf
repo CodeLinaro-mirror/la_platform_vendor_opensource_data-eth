@@ -37,7 +37,11 @@ set_rps_cpus() {
 	local interface="$1"
 
 	# Set RPS CPUs
-	echo c > /sys/class/net/"$interface"/queues/rx-1/rps_cpus
+	if [ /sys/class/net/"$interface"/device/driver -ef /sys/bus/usb/drivers/r8152 ]; then
+		echo c > /sys/class/net/"$interface"/queues/rx-0/rps_cpus
+	else
+		echo c > /sys/class/net/"$interface"/queues/rx-1/rps_cpus
+	fi
 }
 
 # Validate the driver
@@ -52,6 +56,11 @@ if [ /sys/class/net/"$1"/device/driver -ef /sys/bus/platform/drivers/qcom-ethqos
 	else
 		echo "Error: Invalid interface. Only 'eth0' or 'eth1' are allowed."
 		exit 1
+	fi
+elif [ /sys/class/net/"$1"/device/driver -ef /sys/bus/usb/drivers/r8152 ]; then
+	# Set RPS CPUs setting
+	if ! grep -wq "erss=rss" /proc/cmdline; then
+		set_rps_cpus $1
 	fi
 else
 	echo "Driver not supported"
