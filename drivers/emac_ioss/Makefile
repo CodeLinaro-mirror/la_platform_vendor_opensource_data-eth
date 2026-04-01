@@ -6,6 +6,8 @@ M ?= $(shell pwd)
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 
+ccflags-y += $(EXTRA_CFLAGS)
+
 iemac_ioss-y := \
 	emac_ioss.o \
 	emac_ipa_intf.o

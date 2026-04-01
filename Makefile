@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 ccflags-y := -Wno-unused-function
+subdir-ccflags-y += $(EXTRA_CFLAGS)
 obj-y := data-eth.o
 
 ifneq ($(CONFIG_ETHQOS_QCOM_SVM), y)
 obj-m += drivers/ioss/
-obj-m += drivers/emac_ioss/
+# emac_ioss requires stmmac struct extensions not yet ported to kernel 6.18
+# obj-m += drivers/emac_ioss/
 endif
 
 ifeq ($(CONFIG_ARCH_SDXPINN), y)
