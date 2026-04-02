@@ -59,9 +59,7 @@ if [ /sys/class/net/"$1"/device/driver -ef /sys/bus/platform/drivers/qcom-ethqos
 	fi
 elif [ /sys/class/net/"$1"/device/driver -ef /sys/bus/usb/drivers/r8152 ]; then
 	# Set RPS CPUs setting
-	if ! grep -wq "erss=rss" /proc/cmdline; then
-		set_rps_cpus $1
-	fi
+	set_rps_cpus $1
 else
 	echo "Driver not supported"
 	exit 1
