@@ -70,8 +70,6 @@ def define_modules(target, variant):
             deps = [
                 ":ioss_headers",
                 "//msm-kernel:all_headers_arm",
-                "//dataipa:include_headers",
-                "//dataipa:{}-defconfig_ipam".format(kernel_build_variant),
             ],
         )
         mod_list.append("{}-defconfig_ioss".format(kernel_build_variant))
@@ -89,7 +87,6 @@ def define_modules(target, variant):
             deps = [
                 ":ioss_headers",
                 "//msm-kernel:all_headers_arm",
-                "//dataipa:include_headers",
                 ":{}-defconfig_ioss".format(kernel_build_variant),
             ],
             copts = [

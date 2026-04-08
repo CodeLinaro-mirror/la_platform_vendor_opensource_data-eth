@@ -10,7 +10,7 @@
 #include <linux/module.h>
 #include <linux/if_vlan.h>
 #include <linux/platform_device.h>
-#include <ipa_eth.h>
+#include <linux/ipa_eth.h>
 #include <linux/panic_notifier.h>
 
 #if IPA_ETH_API_VER < 2
