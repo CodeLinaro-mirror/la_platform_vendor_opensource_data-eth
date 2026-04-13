@@ -4716,6 +4716,8 @@ static int tc956xmac_init_phy(struct net_device *dev)
 		return ret; /* success case: return from here for DT based without MDIO case */
 	}
 
+	if (priv->dev->phydev)
+		priv->dev->phydev->mac_managed_pm = true;
 
 	if (phydev->drv != NULL) {
 		if (true == priv->plat->phy_interrupt_mode && (phydev->drv->config_intr))
