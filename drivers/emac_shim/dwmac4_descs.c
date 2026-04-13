@@ -3,6 +3,7 @@
  * databook 4.xx.
  *
  * Copyright (C) 2015  STMicroelectronics Ltd
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Author: Alexandre Torgue <alexandre.torgue@st.com>
  */
@@ -477,7 +478,7 @@ static void dwmac4_set_vlan(struct dma_desc *p, u32 type)
 	p->des2 |= cpu_to_le32(type & TDES2_VLAN_TAG_MASK);
 }
 
-const struct stmmac_desc_ops dwmac4_desc_ops = {
+const struct stmmac_desc_ops dwmac4_thin_desc_ops = {
 	.tx_status = dwmac4_wrback_get_tx_status,
 	.rx_status = dwmac4_wrback_get_rx_status,
 	.get_tx_len = dwmac4_rd_get_tx_len,

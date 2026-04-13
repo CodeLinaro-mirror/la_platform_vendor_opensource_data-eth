@@ -3,6 +3,7 @@
  * This contains the functions to handle the platform driver.
  *
  * Copyright (C) 2007-2011  STMicroelectronics Ltd
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  *****************************************************************************/
@@ -14,6 +15,7 @@
 #include <linux/of_net.h>
 #include <linux/of_device.h>
 
+#include "dwmac4_thin.h"
 #include "stmmac_thin.h"
 #include "stmmac_platform_thin.h"
 
@@ -170,7 +172,7 @@ static int stmmac_mtl_setup(struct platform_device *pdev,
  * set some private fields that will be used by the main at runtime.
  */
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
+stmmac_thin_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct plat_stmmacenet_data *plat;
@@ -181,12 +183,13 @@ stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
 	if (!plat)
 		return ERR_PTR(-ENOMEM);
 
-	*mac = of_get_mac_address(np);
-	if (IS_ERR(*mac)) {
-		if (PTR_ERR(*mac) == -EPROBE_DEFER)
-			return ERR_CAST(*mac);
+	rc = of_get_mac_address(np, mac);
+	if (rc) {
+		if (rc == -EPROBE_DEFER)
+			return ERR_PTR(rc);
 
-		*mac = NULL;
+		eth_zero_addr(mac);
+
 	}
 
 	of_property_read_u32(np, "tx-fifo-depth", &plat->tx_fifo_size);
@@ -200,7 +203,8 @@ stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch)
 	 * parameter is not present in the device tree.
 	 */
 	plat->maxmtu = JUMBO_LEN;
-	plat->tso_en = of_property_read_bool(np, "snps,tso");
+	if (of_property_read_bool(np, "snps,tso"))
+		plat->flags |= STMMAC_FLAG_TSO_EN;
 
 	dma_cfg = devm_kzalloc(&pdev->dev, sizeof(*dma_cfg),
 			       GFP_KERNEL);
@@ -245,14 +249,32 @@ error_hw_init:
 
 #else
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, const char **mac)
+stmmac_thin_probe_config_dt(struct platform_device *pdev, const char **mac)
 {
 	return ERR_PTR(-EINVAL);
 }
 #endif /* CONFIG_OF */
-EXPORT_SYMBOL_GPL(stmmac_probe_config_dt);
+EXPORT_SYMBOL_GPL(stmmac_thin_probe_config_dt);
 
-int stmmac_get_platform_resources(struct platform_device *pdev,
+static bool stmmac_thin_check_reg_access(struct stmmac_resources *stmmac_res)
+{
+	u32 prev_val, curr_val;
+
+	prev_val = readl_relaxed(stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	if (prev_val & BIT(16)) {
+		return true;
+	}
+	curr_val = prev_val | BIT(16);
+	writel_relaxed(curr_val, stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	curr_val = readl_relaxed(stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	writel_relaxed(prev_val, stmmac_res->addr + DMA_CHAN_CONTROL(stmmac_res->ch));
+	if (curr_val == prev_val) {
+		return false;
+	}
+	return true;
+}
+
+int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 				  struct stmmac_resources *stmmac_res)
 {
 	struct resource *res;
@@ -263,19 +285,35 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	/* Get IRQ information early to have an ability to ask for deferred
 	 * probe if needed before we went too far with resource allocation.
 	 */
-	stmmac_res->irq[0] = platform_get_irq_byname(pdev, "tx_rx_ch0_intr");
-	stmmac_res->irq[1] = platform_get_irq_byname(pdev, "tx_rx_ch1_intr");
-	stmmac_res->irq[2] = platform_get_irq_byname(pdev, "tx_rx_ch2_intr");
-	stmmac_res->irq[3] = platform_get_irq_byname(pdev, "tx_rx_ch3_intr");
-	stmmac_res->irq[4] = platform_get_irq_byname(pdev, "tx_rx_ch4_intr");
-	stmmac_res->irq[5] = platform_get_irq_byname(pdev, "tx_rx_ch5_intr");
-	stmmac_res->irq[6] = platform_get_irq_byname(pdev, "tx_rx_ch6_intr");
-	stmmac_res->irq[7] = platform_get_irq_byname(pdev, "tx_rx_ch7_intr");
+	stmmac_res->tx_irq[0] = platform_get_irq_byname(pdev, "tx_ch0_intr");
+	stmmac_res->tx_irq[1] = platform_get_irq_byname(pdev, "tx_ch1_intr");
+	stmmac_res->tx_irq[2] = platform_get_irq_byname(pdev, "tx_ch2_intr");
+	stmmac_res->tx_irq[3] = platform_get_irq_byname(pdev, "tx_ch3_intr");
+	stmmac_res->tx_irq[4] = platform_get_irq_byname(pdev, "tx_ch4_intr");
+	stmmac_res->tx_irq[5] = platform_get_irq_byname(pdev, "tx_ch5_intr");
+	stmmac_res->tx_irq[6] = platform_get_irq_byname(pdev, "tx_ch6_intr");
+	stmmac_res->tx_irq[7] = platform_get_irq_byname(pdev, "tx_ch7_intr");
+	stmmac_res->rx_irq[0] = platform_get_irq_byname(pdev, "rx_ch0_intr");
+	stmmac_res->rx_irq[1] = platform_get_irq_byname(pdev, "rx_ch1_intr");
+	stmmac_res->rx_irq[2] = platform_get_irq_byname(pdev, "rx_ch2_intr");
+	stmmac_res->rx_irq[3] = platform_get_irq_byname(pdev, "rx_ch3_intr");
+	stmmac_res->rx_irq[4] = platform_get_irq_byname(pdev, "rx_ch4_intr");
+	stmmac_res->rx_irq[5] = platform_get_irq_byname(pdev, "rx_ch5_intr");
+	stmmac_res->rx_irq[6] = platform_get_irq_byname(pdev, "rx_ch6_intr");
+	stmmac_res->rx_irq[7] = platform_get_irq_byname(pdev, "rx_ch7_intr");
+
 	for (i = 0; i < MAX_NUM_CH; i++) {
-		if (stmmac_res->irq[i] < 0) {
+		if (stmmac_res->tx_irq[i] < 0) {
 			dev_warn(&pdev->dev,
-				 "ch irq [%d] not configured\n", i);
-			stmmac_res->irq[i] = 0;
+				 "tx ch irq [%d] not configured\n", i);
+			stmmac_res->tx_irq[i] = 0;
+		}
+	}
+	for (i = 0; i < MAX_NUM_CH; i++) {
+		if (stmmac_res->rx_irq[i] < 0) {
+			dev_warn(&pdev->dev,
+				 "rx ch irq [%d] not configured\n", i);
+			stmmac_res->rx_irq[i] = 0;
 		}
 	}
 
@@ -284,18 +322,22 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 		dev_err(&pdev->dev, "No resource for the device\n");
 		return  -EINVAL;
 	}
-	stmmac_res->addr = devm_ioremap_resource(&pdev->dev, res);
-	dev_info(&pdev->dev, "stmmac regs virt=0x%x, regs phy=0x%x\n",
-		 stmmac_res->addr, res->start);
+	stmmac_res->addr = devm_platform_ioremap_resource(pdev, 0);
 
 	if (of_property_read_u32(pdev->dev.of_node,
 				 "queue", &stmmac_res->ch)) {
 		dev_warn(&pdev->dev, "queue is not in dtsi\n");
 		stmmac_res->ch = VM_TRAFFIC_CHANNEL;
 	}
+
+	/* Check if the driver has reg access or not */
+	if (!stmmac_thin_check_reg_access(stmmac_res)) {
+		return -EACCES;
+	}
+
 	return PTR_ERR_OR_ZERO(stmmac_res->addr);
 }
-EXPORT_SYMBOL_GPL(stmmac_get_platform_resources);
+EXPORT_SYMBOL_GPL(stmmac_thin_get_platform_resources);
 
 /**
  * stmmac_pltfr_remove
@@ -303,19 +345,19 @@ EXPORT_SYMBOL_GPL(stmmac_get_platform_resources);
  * Description: this function calls the main to free the net resources
  * and calls the platforms hook and release the resources (e.g. mem).
  */
-int stmmac_pltfr_remove(struct platform_device *pdev)
+int stmmac_thin_pltfr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	struct plat_stmmacenet_data *plat = priv->plat;
-	int ret = stmmac_dvr_remove(&pdev->dev);
+	int ret = stmmac_thin_dvr_remove(&pdev->dev);
 
 	if (plat->exit)
 		plat->exit(pdev, plat->bsp_priv);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(stmmac_pltfr_remove);
+EXPORT_SYMBOL_GPL(stmmac_thin_pltfr_remove);
 
 MODULE_DESCRIPTION("STMMAC 10/100/1000 Ethernet platform support");
 MODULE_AUTHOR("Giuseppe Cavallaro <peppe.cavallaro@st.com>");

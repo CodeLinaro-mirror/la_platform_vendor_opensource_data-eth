@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only
  * Copyright (c) 2019-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
 #include <linux/compiler.h>/* for __maybe_unused */
@@ -14,7 +15,6 @@
 #include <linux/scatterlist.h>
 #include <linux/workqueue.h>
 #include "../include/linux/emac_ctrl_fe_api.h"
-#include <soc/qcom/boot_stats.h>
 #include "emac_ctrl_fe_virtio.h"
 
 /*global context ptr declaration*/
@@ -22,16 +22,15 @@ static struct emac_ctrl_fe_virtio_dev *emac_ctrl_fe_ctx;
 
 static ATOMIC_NOTIFIER_HEAD(emac_ctrl_fe_notifier_chain);
 
-static __maybe_unused emac_ctrl_fe_notify(enum emac_ctrl_fe_gvm_event event, int nr_to_call , int *nr_calls)
+static int __maybe_unused emac_ctrl_fe_notify(enum emac_ctrl_fe_gvm_event event)
 {
 	int ret;
-	rcu_irq_enter_irqson();
+	/* ct_irq_enter_irqson(); */
 	/* this chain has a RCU read critical section which can be disfunctional
 	 * in cpu idle. Copy RCU_NONIDLE code to let RCU know this.
 	 */
-	ret = __atomic_notifier_call_chain(&emac_ctrl_fe_notifier_chain, event, NULL,
-		nr_to_call, nr_calls);
-	rcu_irq_exit_irqson();
+	ret = atomic_notifier_call_chain(&emac_ctrl_fe_notifier_chain, event, NULL);
+	/* ct_irq_exit_irqson(); */
 	return notifier_to_errno(ret);
 }
 
@@ -39,7 +38,7 @@ static int __maybe_unused emac_ctl_fe_xmit(
 	struct emac_ctrl_fe_virtio_dev *pdev
 )
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	struct scatterlist sg[1];
 	struct emac_ctrl_fe_to_be_virtio_msg *msg = NULL;
 	int retval = 0;
@@ -85,11 +84,13 @@ static struct delayed_work emac_ctrl_fe_trigger_notif;
 
 int emac_ctrl_fe_register_notifier(struct notifier_block *nb)
 {
+	unsigned long flags = 0;
+
 	if (emac_ctrl_fe_ctx) {
 		/*DMA Driver is now registered*/
-		mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+		spin_lock_irqsave(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 		emac_ctrl_fe_ctx->emac_dma_drv_state = EMAC_CTRL_FE_DMA_DRV_REG;
-		mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+		spin_unlock_irqrestore(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 		EMAC_CTL_FE_INFO("Register for Event notification \n");
 		/*process pending acks*/
 		if (emac_ctrl_fe_ctx->emac_ctrl_fe_state >=
@@ -106,10 +107,12 @@ EXPORT_SYMBOL_GPL(emac_ctrl_fe_register_notifier);
 
 int emac_ctrl_fe_unregister_notifier(struct notifier_block *nb)
 {
+	unsigned long flags = 0;
+
 	if (emac_ctrl_fe_ctx) {
-		mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+		spin_lock_irqsave(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 		emac_ctrl_fe_ctx->emac_dma_drv_state = EMAC_CTRL_FE_DMA_DRV_UNREG;
-		mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+		spin_unlock_irqrestore(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 
 		emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_VIRT_UNREG_EVENTS;
 		emac_ctrl_fe_ctx->tx_msg.len = sizeof(struct emac_ctrl_fe_to_be_virtio_msg);
@@ -145,19 +148,22 @@ struct emac_ctrl_fe_cb_info {
 int emac_ctrl_fe_register_ready_cb(void (*emac_ctrl_fe_ready_cb)(void *user_data),
 	void *user_data)
 {
-	if (emac_ctrl_fe_ctx->emac_ctrl_fe_ready == true) {
+	int ret = 0;
+
+	if (emac_ctrl_fe_ctx && emac_ctrl_fe_ctx->emac_ctrl_fe_ready) {
 		/*call the callback*/
-		EMAC_CTL_FE_INFO("Trigger FE Ready CB \n");
+		EMAC_CTL_FE_INFO("Trigger FE Ready CB\n");
 		if (emac_ctrl_fe_ready_cb)
 			emac_ctrl_fe_ready_cb(user_data);
 
 	}
 	else {
-		EMAC_CTL_FE_INFO("FE Not Ready Yet \n");
+		EMAC_CTL_FE_INFO("FE Not Support or Ready Yet\n");
+		ret = -EINVAL;
 	}
-	return 0;
+	return ret;
 }
-EXPORT_SYMBOL(emac_ctrl_fe_register_ready_cb);
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_register_ready_cb);
 
 /*This is to be called at end of probe once basic init is done */
 static inline  void __maybe_unused emac_ctrl_fe_ready_trigger_cb(void)
@@ -183,14 +189,42 @@ void __maybe_unused emac_ctrl_fe_gvm_dma_stopped(void){
 	emac_ctl_fe_xmit(emac_ctrl_fe_ctx);
 	//return;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_gvm_dma_stopped);
+
+int __maybe_unused emac_ctrl_fe_disable_mac_filter(void){
+	int ret = 0;
+	unsigned long tmp;
+
+	EMAC_CTL_FE_INFO("Request Disable MAC Filter to Host");
+	emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_DISABLE_MAC_FILTER;
+	emac_ctrl_fe_ctx->tx_msg.len = sizeof(struct emac_ctrl_fe_to_be_virtio_msg);
+	emac_ctl_fe_xmit(emac_ctrl_fe_ctx);
+
+	EMAC_CTL_FE_INFO("Wait for Host to reply MAC Filter status");
+	tmp = msecs_to_jiffies(WAIT_HOST_REPLY_MAX_TIMEOUT);
+	ret = down_timeout(&emac_ctrl_fe_ctx->emac_ctl_fe_sem, tmp);
+	if (ret == -ETIME) {
+		EMAC_CTL_FE_WARN("Wait for Host reply timeout");
+	}
+	else if (ret == 0) {
+		EMAC_CTL_FE_INFO("Received Disabling MAC Filter reply from Host");
+	}
+	else {
+		EMAC_CTL_FE_INFO("Unknown error return value");
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_disable_mac_filter);
 
 /* request filter addition at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_types filter_type,
 	union emac_ctrl_fe_filter *filter) {
+	unsigned long flags = 0;
 
 	if (!emac_ctrl_fe_ctx)
 		return -EINVAL;
-	mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+	spin_lock_irqsave(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 
 	EMAC_CTL_FE_INFO("Fe Filter Add Req %d", filter_type);
 	switch (filter_type) {
@@ -243,18 +277,20 @@ int __maybe_unused emac_ctrl_fe_filter_add_request(enum emac_ctrl_fe_filter_type
 		break;
 	}
 
-	mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+	spin_unlock_irqrestore(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_filter_add_request);
 
 /* request filter deletion at EMAC HW*/
 int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_types filter_type,
 	union emac_ctrl_fe_filter filter) {
+	unsigned long flags = 0;
 
 	if (!emac_ctrl_fe_ctx)
 		return -EINVAL;
 
-	mutex_lock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+	spin_lock_irqsave(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 
 	EMAC_CTL_FE_INFO("Relay Filter Del req");
 	switch (filter_type) {
@@ -265,7 +301,7 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 			//return -EINVAL;
 		}
 
-		EMAC_CTL_FE_INFO( "Requesting Filter for multicast MacAddr: %pM\n", filter.multi_mac);
+		EMAC_CTL_FE_INFO( "Requesting Filter for multicast MacAddr: %pM\n", filter.multi_mac.enm_addr);
 		emac_ctrl_fe_ctx->tx_msg.type = VIRTIO_EMAC_DMA_VIRT_MULTICAST_DEL;
 		memcpy(&(emac_ctrl_fe_ctx->tx_msg.request_data.multi_mac),
 			&filter.multi_mac, ETH_ALEN);
@@ -307,9 +343,10 @@ int __maybe_unused emac_ctrl_fe_filter_del_request(enum emac_ctrl_fe_filter_type
 		break;
 	}
 
-	mutex_unlock(&emac_ctrl_fe_ctx->emac_ctl_fe_lock);
+	spin_unlock_irqrestore(&emac_ctrl_fe_ctx->emac_ctl_fe_lock, flags);
 	return 0;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_filter_del_request);
 
 /* request mac_addr_chg_req*/
 int __maybe_unused emac_ctrl_fe_mac_addr_chg(struct unicast_mac_addr *new_mac_addr) {
@@ -334,6 +371,7 @@ int __maybe_unused emac_ctrl_fe_mac_addr_chg(struct unicast_mac_addr *new_mac_ad
 	EMAC_CTL_FE_INFO("Sent MAC Addr Update Event Cmd \n");
 	return 0;
 }
+EXPORT_SYMBOL_GPL(emac_ctrl_fe_mac_addr_chg);
 
 void emac_ctl_fe_replenish_rxbuf(
 	struct emac_ctrl_fe_virtio_dev *pdev,
@@ -359,44 +397,44 @@ void emac_ctl_fe_process_rxbuf(
 	unsigned int len
 )
 {
-	enum emac_dma_drv_state_type   dma_drv_state = EMAC_CTRL_FE_DMA_DRV_DOWN;
 	EMAC_CTL_FE_INFO("Receive len =%u, cmd= %d, msgid =%d, msg len = %d ",
 		len, msg->cmd, msg->msgid, msg->len);
 
-	/*todo add lock for state read*/
-	mutex_lock(&pdev->emac_ctl_fe_lock);
-	dma_drv_state = pdev->emac_dma_drv_state;
-	mutex_unlock(&pdev->emac_ctl_fe_lock);
-	if (dma_drv_state == EMAC_CTRL_FE_DMA_DRV_REG) {
+	if (pdev->emac_dma_drv_state == EMAC_CTRL_FE_DMA_DRV_REG) {
 		switch (msg->cmd) {
 
 		case EMAC_HW_DOWN:
 			EMAC_CTL_FE_INFO("Notify EMAC_HW_DOWN");
-			emac_ctrl_fe_notify(EMAC_HW_DOWN, -1, NULL);
+			emac_ctrl_fe_notify(EMAC_HW_DOWN);
 			pdev->emac_ctrl_fe_state = EMAC_CTRL_FE_HW_DOWN_NOTIFIED;
 			break;
 
 		case EMAC_HW_UP:
 			EMAC_CTL_FE_INFO("Notify EMAC_HW_UP");
-			emac_ctrl_fe_notify(EMAC_HW_UP, -1, NULL);
+			emac_ctrl_fe_notify(EMAC_HW_UP);
 			pdev->emac_ctrl_fe_state = EMAC_CTRL_FE_HW_UP_NOTIFIED;
 			break;
 
 		case EMAC_LINK_DOWN:
 			EMAC_CTL_FE_INFO("Notify EMAC_LINK_DOWN");
-			emac_ctrl_fe_notify(EMAC_LINK_DOWN, -1, NULL);
+			emac_ctrl_fe_notify(EMAC_LINK_DOWN);
 			pdev->emac_ctrl_fe_state = EMAC_CTRL_FE_LINK_DOWN_NOTIFIED;
 			break;
 
 		case EMAC_LINK_UP:
 			EMAC_CTL_FE_INFO("Notify EMAC_LINK_UP");
-			emac_ctrl_fe_notify(EMAC_LINK_UP, -1, NULL);
+			emac_ctrl_fe_notify(EMAC_LINK_UP);
 			pdev->emac_ctrl_fe_state = EMAC_CTRL_FE_LINK_UP_NOTIFIED;
 			break;
 
 		case EMAC_DMA_INT_STS_AVAIL:
 			EMAC_CTL_FE_INFO("Notify EMAC_DMA_INT_STS_AVAIL");
-			emac_ctrl_fe_notify(EMAC_DMA_INT_STS_AVAIL, -1, NULL);
+			emac_ctrl_fe_notify(EMAC_DMA_INT_STS_AVAIL);
+			break;
+
+		case EMAC_DISABLE_MAC_FILTER_ACK:
+			EMAC_CTL_FE_INFO("Notify EMAC_DISABLE_MAC_FILTER_ACK");
+			up(&emac_ctrl_fe_ctx->emac_ctl_fe_sem);
 			break;
 
 		default:
@@ -416,7 +454,7 @@ static void emac_ctl_fe_recv_done(struct virtqueue *rvq)
 {
 	struct emac_ctrl_fe_virtio_dev *pdev = rvq->vdev->priv;
 	struct emac_ctrl_be_to_fe_virtio_msg *msg;
-	unsigned long flags;
+	unsigned long flags = 0;
 	unsigned int len;
 	EMAC_CTL_FE_DBG("Entry");
 
@@ -445,19 +483,46 @@ static void emac_ctl_fe_recv_done(struct virtqueue *rvq)
 	spin_unlock_irqrestore(&pdev->rxq_lock, flags);
 }
 
+static void emac_ctl_fe_xmit_done(struct virtqueue *txq)
+{
+	struct emac_ctrl_fe_virtio_dev         *pdev = txq->vdev->priv;
+	struct emac_ctrl_fe_to_be_virtio_msg   *msg = NULL;
+	unsigned long                           flags = 0;
+	unsigned int                            len = 0;
+
+	EMAC_CTL_FE_INFO("-->");
+	while (1) {
+		spin_lock_irqsave(&pdev->txq_lock, flags);
+		EMAC_CTL_FE_DBG("Call virtqueue_get_buf");
+		msg = virtqueue_get_buf(pdev->emac_ctl_txq, &len);
+		spin_unlock_irqrestore(&pdev->txq_lock, flags);
+		if (!msg) {
+			break;
+		}
+	}/*while*/
+	EMAC_CTL_FE_INFO("<--");
+	return ;
+}
+
 static int emac_ctrl_fe_init_vqs(struct emac_ctrl_fe_virtio_dev *pdev)
 {
 	struct virtqueue *vqs[EMAC_CTRL_FE_VIRTQ_NUM];
 	static const char *const names[] = { "emac_ctl_tx", "emac_ctl_rx" };
-	vq_callback_t *cbs[] = {NULL, emac_ctl_fe_recv_done};
+	vq_callback_t *cbs[] = {emac_ctl_fe_xmit_done, emac_ctl_fe_recv_done};
+	struct virtqueue_info vqs_info[2];
 	int ret;
+
+	vqs_info[0].callback = cbs[0];
+	vqs_info[0].name = names[0];
+
+	vqs_info[1].callback = cbs[1];
+	vqs_info[1].name = names[1];
 
 	/* Find VirtQueues and Register callback*/
 	ret = virtio_find_vqs(pdev->vdev,
 				EMAC_CTRL_FE_VIRTQ_NUM,
 				vqs,
-				cbs,
-				names,
+				vqs_info,
 				NULL);
 	if (ret) {
 		EMAC_CTL_FE_ERR("virtio_find_vqs failed\n");
@@ -480,7 +545,7 @@ static int emac_ctrl_fe_init_vqs(struct emac_ctrl_fe_virtio_dev *pdev)
 
 static void emac_ctrl_fe_allocate_rxbufs(struct emac_ctrl_fe_virtio_dev *pdev)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 	int i, size;
 
 	spin_lock_irqsave(&pdev->rxq_lock, flags);
@@ -510,7 +575,8 @@ static int emac_ctrl_fe_probe(struct virtio_device *vdev)
 		goto fail;
 	}
 
-	mutex_init(&pdev->emac_ctl_fe_lock);
+	spin_lock_init(&pdev->emac_ctl_fe_lock);
+	sema_init(&pdev->emac_ctl_fe_sem, (0));
 
 	emac_ctrl_fe_ctx = pdev;
 	vdev->priv = pdev;
@@ -532,8 +598,8 @@ static int emac_ctrl_fe_probe(struct virtio_device *vdev)
 	EMAC_CTL_FE_INFO("Allocate RXBufs \n");
 	emac_ctrl_fe_allocate_rxbufs(pdev);
 
-	/* Disable TX Complete ISR*/
-	virtqueue_disable_cb(pdev->emac_ctl_txq);
+	/* Enable TX Complete ISR*/
+	virtqueue_enable_cb(pdev->emac_ctl_txq);
 
 	/*Enable Rx Complete ISR*/
 	virtqueue_enable_cb(pdev->emac_ctl_rxq);
@@ -558,9 +624,6 @@ static int emac_ctrl_fe_probe(struct virtio_device *vdev)
 	/*Signal FE DMA Thin driver EMAC_FE_CTRL_DRV is ready*/
 	pdev->emac_ctrl_fe_ready = true;
 	INIT_DEFERRABLE_WORK(&emac_ctrl_fe_trigger_notif, emac_ctrl_fe_trigger_notif_work);
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	place_marker("M - DRIVER EMAC_CTRL_FE Ready");
-#endif
 	return 0;
 	/*
 alloc_rxbufs_fail:
@@ -633,14 +696,9 @@ static struct virtio_driver emac_ctrl_fe_virtio_drv = {
 
 static int __init emac_ctrl_fe_init(void)
 {
-#ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-	place_marker("M - DRIVER EMAC_CTRL_FE Init");
-#endif
-	pr_err("%s: Module Entry \n", __func__);
+	EMAC_CTL_FE_INFO("%s: Module Entry \n", __func__);
 	return register_virtio_driver(&emac_ctrl_fe_virtio_drv);
-
 }
-
 
 static void __exit emac_ctrl_fe_exit(void)
 {
@@ -650,5 +708,6 @@ static void __exit emac_ctrl_fe_exit(void)
 module_init(emac_ctrl_fe_init);
 module_exit(emac_ctrl_fe_exit);
 
+MODULE_SOFTDEP("post: emac_thin");
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Emac Virt DMA Ctrl FE Driver");

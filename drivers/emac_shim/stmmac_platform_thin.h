@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /******************************************************************************
  * Copyright (C) 2007-2009  STMicroelectronics Ltd
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  *****************************************************************************/
@@ -11,12 +12,12 @@
 #include "stmmac_thin.h"
 
 struct plat_stmmacenet_data *
-stmmac_probe_config_dt(struct platform_device *pdev, const char **mac, u32 ch);
+stmmac_thin_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch);
 
-int stmmac_get_platform_resources(struct platform_device *pdev,
+int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 				  struct stmmac_resources *stmmac_res);
 
-int stmmac_pltfr_remove(struct platform_device *pdev);
+int stmmac_thin_pltfr_remove(struct platform_device *pdev);
 
 static inline void *get_stmmac_bsp_priv(struct device *dev)
 {

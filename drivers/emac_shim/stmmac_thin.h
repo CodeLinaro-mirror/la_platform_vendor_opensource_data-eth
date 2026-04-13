@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*******************************************************************************
  * Copyright (C) 2007-2009  STMicroelectronics Ltd
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
  ******************************************************************************/
@@ -8,7 +9,7 @@
 #ifndef __STMMAC_THIN_H__
 #define __STMMAC_THIN_H__
 
-#define STMMAC_RESOURCE_NAME   "stmmaceth"
+#define STMMAC_RESOURCE_NAME   "stmmac_thin"
 #define DRV_MODULE_VERSION	"Jan_2016"
 
 #include <linux/if_vlan.h>
@@ -19,7 +20,7 @@
 
 #include <linux/net_tstamp.h>
 #include <linux/reset.h>
-#include "net/page_pool.h"
+
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 #include <soc/qcom/boot_stats.h>
 #endif
@@ -27,8 +28,9 @@
 #define MAX_NUM_CH 8
 struct stmmac_resources {
 	void __iomem *addr;
-	const char *mac;
-	int irq[MAX_NUM_CH];
+	u8 mac[ETH_ALEN];
+	int rx_irq[MAX_NUM_CH];
+	int tx_irq[MAX_NUM_CH];
 	u32 ch;
 };
 
@@ -114,8 +116,14 @@ struct stmmac_priv {
 	int (*add_filter)(struct net_device *ndev);
 	int (*del_filter)(struct net_device *ndev);
 	int (*mac_addr)(struct net_device *ndev);
+	unsigned int (*get_plat_tx_coal_frames)(struct sk_buff *skb);
+	int (*del_mc_broadcast_filter)(void);
 	/* lock for priv data */
 	struct mutex lock;
+
+	/* RX Queue and TX Queue Interrupts*/
+	int rx_irq[MAX_NUM_CH];
+	int tx_irq[MAX_NUM_CH];
 
 	/* RX Queue */
 	struct stmmac_rx_queue rx_queue;
@@ -143,7 +151,7 @@ struct stmmac_priv {
 	u16 vid;
 	__be16 proto;
 
-	unsigned long emac_state;
+	unsigned int emac_state;
 	bool dev_opened;
 	bool dev_inited;
 
@@ -166,21 +174,17 @@ enum emac_state {
 	EMAC_LINK_UP_ST,
 };
 
-#define GET_MEM_PDEV_DEV (priv->plat->stmmac_emb_smmu_ctx.valid ? \
-			  &priv->plat->stmmac_emb_smmu_ctx.smmu_pdev->dev : \
-			  priv->device)
-
-void stmmac_set_ethtool_ops(struct net_device *netdev);
+void stmmac_thin_set_ethtool_ops(struct net_device *netdev);
 
 void stmmac_mac_link_down(struct net_device *ndev);
 void stmmac_mac_link_up(struct net_device *ndev);
 int stmmac_dvr_init(struct net_device *ndev);
 void stmmac_ch_status(struct net_device *ndev);
 
-int stmmac_resume(struct device *dev);
-int stmmac_suspend(struct device *dev);
-int stmmac_dvr_remove(struct device *dev);
-int stmmac_dvr_probe(struct device *device,
+int stmmac_thin_resume(struct device *dev);
+int stmmac_thin_suspend(struct device *dev);
+int stmmac_thin_dvr_remove(struct device *dev);
+int stmmac_thin_dvr_probe(struct device *device,
 		     struct plat_stmmacenet_data *plat_dat,
 		     struct stmmac_resources *res);
 

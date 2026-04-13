@@ -2,6 +2,7 @@
 /* DWMAC4 DMA and MTL Header file.
  *
  * Copyright (C) 2007-2015  STMicroelectronics Ltd
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Author: Alexandre Torgue <alexandre.torgue@st.com>
  */
@@ -182,7 +183,7 @@
 
 #define DMA_CHAN_INTR_NORMAL		(DMA_CHAN_INTR_ENA_NIE | \
 					 DMA_CHAN_INTR_ENA_RIE | \
-					 DMA_CHAN_INTR_ENA_TIE)
+					 DMA_CHAN_INTR_ENA_TIE | DMA_CHAN_INTR_ENA_ERE)
 
 #define DMA_CHAN_INTR_ABNORMAL		(DMA_CHAN_INTR_ENA_AIE | \
 					 DMA_CHAN_INTR_ENA_FBE | \
@@ -190,7 +191,7 @@
 					 DMA_CHAN_INTR_ENA_RBUE)
 
 /* DMA default interrupt mask for 4.00 */
-#define DMA_CHAN_INTR_DEFAULT_MASK	(DMA_CHAN_INTR_NORMAL | \
-					 DMA_CHAN_INTR_ABNORMAL)
-
+#define DMA_CHAN_INTR_DEFAULT_MASK	(0)
+#define DMA_CHAN_INTR_DEFAULT_RX	(DMA_CHAN_INTR_ENA_RIE)
+#define DMA_CHAN_INTR_DEFAULT_TX	(DMA_CHAN_INTR_ENA_TIE)
 #endif /* __DWMAC4_THIN_H__ */

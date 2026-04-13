@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-// Copyright (c) 2021 The Linux Foundation. All rights reserved.
-// Copyright (c) 2018-19 Linaro Limited
+/*
+ * Copyright (c) 2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-19 Linaro Limited
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ */
 
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 
 #include <linux/io.h>
@@ -13,7 +17,6 @@
 
 #include <linux/slab.h>
 #include <linux/poll.h>
-#include <linux/dma-iommu.h>
 #include <linux/iommu.h>
 
 #include <linux/etherdevice.h>
@@ -26,9 +29,8 @@
 #define EMAC_HW_v3_0_0 0x30000000
 #define MAX_FILTER_CHK 10
 
-void *ipc_emac_log_ctxt;
+void *ipc_emac_thin_log_ctxt;
 
-struct emac_emb_smmu_cb_ctx emac_emb_smmu_ctx = {0};
 struct qcom_ethqos *pethqos;
 
 struct emac_fe_ev {
@@ -43,22 +45,23 @@ static void emac_fe_ev_wq(struct work_struct *work)
 {
 	struct qcom_ethqos *ethqos = container_of(work, struct qcom_ethqos,
 						  emac_fe_work);
-	struct stmmac_priv *priv = qcom_ethqos_get_priv(ethqos);
+	struct stmmac_priv *priv = qcom_ethqos_thin_get_priv(ethqos);
 	struct emac_fe_ev *emac_ev;
 
 	ETHQOSINFO("Enter - cur state [%u]\n", priv->emac_state);
 	do {
-		mutex_lock(&ethqos->lock);
+		unsigned long flags;
+		spin_lock_irqsave(&ethqos->lock, flags);
 		emac_ev = list_first_entry_or_null(&ethqos->emac_fe_ev_q,
 						   struct emac_fe_ev, list);
 		if (emac_ev)
 			list_del(&emac_ev->list);
-		mutex_unlock(&ethqos->lock);
+		spin_unlock_irqrestore(&ethqos->lock, flags);
 
 		if (!emac_ev)
 			break;
 
-		ETHQOSINFO("get ev [%u]\n", emac_ev->ev);
+		ETHQOSINFO("get ev [%lu]\n", emac_ev->ev);
 		switch (emac_ev->ev) {
 		case EMAC_HW_UP:
 			ETHQOSDBG("HW up ev\n");
@@ -67,7 +70,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 
 			priv->emac_state = EMAC_HW_UP_ST;
 			if (ethqos->suspended &&
-			    !stmmac_resume(priv->device)) {
+			    !stmmac_thin_resume(priv->device)) {
 				ETHQOSINFO("resume on HW up\n");
 				ethqos->suspended = false;
 			} else if (priv->dev_opened &&
@@ -81,7 +84,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 			ETHQOSDBG("HW down ev\n");
 			if (priv->emac_state > EMAC_INIT_ST &&
 			    priv->dev_inited) {
-				if (!stmmac_suspend(priv->device)) {
+				if (!stmmac_thin_suspend(priv->device)) {
 					ETHQOSINFO("suspended\n");
 					ethqos->suspended = true;
 					emac_ctrl_fe_gvm_dma_stopped();
@@ -91,14 +94,14 @@ static void emac_fe_ev_wq(struct work_struct *work)
 			break;
 		case EMAC_LINK_UP:
 			ETHQOSDBG("Link up ev\n");
-			if (priv->emac_state == EMAC_HW_UP_ST) {
-				priv->emac_state = EMAC_LINK_UP_ST;
+			if (priv->emac_state == EMAC_HW_UP_ST && priv->dev_inited)  {
 				stmmac_mac_link_up(priv->dev);
 			}
+			priv->emac_state = EMAC_LINK_UP_ST;
 			break;
 		case EMAC_LINK_DOWN:
 			ETHQOSDBG("Link down ev\n");
-			if (priv->emac_state == EMAC_LINK_UP_ST) {
+			if (priv->emac_state > EMAC_INIT_ST) {
 				priv->emac_state = EMAC_HW_UP_ST;
 				stmmac_mac_link_down(priv->dev);
 			}
@@ -110,7 +113,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 				stmmac_ch_status(priv->dev);
 			break;
 		default:
-			ETHQOSERR("Invalid ev passed: %d\n", emac_ev->ev);
+			ETHQOSERR("Invalid ev passed: %lu\n", emac_ev->ev);
 		}
 		kfree(emac_ev);
 	} while (1);
@@ -124,8 +127,9 @@ static int qcom_ethqos_emac_notify_cb(struct notifier_block *nb,
 	struct qcom_ethqos *ethqos = container_of(nb, struct qcom_ethqos,
 						  emac_nb);
 	struct emac_fe_ev *emac_ev;
+	unsigned long flags;
 
-	ETHQOSINFO("event [%d]\n", ev);
+	ETHQOSINFO("event [%lu]\n", ev);
 
 	if (ev == EMAC_DMA_INT_STS_AVAIL)
 		return NOTIFY_DONE;
@@ -135,9 +139,10 @@ static int qcom_ethqos_emac_notify_cb(struct notifier_block *nb,
 		return -ENOMEM;
 
 	emac_ev->ev = ev;
-	mutex_lock(&ethqos->lock);
+
+	spin_lock_irqsave(&ethqos->lock, flags);
 	list_add_tail(&emac_ev->list, &ethqos->emac_fe_ev_q);
-	mutex_unlock(&ethqos->lock);
+	spin_unlock_irqrestore(&ethqos->lock, flags);
 
 	queue_work(ethqos->wq, &ethqos->emac_fe_work);
 
@@ -172,15 +177,6 @@ static inline unsigned int dwmac_qcom_get_eth_type(unsigned char *buf)
 		 buf[QTAG_VLAN_ETH_TYPE_OFFSET + 1]) :
 		 (((u16)buf[QTAG_ETH_TYPE_OFFSET] << 8) |
 		  buf[QTAG_ETH_TYPE_OFFSET + 1]);
-}
-
-static u16 dwmac_qcom_select_queue(struct net_device *dev,
-				   struct sk_buff *skb,
-				   struct net_device *sb_dev)
-{
-	struct stmmac_priv *priv = netdev_priv(dev);
-
-	return priv->queue;
 }
 
 static unsigned int dwmac_qcom_get_plat_tx_coal_frames(struct sk_buff *skb)
@@ -220,49 +216,11 @@ static unsigned int dwmac_qcom_get_plat_tx_coal_frames(struct sk_buff *skb)
 }
 
 static const struct of_device_id qcom_ethqos_match[] = {
-	{ .compatible = "qcom,stmmac-ethqos-emac1", },
-	{ .compatible = "qcom,emac-smmu-embedded", },
+	{ .compatible = "qcom,stmmac-ethqos-emac0", },
 	{ }
 };
 
-static void emac_emb_smmu_exit(void)
-{
-	emac_emb_smmu_ctx.valid = false;
-	emac_emb_smmu_ctx.pdev_master = NULL;
-	emac_emb_smmu_ctx.smmu_pdev = NULL;
-	emac_emb_smmu_ctx.iommu_domain = NULL;
-}
-
-static int emac_emb_smmu_cb_probe(struct platform_device *pdev)
-{
-	int result = 0;
-	u32 iova_ap_mapping[2];
-	struct device *dev = &pdev->dev;
-
-	ETHQOSINFO("EMAC EMB SMMU CB probe: smmu pdev=%X\n", pdev);
-
-	result = of_property_read_u32_array(dev->of_node,
-					    "qcom,iommu-dma-addr-pool",
-					    iova_ap_mapping,
-					    ARRAY_SIZE(iova_ap_mapping));
-	if (result) {
-		ETHQOSERR("Failed to read EMB start/size iova addresses\n");
-		return result;
-	}
-
-	emac_emb_smmu_ctx.smmu_pdev = pdev;
-	emac_emb_smmu_ctx.valid = true;
-
-	emac_emb_smmu_ctx.iommu_domain =
-		iommu_get_domain_for_dev(&emac_emb_smmu_ctx.smmu_pdev->dev);
-
-	ETHQOSINFO("Successfully attached to IOMMU\n");
-	emac_emb_smmu_ctx.ret = result;
-
-	return result;
-}
-
-inline void *qcom_ethqos_get_priv(struct qcom_ethqos *ethqos)
+inline void *qcom_ethqos_thin_get_priv(struct qcom_ethqos *ethqos)
 {
 	struct platform_device *pdev = ethqos->pdev;
 	struct net_device *dev = platform_get_drvdata(pdev);
@@ -460,7 +418,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	ETHQOSINFO("Start\n");
 
-	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(36));
 	if (ret) {
 		ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
 		if (ret) {
@@ -468,20 +426,18 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 			return ret;
 		}
 	}
-	if (of_device_is_compatible(np, "qcom,emac-smmu-embedded"))
-		return emac_emb_smmu_cb_probe(pdev);
 
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
 	place_marker("M - Ethernet probe start");
 #endif
 
-	ipc_emac_log_ctxt = ipc_log_context_create(IPCLOG_STATE_PAGES,
+	ipc_emac_thin_log_ctxt = ipc_log_context_create(IPCLOG_STATE_PAGES,
 						   "emac", 0);
-	if (!ipc_emac_log_ctxt)
+	if (!ipc_emac_thin_log_ctxt)
 		ETHQOSERR("Error creating logging context for emac\n");
 	else
 		ETHQOSDBG("IPC logging has been enabled for emac\n");
-	ret = stmmac_get_platform_resources(pdev, &stmmac_res);
+	ret = stmmac_thin_get_platform_resources(pdev, &stmmac_res);
 	if (ret)
 		return ret;
 
@@ -491,22 +447,19 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	ethqos->pdev = pdev;
 
-	plat_dat = stmmac_probe_config_dt(pdev,
-					  &stmmac_res.mac, stmmac_res.ch);
+	plat_dat = stmmac_thin_probe_config_dt(pdev,
+					  stmmac_res.mac, stmmac_res.ch);
 	if (IS_ERR(plat_dat)) {
 		dev_err(&pdev->dev, "dt configuration failed\n");
 		return PTR_ERR(plat_dat);
 	}
 
 	plat_dat->bsp_priv = ethqos;
-	plat_dat->tx_select_queue = dwmac_qcom_select_queue;
-	plat_dat->get_plat_tx_coal_frames = dwmac_qcom_get_plat_tx_coal_frames;
-	plat_dat->tso_en = of_property_read_bool(np, "snps,tso");
 
 	if (of_property_read_bool(np, "emac-core-version")) {
 		/* Read emac core version value from dtsi */
 		ret = of_property_read_u32(np, "emac-core-version",
-					   &ethqos->emac_ver);
+			&ethqos->emac_ver);
 		if (ret) {
 			ETHQOSDBG(": resource emac-hw-ver! not in dtsi\n");
 			ethqos->emac_ver = EMAC_HW_v3_0_0;
@@ -517,23 +470,6 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	}
 	ETHQOSDBG("emac_core_version = 0x%x\n", ethqos->emac_ver);
 
-	if (of_property_read_bool(np, "qcom,arm-smmu")) {
-		emac_emb_smmu_ctx.pdev_master = pdev;
-		ret = of_platform_populate(np, qcom_ethqos_match,
-					   NULL, &pdev->dev);
-
-		if (ret)
-			ETHQOSERR("Failed to populate EMAC platform\n");
-		if (emac_emb_smmu_ctx.ret) {
-			ETHQOSERR("smmu probe failed\n");
-			of_platform_depopulate(&pdev->dev);
-			ret = emac_emb_smmu_ctx.ret;
-			emac_emb_smmu_ctx.ret = 0;
-		}
-	}
-
-	plat_dat->stmmac_emb_smmu_ctx = emac_emb_smmu_ctx;
-
 	/* Allocate workqueue */
 	ethqos->wq = create_singlethread_workqueue("ethqos_wq");
 	if (!ethqos->wq) {
@@ -542,14 +478,14 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		goto err_smmu;
 	}
 
-	mutex_init(&ethqos->lock);
+	spin_lock_init(&ethqos->lock);
 	INIT_WORK(&ethqos->emac_fe_rdy_work, ethqos_emac_fe_ready_wq);
 	INIT_WORK((struct work_struct *)&ethqos->emac_fe_work, emac_fe_ev_wq);
 	INIT_LIST_HEAD(&ethqos->emac_fe_ev_q);
 
-	ret = stmmac_dvr_probe(&pdev->dev, plat_dat, &stmmac_res);
+	ret = stmmac_thin_dvr_probe(&pdev->dev, plat_dat, &stmmac_res);
 	if (ret) {
-		ETHQOSERR("Failed stmmac_dvr_probe - err = %d\n", ret);
+		ETHQOSERR("Failed stmmac_thin_dvr_probe - err = %d\n", ret);
 		goto err_reg;
 	}
 
@@ -557,8 +493,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv = netdev_priv(ndev);
 
 	priv->mac_addr = qcom_ethqos_mac_addr;
+	priv->get_plat_tx_coal_frames = dwmac_qcom_get_plat_tx_coal_frames;
 	priv->add_filter = qcom_ethqos_add_filter;
 	priv->del_filter = qcom_ethqos_del_filter;
+	priv->del_mc_broadcast_filter = &emac_ctrl_fe_disable_mac_filter;
 
 	priv->emac_state = EMAC_INIT_ST;
 
@@ -581,43 +519,32 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 err_reg:
 	destroy_workqueue(ethqos->wq);
-	mutex_destroy(&ethqos->lock);
 err_smmu:
 	of_platform_depopulate(&pdev->dev);
 	return ret;
 }
 
-static int qcom_ethqos_remove(struct platform_device *pdev)
+static void  qcom_ethqos_remove(struct platform_device *pdev)
 {
 	struct qcom_ethqos *ethqos;
-	int ret;
-
-	if (of_device_is_compatible(pdev->dev.of_node,
-				    "qcom,emac-smmu-embedded")) {
-		of_platform_depopulate(&pdev->dev);
-		return 0;
-	}
 
 	ethqos = get_stmmac_bsp_priv(&pdev->dev);
 	if (!ethqos)
-		return -ENODEV;
+		return;
 
 	ETHQOSINFO("Enter\n");
 	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_UNMOUNT);
 	destroy_workqueue(ethqos->wq);
-	mutex_destroy(&ethqos->lock);
-	ret = stmmac_pltfr_remove(pdev);
-
-	emac_emb_smmu_exit();
+	stmmac_thin_pltfr_remove(pdev);
 
 	platform_set_drvdata(pdev, NULL);
 	of_platform_depopulate(&pdev->dev);
 
-	if (!ipc_emac_log_ctxt)
-		ipc_log_context_destroy(ipc_emac_log_ctxt);
-	ipc_emac_log_ctxt = NULL;
+	if (!ipc_emac_thin_log_ctxt)
+		ipc_log_context_destroy(ipc_emac_thin_log_ctxt);
+	ipc_emac_thin_log_ctxt = NULL;
 
-	return ret;
+	return;
 }
 
 static void qcom_ethqos_shutdown(struct platform_device *pdev)
@@ -635,12 +562,8 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct qcom_ethqos *ethqos;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
+        int filter_del;
 	int ret;
-
-	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded")) {
-		ETHQOSDBG("smmu return\n");
-		return 0;
-	}
 
 	ethqos = get_stmmac_bsp_priv(dev);
 	if (!ethqos)
@@ -653,8 +576,14 @@ static int qcom_ethqos_suspend(struct device *dev)
 		return 0;
 	}
 
+	filter_del = emac_ctrl_fe_disable_mac_filter();
+	if(filter_del)
+	  ETHQOSINFO("qcom_ethqos_thin: Filter delete unsuccessful");
+	else
+	  ETHQOSINFO("qcom_ethqos_thin: Filter delete successful");
+
 	priv = netdev_priv(ndev);
-	ret = stmmac_suspend(dev);
+	ret = stmmac_thin_suspend(dev);
 	if (!ret) {
 		ethqos->suspended = true;
 		priv->emac_state = EMAC_INIT_ST;
@@ -675,8 +604,6 @@ static int qcom_ethqos_resume(struct device *dev)
 	int ret;
 
 	ETHQOSDBG("Resume Enter\n");
-	if (of_device_is_compatible(dev->of_node, "qcom,emac-smmu-embedded"))
-		return 0;
 
 	ethqos = get_stmmac_bsp_priv(dev);
 
@@ -728,7 +655,7 @@ static int __init qcom_ethqos_init_module(void)
 		return ret;
 	}
 
-	ETHQOSINFO("\n");
+	ETHQOSINFO("EMAC THIN driver registered \n");
 
 	return ret;
 }
