@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
+subdir-ccflags-y += $(IPA_CFLAGS)
+
 # IOSS and glue drivers
 obj-m += ioss/
 obj-m += stmmac_ioss/
 
 # PHY drivers
+ifeq ($(BOARD),echo)
 obj-m += qca-nss-phy/linux_std/qca81xx/
+endif
 
 # Debug driver
 obj-m += ethdbg/
