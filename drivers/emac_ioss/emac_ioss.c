@@ -132,6 +132,10 @@ static int stmmac_ioss_open_device(struct ioss_device *idev)
 
 	stmmac_dev->idev = idev;
 
+	stmmac_dev->_priv = priv;
+
+	idev->private = stmmac_dev;
+
 	return 0;
 }
 

@@ -29,6 +29,7 @@
 #define MAC_ADDR_AE 1
 #define MAC_ADDR_MBC 0x3F
 #define MAC_ADDR_DCS 0x1
+#define DESC_OVERFLOW_CHECK_BITS 0xFFFFF
 static u8 mac_addr_default[6] = {0x0, 0x0, 0x0, 0x0, 0x0, 0x0};
 
 static bool is_valid_default_ch_config(struct channel_info *channel)
@@ -273,6 +274,8 @@ static int alloc_ipa_tx_resources(struct net_device *ndev,
 	struct stmmac_tx_queue *tx_q;
 	struct sk_buff *skb;
 	u32 i;
+	struct dma_desc *temp;
+	dma_addr_t temp_phy;
 
 	tx_q = &priv->tx_queue[channel->channel_num];
 
@@ -288,6 +291,50 @@ static int alloc_ipa_tx_resources(struct net_device *ndev,
 
 	if (!channel->desc_addr.desc_virt_addrs_base) {
 		netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
+		goto err_mem;
+	}
+	/*
+	In the loop, checks for overflow during TX DMA address allocation for the descriptor.
+	Each descriptor (TDES0 to TDES3) is 32 bits (4 bytes) in size, totaling 16 bytes.
+	Calculates the address and ensures the lower 20 bits are not all zeros.
+	*/
+	for(i = 0; i < 10; i++) {
+		dma_addr_t calculated_address = tx_q->dma_tx_phy + channel->desc_cnt * 16;
+		if(DESC_OVERFLOW_CHECK_BITS & calculated_address)
+			break;
+		else{
+			temp = channel->desc_addr.desc_virt_addrs_base;
+			temp_phy = tx_q->dma_tx_phy;
+			channel->desc_addr.desc_virt_addrs_base = (channel->mem_ops) ?
+							channel->mem_ops->alloc_descs(ndev,
+											  channel->desc_size * channel->desc_cnt,
+											  &tx_q->dma_tx_phy,
+											  (gfp_t)flags,
+											  channel->mem_ops, channel) :
+							dma_alloc_coherent(priv->device,
+									   channel->desc_size * channel->desc_cnt,
+									   &tx_q->dma_tx_phy, flags);
+			if (channel->mem_ops) {
+				channel->mem_ops->free_descs(ndev,
+							temp,
+							channel->desc_cnt * channel->desc_size,
+							&temp_phy,
+							channel->mem_ops, channel);
+			} else {
+				dma_free_coherent(priv->device,
+							channel->desc_size * channel->desc_cnt,
+							temp,
+							temp_phy);
+			}
+		}
+	}
+	if (!channel->desc_addr.desc_virt_addrs_base ) {
+		netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
+		goto err_mem;
+	}
+	// If unable to allocate a safe DMA descriptor address after 10 retries, free existing TX resources and return.
+	if(!(DESC_OVERFLOW_CHECK_BITS & (tx_q->dma_tx_phy + channel->desc_cnt * 16))) {
+		netdev_err(priv->dev, "%s: ERROR: DMA address overflowing 20 bits\n", __func__);
 		goto err_mem;
 	}
 
@@ -363,6 +410,8 @@ static int alloc_ipa_rx_resources(struct net_device *ndev, struct channel_info *
 	struct stmmac_rx_queue *rx_q;
 	struct sk_buff *skb;
 	u32 i;
+	struct dma_desc *temp;
+	dma_addr_t temp_phy;
 
 	rx_q = &priv->rx_queue[channel->channel_num];
 
@@ -378,6 +427,50 @@ static int alloc_ipa_rx_resources(struct net_device *ndev, struct channel_info *
 
 	if (!channel->desc_addr.desc_virt_addrs_base) {
 		netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
+		goto err_mem;
+	}
+	/*
+	In the loop, checks for overflow during RX DMA address allocation for the descriptor.
+	Each descriptor (RDES0 to RDES3) is 32 bits (4 bytes) in size, totaling 16 bytes.
+	Calculates the address and ensures the lower 20 bits are not all zeros.
+	*/
+	for(i = 0; i < 10; i++) {
+		dma_addr_t calculated_address = rx_q->dma_rx_phy + channel->desc_cnt * 16;
+		if(DESC_OVERFLOW_CHECK_BITS & calculated_address)
+			break;
+		else{
+			temp = channel->desc_addr.desc_virt_addrs_base;
+			temp_phy = rx_q->dma_rx_phy;
+			channel->desc_addr.desc_virt_addrs_base = (channel->mem_ops) ?
+							channel->mem_ops->alloc_descs(ndev,
+											  channel->desc_size * channel->desc_cnt,
+											  &rx_q->dma_rx_phy,
+											  (gfp_t)flags,
+											  channel->mem_ops, channel) :
+							dma_alloc_coherent(priv->device,
+									   channel->desc_size * channel->desc_cnt,
+									   &rx_q->dma_rx_phy, flags);
+			if (channel->mem_ops) {
+				channel->mem_ops->free_descs(ndev,
+							temp,
+							channel->desc_cnt * channel->desc_size,
+							&temp_phy,
+							channel->mem_ops, channel);
+			} else {
+				dma_free_coherent(priv->device,
+							channel->desc_size * channel->desc_cnt,
+							temp,
+							temp_phy);
+			}
+		}
+	}
+	if (!channel->desc_addr.desc_virt_addrs_base) {
+		netdev_err(priv->dev, "%s: ERROR: allocating memory\n", __func__);
+		goto err_mem;
+	}
+	// If unable to allocate a safe DMA descriptor address after 10 retries, free existing RX resources and return.
+	if(!(DESC_OVERFLOW_CHECK_BITS & (rx_q->dma_rx_phy + channel->desc_cnt * 16))) {
+		netdev_err(priv->dev, "%s: ERROR: DMA address overflowing 20 bits\n", __func__);
 		goto err_mem;
 	}
 
@@ -479,7 +572,7 @@ static void stmmac_init_ipa_tx_ch(struct stmmac_priv *priv, struct channel_info 
 			       tx_q->tx_tail_addr, chan);
 
 	stmmac_set_tx_ring_len(priv, priv->ioaddr, channel->desc_cnt - 1, chan);
-	
+
 	if (priv->plat->tx_queues_cfg[chan].mode_to_use != MTL_QUEUE_AVB)
 		stmmac_set_mtl_tx_queue_weight(priv, priv->hw,
 					       priv->plat->tx_queues_cfg[chan].weight, chan);
