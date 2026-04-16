@@ -1,0 +1,13 @@
+ifeq ($(building_out_of_srctree),1)
+ccflags-y += -I$(srctree)/drivers/net/ethernet/stmicro/stmmac/
+ccflags-y += -I$(srctree)/include/linux/
+ccflags-y += -I$(src)/../
+ccflags-y += -I$(src)/../ioss/include/
+endif
+
+ccflags-y += -I$(src)/../ioss/include/
+ccflags-y += -Wno-error
+subdir-ccflags-y += -I$(srctree)/drivers/net/ethernet/stmicro/stmmac/
+
+obj-m += eth_qos.o
+eth_qos-objs := eth_qos_main.o eth_qos_bus.o eth_qos_sysfs.o eth_qos_mgr.o

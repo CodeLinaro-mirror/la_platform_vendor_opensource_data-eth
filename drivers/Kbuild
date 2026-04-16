@@ -5,6 +5,7 @@ subdir-ccflags-y += $(IPA_CFLAGS)
 # IOSS and glue drivers
 obj-m += ioss/
 obj-m += stmmac_ioss/
+obj-m += eth_qos/
 
 # PHY drivers
 ifeq ($(BOARD),echo)
