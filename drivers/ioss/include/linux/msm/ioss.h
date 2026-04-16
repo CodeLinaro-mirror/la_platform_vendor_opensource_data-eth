@@ -356,6 +356,8 @@ struct ioss_channel {
 	bool tcm_buf_en;
 	u32 tcm_ring_size_min;
 	u32 tcm_ring_size_max;
+
+	bool pending_user_cfg;
 };
 
 struct ioss_device {

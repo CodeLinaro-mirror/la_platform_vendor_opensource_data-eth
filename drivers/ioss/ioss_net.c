@@ -702,6 +702,7 @@ err_validate_channels:
 static void ioss_iface_set_offline(struct ioss_interface *iface)
 {
 	int rc;
+	struct ioss_channel *ch;
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
 	if (iface->state != IOSS_IF_ST_ONLINE) {
@@ -764,6 +765,13 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 	if (rc) {
 		ioss_dev_err(idev, "Failed to release channels");
 		iface->state = IOSS_IF_ST_ERROR;
+	}
+
+	ioss_for_each_channel(ch, iface) {
+		if (ch->pending_user_cfg) {
+			ioss_net_apply_channel_config(ch);
+			ch->pending_user_cfg = false;
+		}
 	}
 
 	ioss_ipa_invalidate_channels(iface);
