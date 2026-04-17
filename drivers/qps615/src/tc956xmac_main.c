@@ -290,6 +290,10 @@ MODULE_PARM_DESC(buf_sz, "DMA buffer size");
 
 #define	TC956XMAC_RX_COPYBREAK	256
 
+#ifndef MAX_T
+#define MAX_T(type, a, b) __cmp(max, (type)(a), (type)(b))
+#endif
+
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
@@ -6234,7 +6238,7 @@ static void tc956xmac_dma_interrupt(struct tc956xmac_priv *priv)
 	u32 channels_to_check = tx_channel_count > rx_channel_count ?
 				tx_channel_count : rx_channel_count;
 	u32 chan;
-	int status[max_t(u32, MTL_MAX_TX_QUEUES, MTL_MAX_RX_QUEUES)];
+	int status[MAX_T(u32, MTL_MAX_TX_QUEUES, MTL_MAX_RX_QUEUES)];
 
 	/* Make sure we never check beyond our status buffer. */
 	if (WARN_ON_ONCE(channels_to_check > ARRAY_SIZE(status)))

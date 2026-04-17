@@ -3913,14 +3913,34 @@ static void tc956xmac_pci_remove(struct pci_dev *pdev)
 static int tc956x_pcie_pm_disable_pci(struct pci_dev *pdev)
 {
 	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
-	struct tc956xmac_priv *priv = netdev_priv(ndev);
+	struct tc956xmac_priv *priv = NULL;
 	int ret = 0;
 
-	DBGPR_FUNC(&(pdev->dev), "---->%s : Port %d %s - PCI Save State, Disable Device, Prepare to sleep", __func__, priv->port_num, ndev->name);
+	if (ndev) {
+		priv = netdev_priv(ndev);
+		if (priv)
+			DBGPR_FUNC(&(pdev->dev), "---->%s : Port %d %s - PCI Save State, Disable Device, Prepare to sleep", __func__, priv->port_num, ndev->name);
+		else
+			pr_err("NULL priv in %s\n", __func__);
+	}
+	else {
+		pr_err("NULL net device pointer in %s\n", __func__);
+	}
+
 	pci_save_state(pdev);
 	pci_disable_device(pdev);
 	pci_prepare_to_sleep(pdev);
-	DBGPR_FUNC(&(pdev->dev), "<----%s : Port %d %s- PCI Save State, Disable Device, Prepare to sleep", __func__, priv->port_num, ndev->name);
+
+	if (ndev) {
+		if (priv)
+			DBGPR_FUNC(&(pdev->dev), "<----%s : Port %d %s- PCI Save State, Disable Device, Prepare to sleep", __func__, priv->port_num, ndev->name);
+		else
+			pr_err("NULL priv in %s\n", __func__);
+	}
+	else {
+		pr_err("NULL net device pointer in %s\n", __func__);
+	}
+
 	return ret;
 }
 
@@ -3937,10 +3957,17 @@ static int tc956x_pcie_pm_disable_pci(struct pci_dev *pdev)
 static int tc956x_pcie_pm_enable_pci(struct pci_dev *pdev)
 {
 	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
-	struct tc956xmac_priv *priv = netdev_priv(ndev);
+	struct tc956xmac_priv *priv = NULL;
 	int ret = 0;
 
-	DBGPR_FUNC(&(pdev->dev), "---->%s : Port %d %s - PCI Set Power, Enable Device, Restore State & Set Master", __func__, priv->port_num, ndev->name);
+	if (ndev) {
+		priv = netdev_priv(ndev);
+		if (priv)
+			DBGPR_FUNC(&(pdev->dev), "---->%s : Port %d %s - PCI Set Power, Enable Device, Restore State & Set Master", __func__, priv->port_num, ndev->name);
+		else
+			pr_err("NULL priv in %s\n", __func__);
+	}
+
 	pci_set_power_state(pdev, PCI_D0);
 	ret = pci_enable_device_mem(pdev);
 	if (ret) {
@@ -3951,7 +3978,14 @@ static int tc956x_pcie_pm_enable_pci(struct pci_dev *pdev)
 	}
 	pci_restore_state(pdev);
 	pci_set_master(pdev);
-	DBGPR_FUNC(&(pdev->dev), "<----%s : Port %d %s - PCI Set Power, Enable Device, Restore State & Set Master", __func__, priv->port_num, ndev->name);
+
+	if (ndev) {
+		if (priv)
+			DBGPR_FUNC(&(pdev->dev), "<----%s : Port %d %s - PCI Set Power, Enable Device, Restore State & Set Master", __func__, priv->port_num, ndev->name);
+		else
+			pr_err("NULL priv in %s\n", __func__);
+	}
+
 	return ret;
 }
 
@@ -3978,9 +4012,10 @@ static int tc956x_pcie_pm_pci(struct pci_dev *pdev, enum TC956X_PORT_PM_STATE st
 		tc956x_dsp_ep = pci_upstream_bridge(pdev);
 		bus = tc956x_dsp_ep->subordinate;
 
-		if (bus)
+		if (bus) {
 			list_for_each_entry(tc956x_pd, &bus->devices, bus_list)
-		tc956x_port_pdev[i++] = tc956x_pd;
+				tc956x_port_pdev[i++] = tc956x_pd;
+		}
 
 		for (p = 0; ((p < i) && (tc956x_port_pdev[p] != NULL)); p++) {
 			/* Enter only if at least 1 Port Suspended */
