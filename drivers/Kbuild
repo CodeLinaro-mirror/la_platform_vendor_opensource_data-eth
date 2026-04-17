@@ -6,3 +6,6 @@ obj-m += stmmac_ioss/
 
 # PHY drivers
 obj-m += qca-nss-phy/linux_std/qca81xx/
+
+# Debug driver
+obj-m += ethdbg/
