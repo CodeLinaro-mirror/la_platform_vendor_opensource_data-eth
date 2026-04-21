@@ -17,8 +17,19 @@ static void eth_uio_module_release(struct device *dev)
 {
 }
 
-static void set_map_info(struct ethdbg_device *dev)
+static void free_dump_map_names(struct ethdbg_device *dev)
 {
+	int i;
+
+	for (i = 0; i < dev->dump_data.num_blocks && i < MAX_UIO_MAPS; i++) {
+		kfree(dev->dump_uio_info.mem[i].name);
+		dev->dump_uio_info.mem[i].name = NULL;
+	}
+}
+
+static int set_map_info(struct ethdbg_device *dev)
+{
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
 	struct ethdbg_map *map;
 	int i = 0;
 
@@ -33,8 +44,33 @@ static void set_map_info(struct ethdbg_device *dev)
 		dev->uio_info.mem[i].size = roundup((resource_size_t)map->size,
 							PAGE_SIZE);
 		dev->uio_info.mem[i].memtype = UIO_MEM_PHYS;
+
+		dev->dump_uio_info.mem[i].name = kasprintf(GFP_KERNEL, "dump:%s", map->name);
+		if (!dev->dump_uio_info.mem[i].name) {
+			while (i-- > 0) {
+				kfree(dev->dump_uio_info.mem[i].name);
+			}
+			return -ENOMEM;
+		}
+
+		dev->dump_uio_info.mem[i].addr = (phys_addr_t)(uintptr_t)dump_data->blocks[i].reg_list;
+		dev->dump_uio_info.mem[i].size = dump_data->blocks[i].num_registers * sizeof(struct ethdbg_reg_entry);
+		dev->dump_uio_info.mem[i].memtype = UIO_MEM_LOGICAL;
+
 		i++;
 	}
+
+	return 0;
+}
+
+/* ethdbg_uio_open */
+static int ethdbg_uio_open(struct uio_info *info, struct inode *inode)
+{
+	struct ethdbg_device *dev = container_of(info, struct ethdbg_device, dump_uio_info);
+
+	ethdbg_dump_device(dev);
+
+	return 0;
 }
 
 int ethdbg_uio_add(struct ethdbg_interface *iface)
@@ -47,17 +83,39 @@ int ethdbg_uio_add(struct ethdbg_interface *iface)
 	dev->uio_info.name = dev->net_dev->name;
 	dev->uio_info.version = ETHDBG_UIO_VERSION;
 
-	set_map_info(dev);
+	dev->dump_uio_info.name = dev->net_dev->name;
+	dev->dump_uio_info.version = ETHDBG_UIO_VERSION;
+	dev->dump_uio_info.open = ethdbg_uio_open;
+
+	ret = set_map_info(dev);
+	if (ret < 0)
+		return ret;
 
 	ret = uio_register_device(&dev->net_dev->dev, &dev->uio_info);
 	if (ret < 0) {
 		pr_err("Failed to register uio device\n");
+		free_dump_map_names(dev);
 		return -ENODEV;
 	}
 
 	dev_info(&dev->uio_info.uio_dev->dev, "Registered UIO device for interface %s\n",
 		 iface->interface_name);
+
+	ret = uio_register_device(&dev->net_dev->dev, &dev->dump_uio_info);
+	if (ret < 0) {
+		pr_err("ethdbg: failed to register dump UIO device for %s\n",
+		       dev->net_dev->name);
+		goto err_unregister_uio;
+	}
+
+	dev_info(&dev->dump_uio_info.uio_dev->dev,
+		 "Registered dump UIO device %s\n", dev->dump_uio_info.name);
 	return 0;
+
+err_unregister_uio:
+	free_dump_map_names(dev);
+	uio_unregister_device(&dev->uio_info);
+	return ret;
 }
 
 
@@ -70,6 +128,13 @@ void ethdbg_uio_del(struct ethdbg_interface *iface)
 		return;
 
 	dev = iface->device;
+
+	if (dev->dump_uio_info.uio_dev) {
+		pr_info("ethdbg: [%s] unregistering dump UIO device\n", iface->interface_name);
+		uio_unregister_device(&dev->dump_uio_info);
+	}
+
+	free_dump_map_names(dev);
 
 	if (dev->uio_info.uio_dev) {
 		dev_info(&dev->uio_info.uio_dev->dev, "Unregistering UIO device for interface %s\n",

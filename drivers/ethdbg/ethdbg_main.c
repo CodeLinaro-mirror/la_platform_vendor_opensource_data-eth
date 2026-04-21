@@ -156,15 +156,15 @@ static int register_interface_device(struct ethdbg_interface *iface,
 	/* Parse device tree and populate memory map regions */
 	parse_maps(parent_dev, &dev->map_regions);
 
-	/* Register UIO device */
-	ret = ethdbg_uio_add(iface);
-	if (ret)
-		return ret;
-
-	/* Register for panic capture */
+	/* Register for dump capture */
 	ret = ethdbg_dump_register(dev, iface->interface_name);
 	if (ret)
 		pr_err("Failed to register dump capture: %d\n", ret);
+
+	/* Register UIO device and dump UIO device */
+	ret = ethdbg_uio_add(iface);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -178,8 +178,8 @@ static void unregister_interface_device(struct ethdbg_interface *iface)
 
 	dev = iface->device;
 	if (dev) {
-		ethdbg_dump_unregister(dev);
 		ethdbg_uio_del(iface);
+		ethdbg_dump_unregister(dev);
 
 		if (dev->net_dev)
 			dev_put(dev->net_dev);

@@ -55,9 +55,6 @@ static void ethdbg_capture_regs(struct ethdbg_hw_block *block,
 
 			struct ethdbg_reg_entry *reg_entry = &block->reg_list[block->num_captured];
 			reg_entry->offset = reg_offset;
-
-
-
 			reg_entry->value = readl(block->base + reg_offset);
 			block->num_captured++;
 		}
@@ -73,9 +70,8 @@ static void ethdbg_capture_hw_block(struct ethdbg_hw_block *block,
 	ethdbg_capture_regs(block, hw_desc, interface_name);
 }
 
-static void ethdbg_capture_interface(struct ethdbg_interface *iface)
+void ethdbg_dump_device(struct ethdbg_device *dev)
 {
-	struct ethdbg_device *dev = iface->device;
 	struct ethdbg_dump_data *dump_data;
 	int regs_captured = 0, regs_skipped = 0;
 
@@ -85,14 +81,14 @@ static void ethdbg_capture_interface(struct ethdbg_interface *iface)
 	dump_data = &dev->dump_data;
 
 	for (int i = 0; i < dump_data->num_blocks; i++) {
-		ethdbg_capture_hw_block(&dump_data->blocks[i], iface->interface_name);
+		ethdbg_capture_hw_block(&dump_data->blocks[i], dev->net_dev->name);
 		regs_captured += dump_data->blocks[i].num_captured;
 		regs_skipped += dump_data->blocks[i].num_skipped;
 	}
 
-		pr_emerg("ETHDBG: [%s] ethdbg_device=0x%px blocks=%u captured regs=%u skipped "
-			 "regs=%u\n", iface->interface_name, dev, dump_data->num_blocks,
-			 regs_captured, regs_skipped);
+	pr_emerg("ETHDBG: [%s] ethdbg_device=0x%px blocks=%u captured regs=%u skipped "
+		 "regs=%u\n", dev->net_dev->name, dev, dump_data->num_blocks,
+		 regs_captured, regs_skipped);
 }
 
 static int ethdbg_panic_notifier(struct notifier_block *nb,
@@ -101,7 +97,7 @@ static int ethdbg_panic_notifier(struct notifier_block *nb,
 	struct ethdbg_interface *iface;
 
 	list_for_each_entry(iface, &ethdbg_interfaces, list) {
-		ethdbg_capture_interface(iface);
+		ethdbg_dump_device(iface->device);
 	}
 
 	return NOTIFY_DONE;
@@ -165,7 +161,8 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 				reg_desc->start_offset, reg_desc->end_offset, map->size);
 	}
 
-	hw_block->reg_list = kzalloc(num_registers * sizeof(struct ethdbg_reg_entry), GFP_KERNEL);
+	hw_block->reg_list = kzalloc(PAGE_ALIGN(num_registers * sizeof(struct ethdbg_reg_entry)),
+								 GFP_KERNEL);
 	if (!hw_block->reg_list) {
 		pr_err("[%s][%s] Failed to allocate register list\n", interface_name, map->name);
 		return -ENOMEM;
@@ -174,9 +171,7 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 	hw_block->base = ioremap(map->base_addr, map->size);
 	if (!hw_block->base) {
 		pr_err("[%s][%s] Failed to ioremap\n", interface_name, map->name);
-		kfree(hw_block->reg_list);
-		hw_block->reg_list = NULL;
-		return -ENOMEM;
+		goto err_free_reg_list;
 	}
 
 	hw_block->num_registers = num_registers;
@@ -185,6 +180,11 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 	hw_block->map = map;
 
 	return 0;
+
+err_free_reg_list:
+	kfree(hw_block->reg_list);
+	hw_block->reg_list = NULL;
+	return -ENOMEM;
 }
 
 static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,

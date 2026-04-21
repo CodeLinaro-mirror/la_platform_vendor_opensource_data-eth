@@ -44,7 +44,7 @@ struct ethdbg_map {
 /**
  * struct ethdbg_hw_block - Runtime hardware block data
  * @base: Virtual address of mapped register block
- * @reg_list: Array of captured register data
+ * @reg_list: Array of captured register data, page-aligned for direct UIO mmap
  * @num_registers: Total number of registers in this block
  * @num_captured: Number of registers actually captured
  * @num_skipped: Number of registers skipped due to out-of-bounds access
@@ -64,7 +64,7 @@ struct ethdbg_hw_block {
 };
 
 /**
- * struct ethdbg_panic_data - Panic capture data for an interface
+ * struct ethdbg_dump_data - Capture dump data for an interface
  * @blocks: Dynamically allocated array of hardware blocks
  * @num_blocks: Number of initialized blocks
  *
@@ -79,8 +79,9 @@ struct ethdbg_dump_data {
  * struct ethdbg_device - Ethernet debug device information
  * @net_dev: Pointer to the associated network device
  * @map_regions: List head for memory regions to expose via UIO
- * @uio_info: UIO device information structure
- * @panic_data: Panic capture data
+ * @uio_info: UIO device for hardware MMIO (read/write path)
+ * @dump_uio_info: UIO device for dump buffers
+ * @dump_data: Capture dump data
  *
  * Created when a network device is detected and contains all
  * information needed to expose hardware registers via UIO.
@@ -90,10 +91,13 @@ struct ethdbg_device {
 	void *netdev_priv;
 	struct list_head map_regions;
 
-	/* UIO structure */
+	/* UIO device for hardware MMIO - UIO_MEM_PHYS slots (read/write path) */
 	struct uio_info uio_info;
 
-	/* Panic structure for data capture */
+	/* UIO device for dump buffers - UIO_MEM_LOGICAL slots (dump path) */
+	struct uio_info dump_uio_info;
+
+	/* Dump structure for data capture */
 	struct ethdbg_dump_data dump_data;
 };
 
@@ -121,5 +125,7 @@ int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name);
 void ethdbg_dump_unregister(struct ethdbg_device *dev);
 int ethdbg_panic_init(void);
 void ethdbg_panic_deinit(void);
+
+void ethdbg_dump_device(struct ethdbg_device *dev);
 
 #endif /* _ETHDBG_H_ */
