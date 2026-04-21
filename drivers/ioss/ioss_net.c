@@ -236,7 +236,7 @@ static int ioss_net_device_event(struct notifier_block *nb,
 			handler(iface, event, ptr);
 
 	} else {
-		ioss_dev_err(idev,
+		ioss_dev_dbg(idev,
 			"Netdev event number %lu out of bounds", event);
 		return NOTIFY_DONE;
 	}
