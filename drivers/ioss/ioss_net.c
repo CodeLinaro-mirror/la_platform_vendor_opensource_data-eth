@@ -244,29 +244,47 @@ static int ioss_net_device_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static void ioss_net_select_channel_config(struct ioss_channel *ch)
+void ioss_net_apply_channel_config(struct ioss_channel *ch)
 {
-	struct ioss_device *idev = ioss_ch_dev(ch);
-
+	ch->default_config.desc_alctr = &ioss_default_alctr;
+	ch->default_config.buff_alctr = &ioss_default_alctr;
 	ch->config = ch->default_config;
 
 #ifdef LLCC_ENABLE
 	if (ch->tcm_desc_en)
 		ch->config.desc_alctr = &ioss_tcm_desc_alctr;
-
 	if (ch->tcm_buf_en)
 		ch->config.buff_alctr = &ioss_tcm_buf_alctr;
+	if (ch->tcm_desc_en || ch->tcm_buf_en)
+		ch->config.ring_size = ch->tcm_ring_size_max;
 #endif
-
-	ioss_dev_cfg(idev, "Channel %d: Selected allocators - desc=%s, buf=%s",
-		     ch->id,
-		     ch->config.desc_alctr ? ch->config.desc_alctr->name : "default",
-		     ch->config.buff_alctr ? ch->config.buff_alctr->name : "default");
 }
 
-static void ioss_net_deselect_channel_config(struct ioss_channel *ch)
+static bool ioss_net_next_channel_config(struct ioss_channel *ch)
 {
-	ch->config = ch->default_config;
+	struct ioss_device *idev = ioss_ch_dev(ch);
+
+	/* Stage 1: fall back to min TCM ring size */
+	if ((ch->config.desc_alctr == &ioss_tcm_desc_alctr ||
+	     ch->config.buff_alctr == &ioss_tcm_buf_alctr) &&
+	    ch->config.ring_size != ch->tcm_ring_size_min) {
+		ioss_dev_cfg(idev, "Retrying with TCM ring size from %u to %u",
+			     ch->config.ring_size, ch->tcm_ring_size_min);
+		ch->config.ring_size = ch->tcm_ring_size_min;
+		return true;
+	}
+
+	/* Stage 2: fall back to default config */
+	if (ch->config.desc_alctr == &ioss_tcm_desc_alctr ||
+	    ch->config.buff_alctr == &ioss_tcm_buf_alctr) {
+		ch->config = ch->default_config;
+		ioss_dev_cfg(idev, "Retrying with %s/%s config", ch->config.desc_alctr->name,
+			     ch->config.buff_alctr->name);
+		return true;
+	}
+
+	/* no more fallback configs */
+	return false;
 }
 
 static int __ioss_net_alloc_channel(struct ioss_channel *ch)
@@ -277,13 +295,19 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 	ioss_dev_dbg(idev,
 			"Allocating channel for %s", idev->net_dev->name);
 
-	ioss_net_select_channel_config(ch);
+	do {
+		ioss_dev_cfg(idev, "Channel %d: config selected - desc=%s, buf=%s, ring_size=%u",
+			     ch->id,
+			     ch->config.desc_alctr ? ch->config.desc_alctr->name : "NULL",
+			     ch->config.buff_alctr ? ch->config.buff_alctr->name : "NULL",
+			     ch->config.ring_size);
 
-	rc = ioss_dev_op(idev, request_channel, ch);
+		rc = ioss_dev_op(idev, request_channel, ch);
+	} while (rc && ioss_net_next_channel_config(ch));
+
 	if (rc) {
 		ioss_dev_err(idev,
 			"Failed to alloc channel for %s", idev->net_dev->name);
-		ioss_net_deselect_channel_config(ch);
 		return rc;
 	}
 
@@ -303,7 +327,6 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 err_sysfs:
 	ioss_dev_op(idev, release_channel, ch);
 	ch->allocated = false;
-	ioss_net_deselect_channel_config(ch);
 	return rc;
 }
 
@@ -324,8 +347,6 @@ static int __ioss_net_free_channel(struct ioss_channel *ch)
 	}
 
 	ch->allocated = false;
-
-	ioss_net_deselect_channel_config(ch);
 
 	ioss_dev_log(idev,
 		"Released channel %d on interface %s", id, idev->net_dev->name);
