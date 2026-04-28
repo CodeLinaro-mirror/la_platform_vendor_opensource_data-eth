@@ -250,14 +250,12 @@ void ioss_net_apply_channel_config(struct ioss_channel *ch)
 	ch->default_config.buff_alctr = &ioss_default_alctr;
 	ch->config = ch->default_config;
 
-#ifdef LLCC_ENABLE
 	if (ch->tcm_desc_en)
 		ch->config.desc_alctr = &ioss_tcm_desc_alctr;
 	if (ch->tcm_buf_en)
 		ch->config.buff_alctr = &ioss_tcm_buf_alctr;
 	if (ch->tcm_desc_en || ch->tcm_buf_en)
 		ch->config.ring_size = ch->tcm_ring_size_max;
-#endif
 }
 
 static bool ioss_net_next_channel_config(struct ioss_channel *ch)

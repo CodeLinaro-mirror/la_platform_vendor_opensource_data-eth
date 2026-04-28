@@ -19,10 +19,6 @@
 
 #include "include/linux/msm/ioss.h"
 
-#if IS_ENABLED(CONFIG_QCOM_LLCC)
-#define LLCC_ENABLE
-#endif
-
 #define DEFAULT_IPA_CONFIG "default"
 #define DEFAULT_IOSS_TRAFFIC_TYPE IOSS_TRAFFIC_BE
 
@@ -53,16 +49,11 @@ extern struct ioss_mem_allocator ioss_default_alctr;
 extern unsigned long ioss_ver;
 extern unsigned long ioss_api_ver;
 
-#ifdef LLCC_ENABLE
 extern struct ioss_mem_allocator ioss_tcm_desc_alctr;
 extern struct ioss_mem_allocator ioss_tcm_buf_alctr;
 
 int ioss_tcm_mem_init(void);
 void ioss_tcm_mem_deinit(void);
-#else
-static inline int ioss_tcm_mem_init(void) { return 0; }
-static inline void ioss_tcm_mem_deinit(void) {}
-#endif
 
 int ioss_pci_start(struct ioss *ioss);
 void ioss_pci_stop(struct ioss *ioss);

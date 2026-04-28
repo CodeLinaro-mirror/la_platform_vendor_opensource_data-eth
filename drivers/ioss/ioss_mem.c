@@ -36,16 +36,27 @@ struct ioss_mem_allocator ioss_default_alctr = {
 	.pa = default_mem_pa,
 };
 
-#ifdef LLCC_ENABLE
+static bool disable_tcm;
+module_param(disable_tcm, bool, 0444);
+MODULE_PARM_DESC(disable_tcm, "Disable TCM memory allocation (default: false)");
+
+#if IS_ENABLED(CONFIG_QCOM_LLCC)
+#define LLCC_ENABLE
+#endif
+
 /* LLCC Memory Allocator */
+#ifdef LLCC_ENABLE
 #include <linux/soc/qcom/llcc-qcom.h>
+#endif
 #include <linux/dma-map-ops.h>
 #include <linux/genalloc.h>
 #include <linux/log2.h>
 
 #define TCM_POOL_MIN_ALLOC_ORDER	ilog2(256)
 
+#ifdef LLCC_ENABLE
 static struct llcc_tcm_data *ioss_tcm_mem;
+#endif
 static struct gen_pool *ioss_tcm_pool;
 
 
@@ -200,17 +211,20 @@ int ioss_tcm_mem_init(void)
 	struct llcc_tcm_data *tcm_data;
 	int ret;
 
-	tcm_data = llcc_tcm_activate();
-	if (IS_ERR_OR_NULL(tcm_data)) {
-		ioss_log_err(NULL, "Failed to activate TCM");
-		return -EFAULT;
-	}
-
 	ioss_tcm_pool = gen_pool_create(TCM_POOL_MIN_ALLOC_ORDER, -1);
 	if (!ioss_tcm_pool) {
 		ioss_log_err(NULL, "Failed to create TCM pool");
 		ret = -ENOMEM;
 		goto err_deactivate;
+	}
+
+	if (disable_tcm)
+		return 0;
+#ifdef LLCC_ENABLE
+	tcm_data = llcc_tcm_activate();
+	if (IS_ERR_OR_NULL(tcm_data)) {
+		ioss_log_err(NULL, "Failed to activate TCM");
+		return -EFAULT;
 	}
 
 	ret = gen_pool_add_virt(ioss_tcm_pool, (unsigned long)tcm_data->virt_addr,
@@ -221,7 +235,7 @@ int ioss_tcm_mem_init(void)
 	}
 
 	ioss_tcm_mem = tcm_data;
-
+#endif
 	ioss_log_cfg(NULL, "TCM genpool initialized: size=%zu bytes, phys=%pa, virt=%p, min_alloc_order=%d",
 		     tcm_data->mem_size, &tcm_data->phys_addr, tcm_data->virt_addr,
 		     TCM_POOL_MIN_ALLOC_ORDER);
@@ -240,12 +254,15 @@ err_deactivate:
 void ioss_tcm_mem_deinit(void)
 {
 	gen_pool_destroy(ioss_tcm_pool);
-	llcc_tcm_deactivate(ioss_tcm_mem);
-
-	ioss_log_cfg(NULL, "TCM deactivated");
-
 	ioss_tcm_pool = NULL;
+
+	if (disable_tcm)
+		return;
+#ifdef LLCC_ENABLE
+	llcc_tcm_deactivate(ioss_tcm_mem);
 	ioss_tcm_mem = NULL;
+#endif
+	ioss_log_cfg(NULL, "TCM deactivated");
 }
 
 struct ioss_mem_allocator ioss_tcm_desc_alctr = {
@@ -261,5 +278,3 @@ struct ioss_mem_allocator ioss_tcm_buf_alctr = {
 	.free = tcm_mem_free,
 	.pa = tcm_mem_pa,
 };
-
-#endif
