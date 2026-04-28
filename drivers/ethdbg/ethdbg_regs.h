@@ -35,6 +35,6 @@ struct ethdbg_hw_desc {
 	size_t num_reg_desc;
 };
 
-#include "ethdbg_regs_sdx95.h"
+#include "ethdbg_regs_echo.h"
 
 #endif /* _ETHDBG_REGS_H_ */

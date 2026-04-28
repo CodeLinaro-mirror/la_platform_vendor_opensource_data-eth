@@ -24,9 +24,9 @@ static const struct ethdbg_hw_desc *ethdbg_find_hw_desc(const char *name)
 {
 	int i;
 
-	for (i = 0; sdx95_hw_descs[i].name != NULL; i++) {
-		if (strcmp(sdx95_hw_descs[i].name, name) == 0)
-			return &sdx95_hw_descs[i];
+	for (i = 0; echo_hw_descs[i].name != NULL; i++) {
+		if (strcmp(echo_hw_descs[i].name, name) == 0)
+			return &echo_hw_descs[i];
 	}
 	return NULL;
 }

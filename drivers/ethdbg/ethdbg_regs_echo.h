@@ -1,17 +1,17 @@
 /* SPDX-License-Identifier: GPL-2.0-only*/
 /* Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries. */
 
-#ifndef _SDX95_REG_DESC_H_
-#define _SDX95_REG_DESC_H_
+#ifndef _ECHO_REG_DESC_H_
+#define _ECHO_REG_DESC_H_
 
 /**
- * SDX95 Platform Register Descriptors
+ * Echo Platform Register Descriptors
  *
- * This file contains register layout definitions for the SDX95 platform.
+ * This file contains register layout definitions for the Echo platform.
  * Each array describes the register regions for a specific hardware block.
  */
 
-static const struct ethdbg_reg_desc mac_regs_sdx95[] = {
+static const struct ethdbg_reg_desc mac_regs_echo[] = {
 	{0x0000, 0x002C}, {0x0050, 0x0058}, {0x0060, 0x0064}, {0x006C, 0x009C},
 	{0x00B0, 0x00B8}, {0x00D0, 0x00E0}, {0x0110, 0x012C}, {0x0144, 0x0144},
 	{0x0200, 0x0224}, {0x0230, 0x0238}, {0x0240, 0x0248}, {0x0250, 0x0258},
@@ -25,7 +25,7 @@ static const struct ethdbg_reg_desc mac_regs_sdx95[] = {
 	{0xF000, 0xF5FC}, {0x10000, 0x1057C}, {0x11140, 0x11140}, {0x12008, 0x1200C},
 };
 
-static const struct ethdbg_reg_desc qxpcs_regs_sdx95[] = {
+static const struct ethdbg_reg_desc qxpcs_regs_echo[] = {
 	{0x0000, 0x0024}, {0x0038, 0x003C}, {0x0050, 0x0054}, {0x0060, 0x0064},
 	{0x0080, 0x0080}, {0x0088, 0x00A8}, {0x1C20, 0x1C40}, {0x2000, 0x2008},
 	{0x2010, 0x2024}, {0x202C, 0x202C}, {0x2040, 0x2044}, {0x2054, 0x2054},
@@ -35,13 +35,13 @@ static const struct ethdbg_reg_desc qxpcs_regs_sdx95[] = {
 	{0x5028, 0x5028},
 };
 
-static const struct ethdbg_reg_desc rgmii_regs_sdx95[] = {
+static const struct ethdbg_reg_desc rgmii_regs_echo[] = {
 	{0x0000, 0x0020}, {0x0028, 0x0028}, {0x0044, 0x0044}, {0x00F4, 0x00F4},
 	{0x016C, 0x0174}, {0x01CC, 0x01D0}, {0x01E4, 0x0224}, {0x0228, 0x02A4},
 	{0x02A8, 0x0324}, {0x0328, 0x0340}, {0x0344, 0x0390},
 };
 
-static const struct ethdbg_reg_desc serdes_regs_sdx95[] = {
+static const struct ethdbg_reg_desc serdes_regs_echo[] = {
 	{0x0058, 0x0058}, {0x0074, 0x0074}, {0x007C, 0x007C}, {0x0084, 0x0084},
 	{0x0094, 0x0094}, {0x00AC, 0x00B0}, {0x00BC, 0x00BC}, {0x00CC, 0x00D4},
 	{0x0110, 0x0114}, {0x0124, 0x0124}, {0x0140, 0x0140}, {0x0158, 0x015C},
@@ -55,26 +55,26 @@ static const struct ethdbg_reg_desc serdes_regs_sdx95[] = {
 	{0x0C94, 0x0C94}, {0x0CD8, 0x0CDC}, {0x0D18, 0x0D18},
 };
 
-static const struct ethdbg_hw_desc sdx95_hw_descs[] = {
+static const struct ethdbg_hw_desc echo_hw_descs[] = {
 	{
 		.name = "stmmaceth",
-		.reg_desc = mac_regs_sdx95,
-		.num_reg_desc = ARRAY_SIZE(mac_regs_sdx95),
+		.reg_desc = mac_regs_echo,
+		.num_reg_desc = ARRAY_SIZE(mac_regs_echo),
 	},
 	{
 		.name = "qxpcs",
-		.reg_desc = qxpcs_regs_sdx95,
-		.num_reg_desc = ARRAY_SIZE(qxpcs_regs_sdx95),
+		.reg_desc = qxpcs_regs_echo,
+		.num_reg_desc = ARRAY_SIZE(qxpcs_regs_echo),
 	},
 	{
 		.name = "rgmii",
-		.reg_desc = rgmii_regs_sdx95,
-		.num_reg_desc = ARRAY_SIZE(rgmii_regs_sdx95),
+		.reg_desc = rgmii_regs_echo,
+		.num_reg_desc = ARRAY_SIZE(rgmii_regs_echo),
 	},
 	{
 		.name = "serdes",
-		.reg_desc = serdes_regs_sdx95,
-		.num_reg_desc = ARRAY_SIZE(serdes_regs_sdx95),
+		.reg_desc = serdes_regs_echo,
+		.num_reg_desc = ARRAY_SIZE(serdes_regs_echo),
 	},
 	{ NULL, NULL, 0 }
 };

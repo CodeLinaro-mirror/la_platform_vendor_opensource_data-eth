@@ -136,7 +136,7 @@ static int register_interface_device(struct ethdbg_interface *iface,
 	int ret;
 
 	/* Check compatibility before allocating */
-	if (!parent_dev || !of_device_is_compatible(parent_dev->of_node, "qcom,sdx95-ethqos")) {
+	if (!parent_dev || !of_device_is_compatible(parent_dev->of_node, "qcom,echo-ethqos")) {
 		netdev_err(net_dev, "Unsupported device\n");
 		return -EINVAL;
 	}
