@@ -3299,7 +3299,8 @@ static int tc956xmac_pci_probe(struct pci_dev *pdev,
 		/* Set the PORT0 interface mode to default, in case of invalid input */
 		if ((macX_interface[res.device_num] == ENABLE_RGMII_INTERFACE) || (macX_interface[res.device_num] == ENABLE_RGMII_ID_INTERFACE) ||
 			(macX_interface[res.device_num] < ENABLE_USXGMII_INTERFACE) || (macX_interface[res.device_num] > ENABLE_USXGMII_2_5G_INTERFACE)) {
-			macX_interface[res.device_num] = ENABLE_XFI_INTERFACE;
+			/* Use USXGMII instead of XFI because qca81xx bring-up fails with XFI */
+			macX_interface[res.device_num] = ENABLE_USXGMII_INTERFACE;
 			NMSGPR_INFO(&(pdev->dev), "%s: ERROR Invalid macX_interface parameter passed. Restoring to default interface %d for the device index: %d\n",
 			__func__, macX_interface[res.device_num], res.device_num);
 		} else if ((macX_interface[res.device_num] > MAX_INTERFACE) && (macX_interface[res.device_num] <= ENABLE_USXGMII_2_5G_INTERFACE)) {
