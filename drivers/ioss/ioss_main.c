@@ -16,26 +16,6 @@
 unsigned long ioss_ver = IOSS_VER;
 unsigned long ioss_api_ver = IOSS_API_VER;
 
-static int ioss_parse_dt(struct ioss *ioss)
-{
-	int rc;
-	struct device_node *node = dev_of_node(&ioss->pdev->dev);
-
-	if (!node)
-		return -EFAULT;
-
-	rc  = of_property_read_u32(node,
-			"qcom,line_rate_for_llcc", &ioss->line_rate_for_llcc);
-	if (rc)
-		ioss_log_dbg(NULL, "No DDR bandwidth limit specified in DT");
-
-	if (ioss->line_rate_for_llcc)
-		ioss_log_dbg(NULL, "DDR bandwidth limit set to %u",
-				ioss->line_rate_for_llcc);
-
-	return 0;
-}
-
 static void ioss_ipa_ready_notif(void *userdata)
 {
 	struct ioss *ioss = userdata;
@@ -84,12 +64,6 @@ static int ioss_probe(struct platform_device *pdev)
 	np->data = ioss;
 	platform_set_drvdata(pdev, ioss);
 
-	rc = ioss_parse_dt(ioss);
-	if (rc) {
-		ioss_log_err(NULL, "Failed to parse devicetree\n");
-		goto err;
-	}
-
 	/* Freeze the workqueue so that a refresh will not happen while the
 	 * device is suspended as the suspend operation itself can generate
 	 * Netlink events.
@@ -101,6 +75,10 @@ static int ioss_probe(struct platform_device *pdev)
 		ioss_log_err(NULL, "Failed to alloc work queue\n");
 		goto err;
 	}
+
+	rc = ioss_tcm_mem_init();
+	if (rc)
+		ioss_log_err(NULL, "Failed to initialize TCM");
 
 	ioss_priv->ipa_ready.notify = ioss_ipa_ready_notif;
 	ioss_priv->ipa_ready.userdata = ioss;
@@ -149,6 +127,9 @@ static void ioss_remove(struct platform_device *pdev)
 	/* Safe to call even if ioss_pci_start() was not called */
 	ioss_plat_stop(ioss);
 	ioss_log_msg(NULL, "Done IOSS Platform stop");
+
+	ioss_tcm_mem_deinit();
+
 	destroy_workqueue(ioss->wq);
 
 	kvfree_sensitive(ioss->ioss_priv, ksize(ioss->ioss_priv));

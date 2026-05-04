@@ -13,6 +13,7 @@ typedef int (*of_parser_t)(struct ioss_device *idev, struct device_node *np);
 
 #define KEY_TRAFFIC_TYPE "qcom,ioss-traffic-type"
 #define KEY_IPA_CONFIGS "qcom,compatible-ipa-configs"
+#define IOSS_MIN_RING_SIZE	4
 
 static int ioss_of_parse_traffic_type(struct ioss_device *idev,
 		struct device_node *np, struct ioss_channel *ch)
@@ -76,6 +77,12 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 		goto err;
 	}
 
+	if (ch->default_config.ring_size < IOSS_MIN_RING_SIZE) {
+		ioss_dev_err(idev, "Invalid ring size %u, minimum is %u descriptors",
+			     ch->default_config.ring_size, IOSS_MIN_RING_SIZE);
+		goto err;
+	}
+
 	key = "qcom,buff-size";
 	if (of_property_read_u32(np, key, &ch->default_config.buff_size)) {
 		ioss_dev_err(idev, "Failed to parse key %s", key);
@@ -126,6 +133,9 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 
 	if (!!of_find_property(np, "qcom,rx-filter-ip", NULL))
 		ch->filter_types |= IOSS_RXF_F_IP;
+
+	ch->tcm_desc_en = of_property_read_bool(np, "qcom,tcm_desc_en");
+	ch->tcm_buf_en = of_property_read_bool(np, "qcom,tcm_buf_en");
 
 	if (ioss_of_parse_traffic_type(idev, np, ch))
 		goto err;

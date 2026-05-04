@@ -163,7 +163,6 @@ extern struct device_type ioss_iface_type;
 
 /* IOSS platform node */
 struct ioss {
-	u32 line_rate_for_llcc;
 	struct workqueue_struct *wq;
 	struct platform_device *pdev;
 
@@ -352,6 +351,9 @@ struct ioss_channel {
 	int channel_num;
 	int queue_number;
 	u32 tc_mapping;
+
+	bool tcm_desc_en;
+	bool tcm_buf_en;
 };
 
 struct ioss_device {
@@ -371,7 +373,6 @@ struct ioss_device {
 	void *private;
 
 	bool unbinding;
-	bool llcc_enabled;
 	bool wol_activated;
 
 	struct {
