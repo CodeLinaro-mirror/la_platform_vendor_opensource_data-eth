@@ -116,9 +116,8 @@ static void *tcm_alloc_desc(struct ioss_device *idev, size_t size, dma_addr_t *d
 {
 	struct genpool_data_align align_data;
 	unsigned long tcm_addr;
-	u32 alignment = size;
 
-	align_data.align = alignment;
+	align_data.align = roundup_pow_of_two(size);
 	tcm_addr = gen_pool_alloc_algo_owner(ioss_tcm_pool, size,
 					     gen_pool_first_fit_align,
 					     &align_data, NULL);
