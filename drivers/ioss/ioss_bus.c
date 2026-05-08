@@ -472,10 +472,12 @@ static int ioss_bus_offline(struct device *dev)
 struct device_type ioss_idev_type = {
 	.name = "ioss_device",
 };
+EXPORT_SYMBOL_GPL(ioss_idev_type);
 
 struct device_type ioss_iface_type = {
 	.name = "ioss_interface",
 };
+EXPORT_SYMBOL_GPL(ioss_iface_type);
 
 struct bus_type ioss_bus = {
 	.name = "ioss",
@@ -487,6 +489,7 @@ struct bus_type ioss_bus = {
 	.online = ioss_bus_online,
 	.offline = ioss_bus_offline,
 };
+EXPORT_SYMBOL_GPL(ioss_bus);
 
 int ioss_bus_register_driver(struct ioss_driver *idrv)
 {

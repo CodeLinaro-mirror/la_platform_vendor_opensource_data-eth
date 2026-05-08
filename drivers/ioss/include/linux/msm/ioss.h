@@ -35,9 +35,11 @@
  *   7      - Added support for channel allocation using IPA config type and channel
  *            traffic type properties
  *   8	    - Added API to update skb coming in UL exception path
+ *   9	    - Added QOS Support (legacy). *Removed
+ *  10	    - Added QOS Support (ioss_ipa_set_tc_bmap)
  */
 
-#define IOSS_API_VER 8
+#define IOSS_API_VER 10
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -389,6 +391,9 @@ struct ioss_device {
 
 #define ioss_idev_to_real(idev) (idev->dev.parent)
 
+#define ioss_to_net_dev(idev) \
+	(idev->net_dev ? idev->net_dev : to_net_dev(idev->dev.parent))
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
 static inline int __match_idev(struct device *dev, void *data)
 #else
@@ -712,5 +717,7 @@ void ioss_pci_unregister_driver(struct ioss_driver *drv);
 int ioss_plat_register_driver(struct ioss_driver *idrv, struct module *owner);
 
 void ioss_plat_unregister_driver(struct ioss_driver *drv);
+
+int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch, u32 tc_bmap);
 
 #endif /* _IOSS_H_ */

@@ -451,3 +451,73 @@ void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
 		list_move(&ch->node, &iface->invalid_channels);
 	}
 }
+
+#if IPA_ETH_API_VER >= 9
+int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 tc_bmap)
+{
+	struct ioss_interface *iface;
+	struct ioss_channel *ch;
+	struct ioss_ch_priv *cp;
+	enum ioss_channel_dir dir;
+	int ret = 0;
+
+	if (!idev)
+		return -EINVAL;
+
+	iface = &idev->interface;
+	dir = is_rx ? IOSS_CH_DIR_RX : IOSS_CH_DIR_TX;
+
+	mutex_lock(&idev->refresh_lock);
+
+	ioss_for_each_channel(ch, iface) {
+		if (ch->direction != dir || ch->channel_num != ch_num)
+			continue;
+
+		cp = ch->ioss_priv;
+		if (!cp) {
+			ioss_dev_err(idev, "missing private data for ch %d", ch_num);
+			ret = -EINVAL;
+			goto out_unlock;
+		}
+
+		cp->ipa_pi.tc_bmap = tc_bmap;
+
+		if (iface->state != IOSS_IF_ST_ONLINE) {
+			ioss_dev_log(idev, "cached tc mapping dir=%d ch=%d bmap=0x%x while IPA is not connected",
+				     dir, ch_num, tc_bmap);
+			ret = 0;
+			goto out_unlock;
+		}
+
+		ret = ipa_eth_qos_update_tc_mapping(&cp->ipa_pi);
+		if (ret) {
+			ioss_dev_err(idev, "failed to update tc mapping dir=%d ch=%d bmap=0x%x ret=%d",
+				     dir, ch_num, tc_bmap, ret);
+			goto out_unlock;
+		}
+
+		ioss_dev_log(idev, "updated tc mapping dir=%d ch=%d bmap=0x%x",
+			     dir, ch_num, tc_bmap);
+		goto out_unlock;
+	}
+
+	ioss_dev_err(idev, "failed to find qos channel dir=%d ch=%d", dir, ch_num);
+	ret = -ENODEV;
+
+out_unlock:
+	mutex_unlock(&idev->refresh_lock);
+	return ret;
+}
+#else
+int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 tc_bmap)
+{
+	if (!idev)
+		return -EINVAL;
+
+	ioss_dev_err(idev, "tc mapping is unsupported for IPA_ETH_API_VER=%d",
+		     IPA_ETH_API_VER);
+
+	return -EOPNOTSUPP;
+}
+#endif
+EXPORT_SYMBOL_GPL(ioss_ipa_set_tc_bmap);
