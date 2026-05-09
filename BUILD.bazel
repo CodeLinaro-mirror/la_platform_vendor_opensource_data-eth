@@ -1,6 +1,7 @@
 load("//build/kernel/kleaf:kernel.bzl", "ddk_headers")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "strip_prefix")
 load("@rules_pkg//pkg:install.bzl", "pkg_install")
+load(":define_tc956x_modules.bzl", "define_tc956x_modules")
 load(":target.bzl", "define_autogvm")
 
 ddk_headers(
@@ -26,6 +27,17 @@ ddk_headers(
     ]),
     includes = ["drivers/include"]
 )
+
+ddk_headers(
+    name = "qps615_headers",
+    hdrs = glob([
+        "drivers/qps615/src/*.h",
+    ]),
+    includes = ["drivers/qps615/src"],
+)
+
+define_tc956x_modules("lahaina", "consolidate")
+define_tc956x_modules("lahaina", "perf")
 
 define_autogvm()
 
