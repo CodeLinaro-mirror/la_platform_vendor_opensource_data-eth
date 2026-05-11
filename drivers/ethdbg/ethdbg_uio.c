@@ -21,9 +21,19 @@ static void free_dump_map_names(struct ethdbg_device *dev)
 {
 	int i;
 
-	for (i = 0; i < dev->dump_data.num_blocks && i < MAX_UIO_MAPS; i++) {
+	for (i = 0; i < MAX_UIO_MAPS; i++) {
 		kfree(dev->dump_uio_info.mem[i].name);
 		dev->dump_uio_info.mem[i].name = NULL;
+	}
+}
+
+static void free_phy_map_names(struct ethdbg_device *dev)
+{
+	int i;
+
+	for (i = 0; i < MAX_UIO_MAPS; i++) {
+		kfree(dev->phy_uio_info.mem[i].name);
+		dev->phy_uio_info.mem[i].name = NULL;
 	}
 }
 
@@ -63,7 +73,45 @@ static int set_map_info(struct ethdbg_device *dev)
 	return 0;
 }
 
-/* ethdbg_uio_open */
+static int set_phy_map_info(struct ethdbg_device *dev)
+{
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	int i, idx = 0;
+
+	for (i = 0; i < dump_data->num_blocks; i++) {
+		if (!dump_data->blocks[i].is_phy || !dump_data->blocks[i].reg_list)
+			continue;
+
+		if (idx >= MAX_UIO_MAPS)
+			break;
+
+		dev->phy_uio_info.mem[idx].name = kasprintf(GFP_KERNEL, "dump:phy-%s",
+							    dump_data->blocks[i].name);
+		if (!dev->phy_uio_info.mem[idx].name) {
+			while (idx-- > 0) {
+				kfree(dev->phy_uio_info.mem[idx].name);
+				dev->phy_uio_info.mem[idx].name = NULL;
+			}
+			return -ENOMEM;
+		}
+		dev->phy_uio_info.mem[idx].addr    = (phys_addr_t)(uintptr_t)dump_data->blocks[i].reg_list;
+		dev->phy_uio_info.mem[idx].size    = dump_data->blocks[i].num_registers * sizeof(struct ethdbg_reg_entry);
+		dev->phy_uio_info.mem[idx].memtype = UIO_MEM_LOGICAL;
+		idx++;
+	}
+
+	return 0;
+}
+
+static int ethdbg_phy_uio_open(struct uio_info *info, struct inode *inode)
+{
+	struct ethdbg_device *dev = container_of(info, struct ethdbg_device, phy_uio_info);
+
+	ethdbg_dump_device_phy(dev);
+
+	return 0;
+}
+
 static int ethdbg_uio_open(struct uio_info *info, struct inode *inode)
 {
 	struct ethdbg_device *dev = container_of(info, struct ethdbg_device, dump_uio_info);
@@ -71,6 +119,44 @@ static int ethdbg_uio_open(struct uio_info *info, struct inode *inode)
 	ethdbg_dump_device(dev);
 
 	return 0;
+}
+
+
+int ethdbg_uio_add_phy(struct ethdbg_interface *iface)
+{
+	struct ethdbg_device *dev = iface->device;
+	int ret;
+
+	dev->phy_uio_info.name    = dev->net_dev->name;
+	dev->phy_uio_info.version = ETHDBG_UIO_VERSION;
+	dev->phy_uio_info.open    = ethdbg_phy_uio_open;
+
+	ret = set_phy_map_info(dev);
+	if (ret) {
+		pr_err("ethdbg: [%s] PHY blocks not ready\n", iface->interface_name);
+		return ret;
+	}
+
+	ret = uio_register_device(&dev->net_dev->dev, &dev->phy_uio_info);
+	if (ret < 0) {
+		pr_err("ethdbg: [%s] failed to register PHY UIO device\n", iface->interface_name);
+		free_phy_map_names(dev);
+		return ret;
+	}
+
+	pr_info("ethdbg: [%s] PHY UIO device registered\n", iface->interface_name);
+	return 0;
+}
+
+void ethdbg_uio_del_phy(struct ethdbg_interface *iface)
+{
+	struct ethdbg_device *dev = iface->device;
+
+	if (!dev->phy_uio_info.uio_dev)
+		return;
+
+	uio_unregister_device(&dev->phy_uio_info);
+	free_phy_map_names(dev);
 }
 
 int ethdbg_uio_add(struct ethdbg_interface *iface)
@@ -94,8 +180,7 @@ int ethdbg_uio_add(struct ethdbg_interface *iface)
 	ret = uio_register_device(&dev->net_dev->dev, &dev->uio_info);
 	if (ret < 0) {
 		pr_err("Failed to register uio device\n");
-		free_dump_map_names(dev);
-		return -ENODEV;
+		goto err_free_dump_map_names;
 	}
 
 	dev_info(&dev->uio_info.uio_dev->dev, "Registered UIO device for interface %s\n",
@@ -105,14 +190,14 @@ int ethdbg_uio_add(struct ethdbg_interface *iface)
 	if (ret < 0) {
 		pr_err("ethdbg: failed to register dump UIO device for %s\n",
 		       dev->net_dev->name);
-		goto err_unregister_uio;
+		goto err_free_dump_map_names;
 	}
 
 	dev_info(&dev->dump_uio_info.uio_dev->dev,
 		 "Registered dump UIO device %s\n", dev->dump_uio_info.name);
 	return 0;
 
-err_unregister_uio:
+err_free_dump_map_names:
 	free_dump_map_names(dev);
 	uio_unregister_device(&dev->uio_info);
 	return ret;
@@ -122,7 +207,6 @@ err_unregister_uio:
 void ethdbg_uio_del(struct ethdbg_interface *iface)
 {
 	struct ethdbg_device *dev;
-	struct ethdbg_map *map, *tmp;
 
 	if (!iface || !iface->device)
 		return;
@@ -140,12 +224,6 @@ void ethdbg_uio_del(struct ethdbg_interface *iface)
 		dev_info(&dev->uio_info.uio_dev->dev, "Unregistering UIO device for interface %s\n",
 			 iface->interface_name);
 		uio_unregister_device(&dev->uio_info);
-	}
-
-	/* Free map regions list */
-	list_for_each_entry_safe(map, tmp, &dev->map_regions, list) {
-		list_del(&map->list);
-		kfree(map);
 	}
 }
 

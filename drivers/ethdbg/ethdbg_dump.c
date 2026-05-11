@@ -7,10 +7,17 @@
 #include <linux/slab.h>
 #include <linux/io.h>
 #include <linux/netdevice.h>
+#include <linux/phy.h>
 #include "ethdbg.h"
 #include "ethdbg_regs.h"
 
 #define REG_SIZE 4
+
+/* Module param to enable capture_phy */
+static bool capture_phy_on_panic;
+module_param(capture_phy_on_panic, bool, 0644);
+MODULE_PARM_DESC(capture_phy_on_panic,
+		 "Capture PHY registers during kernel panic (default: off)");
 
 static int ethdbg_panic_notifier(struct notifier_block *nb,
 				 unsigned long event, void *ptr);
@@ -81,6 +88,9 @@ void ethdbg_dump_device(struct ethdbg_device *dev)
 	dump_data = &dev->dump_data;
 
 	for (int i = 0; i < dump_data->num_blocks; i++) {
+		/* Skip dump capture for phy regions */
+		if (dump_data->blocks[i].is_phy)
+			continue;
 		ethdbg_capture_hw_block(&dump_data->blocks[i], dev->net_dev->name);
 		regs_captured += dump_data->blocks[i].num_captured;
 		regs_skipped += dump_data->blocks[i].num_skipped;
@@ -98,6 +108,11 @@ static int ethdbg_panic_notifier(struct notifier_block *nb,
 
 	list_for_each_entry(iface, &ethdbg_interfaces, list) {
 		ethdbg_dump_device(iface->device);
+		/* PHY capture during panic is disabled by default;
+		 * MDIO accesses may sleep or take locks that are unsafe in panic context.
+		 */
+		if (capture_phy_on_panic)
+			ethdbg_dump_device_phy(iface->device);
 	}
 
 	return NOTIFY_DONE;
@@ -221,7 +236,8 @@ int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name)
 	if (block_count == 0)
 		return 0;
 
-	dump_data->blocks = kzalloc(block_count * sizeof(struct ethdbg_hw_block),
+	/* Allocate MMIO blocks + 2 PHY blocks (common + vendor) upfront */
+	dump_data->blocks = kzalloc((block_count + 2) * sizeof(struct ethdbg_hw_block),
 				     GFP_KERNEL);
 	if (!dump_data->blocks)
 		return -ENOMEM;
@@ -240,13 +256,168 @@ void ethdbg_dump_unregister(struct ethdbg_device *dev)
 		return;
 
 	for (i = 0; i < dump_data->num_blocks; i++) {
-		iounmap(dump_data->blocks[i].base);
+		if (!dump_data->blocks[i].is_phy)
+			iounmap(dump_data->blocks[i].base);
 		kfree(dump_data->blocks[i].reg_list);
 	}
 
 	kfree(dump_data->blocks);
 	dump_data->blocks = NULL;
 	dump_data->num_blocks = 0;
+}
+
+static void ethdbg_populate_c45_offsets(struct ethdbg_hw_block *block,
+					const struct ethdbg_hw_desc *desc)
+{
+	unsigned int i, entry_idx = 0;
+
+	for (i = 0; i < desc->num_reg_desc; i++) {
+		u32 mmd = ETHDBG_C45_MMD(desc->reg_desc[i].start_offset);
+		u32 end = ETHDBG_C45_REG(desc->reg_desc[i].end_offset);
+		u32 reg;
+
+		for (reg = ETHDBG_C45_REG(desc->reg_desc[i].start_offset);
+		     reg <= end && entry_idx < block->num_registers; reg++, entry_idx++)
+			block->reg_list[entry_idx].offset = ETHDBG_C45_OFFSET(mmd, reg);
+	}
+}
+
+static void ethdbg_populate_c22_offsets(struct ethdbg_hw_block *block,
+					const struct ethdbg_hw_desc *desc)
+{
+	unsigned int i, entry_idx = 0;
+
+	for (i = 0; i < desc->num_reg_desc; i++) {
+		u32 reg;
+
+		for (reg = desc->reg_desc[i].start_offset;
+		     reg <= desc->reg_desc[i].end_offset && entry_idx < block->num_registers;
+		     reg++, entry_idx++)
+			block->reg_list[entry_idx].offset = reg;
+	}
+}
+
+static int ethdbg_alloc_phy_block(struct ethdbg_hw_block *block,
+				  const struct ethdbg_hw_desc *desc)
+{
+	unsigned int num_regs;
+
+	num_regs = ethdbg_count_phy_regs(desc->reg_desc, desc->num_reg_desc, desc->is_c45);
+
+	block->reg_list = kzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)), GFP_KERNEL);
+	if (!block->reg_list)
+		return -ENOMEM;
+
+	block->num_registers = num_regs;
+	block->is_phy = true;
+	block->is_c45 = desc->is_c45;
+	block->name = desc->name;
+	block->map = NULL;
+
+	/* Pre-populate offsets at registration time; values filled at capture time */
+	if (desc->is_c45)
+		ethdbg_populate_c45_offsets(block, desc);
+	else
+		ethdbg_populate_c22_offsets(block, desc);
+
+	return 0;
+}
+
+/*
+ * ethdbg_capture_phy_block - read registers into @block.
+ * Uses block->is_c45 and block->phy_desc set at alloc time.
+ */
+static void ethdbg_capture_phy_block(struct ethdbg_hw_block *block,
+				     struct phy_device *phydev)
+{
+	unsigned int i;
+	int val;
+
+	for (i = 0; i < block->num_registers; i++) {
+		u32 offset = block->reg_list[i].offset;
+
+		if (block->is_c45) {
+			u32 mmd = ETHDBG_C45_MMD(offset);
+			u32 reg = ETHDBG_C45_REG(offset);
+
+			val = phy_read_mmd(phydev, mmd, reg);
+		} else {
+			val = phy_read(phydev, offset);
+		}
+
+		block->reg_list[i].value = (u32)val;
+	}
+	block->num_captured = block->num_registers;
+}
+
+int ethdbg_dump_register_phy(struct ethdbg_device *dev)
+{
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	const struct ethdbg_hw_desc *vendor_desc;
+	struct phy_device *phydev;
+	u32 phy_id;
+	int ret;
+
+	if (!dev->net_dev || !dev->net_dev->phydev) {
+		pr_info("ethdbg: [%s] phydev not yet attached\n",
+			dev->net_dev ? dev->net_dev->name : "?");
+		return 0;
+	}
+
+	phydev = dev->net_dev->phydev;
+	phy_id = phydev->drv ? phydev->drv->phy_id : 0;
+
+	vendor_desc = ethdbg_find_phy_desc(phy_id);
+	if (!vendor_desc) {
+		pr_info("ethdbg: [%s] no PHY profile for phy_id=0x%08x\n",
+			dev->net_dev->name, phy_id);
+		return 0;
+	}
+
+	const struct ethdbg_hw_desc *common_desc = phydev->is_c45 ? &common_c45_phy_desc
+							      : &common_c22_phy_desc;
+
+	ret = ethdbg_alloc_phy_block(&dump_data->blocks[dump_data->num_blocks],
+				     common_desc);
+	if (ret)
+		return ret;
+	dump_data->num_blocks++;
+
+	ret = ethdbg_alloc_phy_block(&dump_data->blocks[dump_data->num_blocks],
+				     vendor_desc);
+	if (ret) {
+		kfree(dump_data->blocks[dump_data->num_blocks - 1].reg_list);
+		dump_data->blocks[dump_data->num_blocks - 1].reg_list = NULL;
+		dump_data->num_blocks--;
+		return ret;
+	}
+	dump_data->num_blocks++;
+
+	return 0;
+}
+
+void ethdbg_dump_device_phy(struct ethdbg_device *dev)
+{
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	struct phy_device *phydev;
+	unsigned int i;
+
+	if (!dev->net_dev || !dev->net_dev->phydev)
+		return;
+
+	phydev = dev->net_dev->phydev;
+
+	for (i = 0; i < dump_data->num_blocks; i++) {
+		struct ethdbg_hw_block *block = &dump_data->blocks[i];
+
+		if (!block->is_phy || !block->reg_list)
+			continue;
+
+		ethdbg_capture_phy_block(block, phydev);
+
+		pr_info("ethdbg: [%s] captured %u PHY regs for %s\n",
+			dev->net_dev->name, block->num_captured, block->name);
+	}
 }
 
 int ethdbg_panic_init(void)

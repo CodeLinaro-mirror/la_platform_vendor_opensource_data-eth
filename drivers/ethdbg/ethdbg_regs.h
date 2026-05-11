@@ -6,6 +6,12 @@
 
 #include <linux/types.h>
 
+
+/* C45 offset encoding: upper 16 bits = MMD, lower 16 bits = register address */
+#define ETHDBG_C45_MMD(offset)		((offset) >> 16)
+#define ETHDBG_C45_REG(offset)		((offset) & 0xFFFF)
+#define ETHDBG_C45_OFFSET(mmd, reg)	(((mmd) << 16) | (reg))
+
 /**
  * struct ethdbg_reg_desc - Register region descriptor
  * @start_offset: Starting offset of the region (inclusive)
@@ -22,19 +28,25 @@ struct ethdbg_reg_desc {
 
 /**
  * struct ethdbg_hw_desc - Hardware block descriptor
- * @name: Name of the register block (e.g., "stmmaceth", "rgmii")
- * @reg_desc: Array of register offset ranges in this block
+ * @name:        Name of the register block (e.g., "stmmaceth", "rgmii", "RTL8261C")
+ * @reg_desc:    Array of register offset ranges in this block
  * @num_reg_desc: Number of register offset ranges in the array
- *
- * Describes the layout of registers in a hardware block.
- * This is a static template used to capture registers.
+ * @is_phy:      True if this is an MDIO PHY block
+ * @is_c45:      True if PHY uses C45 register access (valid when is_phy is true)
+ * @phy_id:      Expected PHY ID matched against phydev->drv->phy_id
+ * @phy_id_mask: Mask applied before comparing phy_id
  */
 struct ethdbg_hw_desc {
-	const char *name;
+	const char                   *name;
 	const struct ethdbg_reg_desc *reg_desc;
-	size_t num_reg_desc;
+	size_t                        num_reg_desc;
+	bool                          is_phy;
+	bool                          is_c45;
+	u32                           phy_id;
+	u32                           phy_id_mask;
 };
 
-#include "ethdbg_regs_echo.h"
 
+#include "ethdbg_regs_echo.h"
+#include "ethdbg_phy_regs.h"
 #endif /* _ETHDBG_REGS_H_ */
