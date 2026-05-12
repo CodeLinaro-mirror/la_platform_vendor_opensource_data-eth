@@ -761,8 +761,11 @@ static void ioss_refresh_work(struct work_struct *work)
 			break;
 	} while (--retry > 0);
 
+	ioss_dev_dbg(idev, "Refreshing interface %s with link speed %u", idev->net_dev->name, iface->link_speed);
+
 	if (netif_running(net_dev) && netif_carrier_ok(net_dev)
-	    && !(dev->offline) && !idev->unbinding)
+		&& !(dev->offline) && !idev->unbinding
+		&& iface->link_speed != 0 && iface->link_speed != (u32)SPEED_UNKNOWN)
 		ioss_iface_set_online(iface);
 	else
 		ioss_iface_set_offline(iface);
