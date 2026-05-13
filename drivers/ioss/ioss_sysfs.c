@@ -546,6 +546,8 @@ static ssize_t sysfs_read_ch_status(struct device *dev, struct device_attribute 
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "head_ptr", ch_status.head_ptr);
 	len += scnprintf(buf + len, BUF_LEN - len, "%s: %llu\n", "tail_ptr", ch_status.tail_ptr);
 
+	len += scnprintf(buf + len, BUF_LEN - len, "%s: %u\n", "tcm_desc_bytes", ch->tcm_desc_bytes);
+	len += scnprintf(buf + len, BUF_LEN - len, "%s: %u\n", "tcm_buff_bytes", ch->tcm_buff_bytes);
 	memcpy(user_buf, buf, len);
 	kfree(buf);
 	return len;
@@ -618,7 +620,9 @@ static ssize_t sysfs_read_ch_stat(struct device *dev, struct device_attribute *a
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", ch_status.interrupt_modc);
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", ch_status.interrupt_modt);
 	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", ch_status.head_ptr);
-	len += scnprintf(buf + len, BUF_LEN - len, "%llu", ch_status.tail_ptr);
+	len += scnprintf(buf + len, BUF_LEN - len, "%llu ", ch_status.tail_ptr);
+	len += scnprintf(buf + len, BUF_LEN - len, "%u ", ch->tcm_desc_bytes);
+	len += scnprintf(buf + len, BUF_LEN - len, "%u ", ch->tcm_buff_bytes);
 	len += scnprintf(buf + len, BUF_LEN - len, "\n");
 
 	memcpy(user_buf, buf, len);

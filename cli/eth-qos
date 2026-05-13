@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2024 Qualcomm Innovation Center, Inc. All rights reserved.
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 
 set -e
@@ -166,7 +166,7 @@ add_tc () {
 			while [[ $# -gt 0 ]]; do
 				case "$1" in
 					"-h")
-						add_flow $@
+						add_flow "$@"
 						shift
 						;;
 					*)
@@ -175,7 +175,7 @@ add_tc () {
 				esac
 			done
 		else
-			add_flow $@
+			add_flow "$@"
 		fi
 	fi
 
@@ -332,27 +332,27 @@ Usage:
 if [ "$1" == "add" ]
 then
 	shift
-	add_tc $@
+	add_tc "$@"
 elif [ "$1" == "del" ]
 then
 	shift
-	del_tc $@
+	del_tc "$@"
 elif [ "$1" == "clear" ]
 then
 	shift
-	clear_table $@
+	clear_table "$@"
 elif [ "$1" == "show" ]
 then
 	shift
-	show $@
+	show "$@"
 elif [ "$1" == "commit" ]
 then
 	shift
-	commit $@
+	commit "$@"
 elif [ "$1" == "info" ]
 then
 	shift
-	info $@
+	info "$@"
 else
 	print_usage
 fi
