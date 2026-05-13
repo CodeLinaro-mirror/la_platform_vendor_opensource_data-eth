@@ -4,7 +4,7 @@
  * dwxgmac2.h
  *
  * Copyright (C) 2018 Synopsys, Inc. and/or its affiliates.
- * Copyright (C) 2021 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro and Synopsys Linux driver,
  * and developed or modified for TC956X.
@@ -25,25 +25,39 @@
  */
 
 /*! History:
- *  17 July 2020 : 1. Filtering updates
- *  VERSION	 : 00-01
- *
+ *  17 Jul 2020 : 1. Filtering updates
+ *  VERSION     : 00-01
  *  15 Mar 2021 : Base lined
  *  VERSION     : 01-00
  *  29 Jul 2021 : 1. Add support to set MAC Address register
  *  VERSION     : 01-00-07
  *  14 Sep 2021 : 1. Synchronization between ethtool vlan features
- *  		  "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
- * 		  2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter",
- *  		  and "tx-vlan-offload".
- * 		  3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
- * 		  4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
+ *                   "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
+ *                2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter",
+ *                   and "tx-vlan-offload".
+ *                3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
+ *                4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
  *  VERSION     : 01-00-13
  *  19 Oct 2021 : 1. Adding M3 SRAM Debug counters to ethtool statistics
- * 		  2. Adding MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
+ *                2. Adding MTL RX Overflow/packet miss count, TX underflow counts,Rx Watchdog value to ethtool statistics.
  *  VERSION     : 01-00-17
  *  25 Oct 2021 : 1. Added EEE macros for MAC controlled EEE.
  *  VERSION     : 01-00-19
+ *  31 Jan 2022 : 1. Additional macros defined for debug dump API usage.
+ *  VERSION     : 01-00-39
+ *  02 Feb 2022 : 1. Macros added for Tx Queue flush and Rx DMA flush
+ *  VERSION     : 01-00-40
+ *  18 Dec 2023 : 1. IOCTL/TC/IPA/ModuleParams register write bug fixes.
+ *  VERSION     : 01-00-41
+ *  13 Feb 2024 : 1. Merged CPE and Automotive package
+ *                2. Updated with Register Configuration Check.
+ *  VERSION     : 04-00
+ *  29 Mar 2024 : 1. Support for without MDIO and without PHY case
+ *  VERSION     : 04-00
+ *  31 May 2024 : 1. Modified for TC FPE support
+ *  VERSION     : 05-00
+ *  31 Jan 2025 : 1. Support for w/o MDIO and w/o PHY configuration in cascade network using BDF based module parameter
+ *  VERSION     : 05-00-01
  */
 
 
@@ -138,6 +152,7 @@
 #define XGMAC_VLAN_ERSVLM		BIT(19)
 #define XGMAC_VLAN_ESVL		BIT(18)
 #define XGMAC_VLAN_ETV			BIT(16)
+#define XGMAC_VLAN_ETV_DATA		BIT(17)
 #define XGMAC_VLAN_VID			GENMASK(15, 0)
 #define XGMAC_VLAN_VL_LPOS		(0)
 #define XGMAC_VLAN_HASH_TABLE		(MAC_OFFSET + 0x00000058)
@@ -154,25 +169,41 @@
 #define XGMAC_RQ_SHIFT			4
 #define XGMAC_RXQ_CTRL2		(MAC_OFFSET + 0x000000a8)
 #define XGMAC_RXQ_CTRL3		(MAC_OFFSET + 0x000000ac)
+#define XGMAC_RXQ_CTRL4		(MAC_OFFSET + 0x00000094)
+#define XGMAC_VFFQ_MASK			GENMASK(20, 17)
+#define XGMAC_VFFQ_SHIFT		17
+#define XGMAC_MFFQ_MASK			GENMASK(12, 9)
+#define XGMAC_MFFQ_SHIFT		9
+#define XGMAC_UFFQ_MASK			GENMASK(4, 1)
+#define XGMAC_UFFQ_SHIFT		1
+#define XGMAC_VFFQE			BIT(16)
+#define XGMAC_MFFQE			BIT(8)
+#define XGMAC_UFFQE			BIT(0)
 #define XGMAC_PSRQ(x)			GENMASK((x) * 8 + 7, (x) * 8)
 #define XGMAC_PSRQ_SHIFT(x)		((x) * 8)
 #define XGMAC_INT_STATUS		(MAC_OFFSET + 0x000000b0)
+#define XGMAC_TSIS			BIT(12)
 #define XGMAC_LPIIS			BIT(5)
 #define XGMAC_PMTIS			BIT(4)
 #define XGMAC_INT_EN			(MAC_OFFSET + 0x000000b4)
 #define XGMAC_TSIE			BIT(12)
 #define XGMAC_LPIIE			BIT(5)
 #define XGMAC_PMTIE			BIT(4)
+#define XGMAC_AUXTSTRIG		BIT(2) /* MAC_Timestamp_Status register */
 #ifndef TC956X
 #define XGMAC_INT_DEFAULT_EN		(XGMAC_LPIIE | XGMAC_PMTIE)
 #else
 #define XGMAC_INT_DEFAULT_EN		(XGMAC_LPIIE)
 #endif
+
+#define XGMAC_RX_TX_STS			(MAC_OFFSET + 0x000000b8)
 #define XGMAC_Qx_TX_FLOW_CTRL(x)	(MAC_OFFSET + (0x00000070 + (x) * 4))
 #define XGMAC_PT			GENMASK(31, 16)
 #define XGMAC_PT_SHIFT			16
 #define XGMAC_TFE			BIT(1)
+#define XGMAC_FCB			BIT(0)
 #define XGMAC_RX_FLOW_CTRL		(MAC_OFFSET + 0x00000090)
+#define XGMAC_PFCE			BIT(8)
 #define XGMAC_RFE			BIT(0)
 #define XGMAC_PMT			(MAC_OFFSET + 0x000000c0)
 #define XGMAC_GLBLUCAST		BIT(9)
@@ -194,9 +225,13 @@
 #define XGMAC_TLPIEX			BIT(1)
 #define XGMAC_TLPIEN			BIT(0)
 #define XGMAC_LPI_TIMER_CTRL		(MAC_OFFSET + 0x000000d4)
+#define XGMAC_LPI_TIMER_CTRL_TWT_MASK	GENMASK(15, 0)
+#define XGMAC_LPI_TIMER_CTRL_LST_MASK	GENMASK(25, 16)
+#define XGMAC_LPI_TIMER_CTRL_LST_SHIFT	16
 
 #ifdef EEE_MAC_CONTROLLED_MODE
 #define XGMAC_LPI_1US_Tic_Counter	(MAC_OFFSET + 0x000000dc)
+#define XGMAC_LPI_1US_Tic_Counter_MASK		GENMASK(11, 0)
 #define XGMAC_LPI_Auto_Entry_Timer	(MAC_OFFSET + 0x000000d8)
 #define XGMAC_LPIET			0xFFFF8
 #endif
@@ -214,9 +249,7 @@
 #define XGMAC_HWFEAT_MMCSEL		BIT(8)
 #define XGMAC_HWFEAT_MGKSEL		BIT(7)
 #define XGMAC_HWFEAT_RWKSEL		BIT(6)
-#ifdef TC956X_WITHOUT_MDIO
 #define XGMAC_HWFEAT_SMASEL		BIT(5)
-#endif
 #define XGMAC_HWFEAT_VLHASH		BIT(4)
 #define XGMAC_HWFEAT_GMIISEL		BIT(1)
 #define XGMAC_HW_FEATURE1		(MAC_OFFSET + 0x00000120)
@@ -233,6 +266,7 @@
 #define XGMAC_HWFEAT_RXFIFOSIZE	GENMASK(4, 0)
 #define XGMAC_HW_FEATURE2		(MAC_OFFSET + 0x00000124)
 #define XGMAC_HW_FEATURE2_BASE		(0x00000124)
+#define XGMAC_HWFEAT_AUXSNAPNUM		GENMASK(30, 28)
 #define XGMAC_HWFEAT_PPSOUTNUM		GENMASK(26, 24)
 #define XGMAC_HWFEAT_TXCHCNT		GENMASK(21, 18)
 #define XGMAC_HWFEAT_TXCHCNT_SHIFT	(18)
@@ -272,6 +306,22 @@
 #define XGMAC_VLAN_EN			BIT(16)
 #define TC956X_VLAN_DMACH		BIT(25)	/* DMA CHANNEL = 1*/
 #define XGMAC_DMA_In(x)		(MAC_OFFSET + (0x00000704 + (x) * 0x4))
+#define XGMAC_INDR_ACC_CTRL		(MAC_OFFSET + 0x00000700)
+#define XGMAC_INDR_ACC_CTRL_RSVD	BIT(31)
+#define XGMAC_INDR_ACC_CTRL_MSEL	GENMASK(19, 16)
+#define XGMAC_INDR_ACC_CTRL_MSEL_SHIFT	(16)
+#define XGMAC_INDR_ACC_CTRL_AOFF	GENMASK(15, 8)
+#define XGMAC_INDR_ACC_CTRL_AOFF_SHIFT	(8)
+#define XGMAC_INDR_ACC_CTRL_AUTO	BIT(5)
+#define XGMAC_INDR_ACC_CTRL_COM		BIT(1)
+#define XGMAC_INDR_ACC_CTRL_COM_SHIFT	(1)
+#define XGMAC_INDR_ACC_CTRL_OB		BIT(0)
+#define XGMAC_INDR_ACC_CTRL_OB_SHIFT	(0)
+#define XGMAC_DCHSEL			(0)
+#define XGMAC_INDR_ACC_DATA		(MAC_OFFSET + 0x00000704)
+#define XGMAC_MSEL_DCHSEL		(0)
+#define XGMAC_COM_READ			(1)
+#define XGMAC_COM_WRITE			(0)
 #define XGMAC_ADDR_MAX			32
 #define XGMAC_AE			BIT(31)
 #define XGMAC_AE_SHIFT			31
@@ -375,6 +425,7 @@
 #define XGMAC_MTL_INT_STATUS		(MAC_OFFSET + 0x00001020)
 #define XGMAC_MTL_RXQ_DMA_MAP0		(MAC_OFFSET + 0x00001030)
 #define XGMAC_MTL_RXQ_DMA_MAP1		(MAC_OFFSET + 0x00001034)
+#define XGMAC_QxDDMACH_SHIFT(x)		((x * 8) + 7)
 #define XGMAC_QxMDMACH(x)		GENMASK((x) * 8 + 7, (x) * 8)
 #define XGMAC_QxMDMACH_SHIFT(x)	((x) * 8)
 #define XGMAC_QDDMACH			BIT(7)
@@ -420,6 +471,7 @@
 #define XGMAC_NVE			GENMASK(7, 0)
 #define XGMAC_MTL_RXP_IACC_CTRL_ST	(MAC_OFFSET + 0x000010b0)
 #define XGMAC_STARTBUSY		BIT(31)
+#define XGMAC_ACCSEL		BIT(24)
 #define XGMAC_WRRDN			BIT(16)
 #define XGMAC_ADDR			GENMASK(9, 0)
 #define XGMAC_MTL_RXP_IACC_DATA	(MAC_OFFSET + 0x000010b4)
@@ -443,6 +495,11 @@
 #define XGMAC_TXQEN			GENMASK(3, 2)
 #define XGMAC_TXQEN_SHIFT		2
 #define XGMAC_TSF			BIT(1)
+#define XGMAC_FTQ			BIT(0)
+#define XGMAC_AFSZ_64BYTES	0
+#define XGMAC_RADV			6400
+#define XGMAC_HADV			6400
+
 #define XGMAC_MTL_TXQ_UF_OFFSET(x)	(MAC_OFFSET + (0x00001104 + (0x80 * (x))))
 #define XGMAC_MTL_UFPKTCNT_MASK		GENMASK(10, 0)
 #define XGMAC_MTL_TXQ_UFPKT_CNT(x)	((XGMAC_MTL_TXQ_UF_OFFSET(x)) & XGMAC_MTL_UFPKTCNT_MASK)
@@ -459,9 +516,13 @@
 #define XGMAC_MTL_DEBUG_TCPAUSED	BIT(0)
 #define XGMAC_MTL_TCx_ETS_CONTROL(x)	(MAC_OFFSET + (0x00001110 + (0x80 * (x))))
 #define XGMAC_MTL_TCx_QUANTUM_WEIGHT(x) (MAC_OFFSET + (0x00001118 + (0x80 * (x))))
+#define XGMAC_MTL_TCx_QUANTUM_WEIGHT_ISCQW_MASK	GENMASK(20, 0)
 #define XGMAC_MTL_TCx_SENDSLOPE(x)	(MAC_OFFSET + (0x0000111c + (0x80 * (x))))
+#define XGMAC_MTL_TCx_SENDSLOPE_CRED_SSC_MASK	GENMASK(15, 0)
 #define XGMAC_MTL_TCx_HICREDIT(x)	(MAC_OFFSET + (0x00001120 + (0x80 * (x))))
+#define XGMAC_MTL_TCx_HICREDIT_HC_MASK		GENMASK(28, 0)
 #define XGMAC_MTL_TCx_LOCREDIT(x)	(MAC_OFFSET + (0x00001124 + (0x80 * (x))))
+#define XGMAC_MTL_TCx_LOCREDIT_LC_MASK		GENMASK(28, 0)
 #define XGMAC_CC			BIT(3)
 #define XGMAC_TSA			GENMASK(1, 0)
 #define XGMAC_SP			(0x0 << 0)
@@ -479,7 +540,11 @@
 #define XGMAC_MISPKTCNT_MASK		GENMASK(26, 16)
 #define XGMAC_MISPKTCNT_SHIFT		16
 
+#ifdef TC956X_SRIOV_PF
+#define XGMAC_MTL_RXQ_Debug(x)		(MAC_OFFSET + (0x00001148 + (0x80 * (x))))
+#elif defined TC956X_SRIOV_VF
 #define XGMAC_MTL_RXQ_Debug(x)		(0x00001148 + (0x80 * (x)))
+#endif
 #define XGMAC_MTL_DEBUG_RXQSTS_MASK	GENMASK(5, 4)
 #define XGMAC_MTL_DEBUG_RXQSTS_SHIFT	4
 #define XGMAC_MTL_DEBUG_RXQSTS_EMPTY	0
@@ -611,6 +676,7 @@
 #define XGMAC_RBSZ			GENMASK(14, 1)
 #define XGMAC_RBSZ_SHIFT		1
 #define XGMAC_RXST			BIT(0)
+#define XGMAC_RPF			BIT(31)
 #define XGMAC_DMA_CH_TxDESC_HADDR(x)	(MAC_OFFSET + (0x00003110 + (0x80 * (x))))
 #define XGMAC_DMA_CH_TxDESC_LADDR(x)	(MAC_OFFSET + (0x00003114 + (0x80 * (x))))
 #define XGMAC_DMA_CH_RxDESC_HADDR(x)	(MAC_OFFSET + (0x00003118 + (0x80 * (x))))
@@ -628,17 +694,27 @@
 #define XGMAC_DMA_CH_INT_EN(x)		(MAC_OFFSET + (0x00003138 + (0x80 * (x))))
 #define XGMAC_NIE			BIT(15)
 #define XGMAC_AIE			BIT(14)
+#define XGMAC_FBEE			BIT(12)
+#define XGMAC_RSE			BIT(8)
 #define XGMAC_RBUE			BIT(7)
 #define XGMAC_RIE			BIT(6)
 #define XGMAC_TBUE			BIT(2)
 #define XGMAC_TIE			BIT(0)
+#if defined(TC956X_AUTOMOTIVE_CONFIG) || defined(TC956X_ENABLE_MAC2MAC_BRIDGE) || defined(TC956X_CPE_CONFIG)
 #define XGMAC_DMA_INT_DEFAULT_EN	(XGMAC_NIE | XGMAC_AIE | XGMAC_RBUE | \
 					XGMAC_RIE | XGMAC_TIE)
+#else
+#define XGMAC_DMA_INT_DEFAULT_EN	(XGMAC_NIE | XGMAC_AIE | XGMAC_RBUE | \
+					XGMAC_RIE | XGMAC_TIE | XGMAC_RSE | XGMAC_FBEE)
+#endif
 #define XGMAC_DMA_INT_DEFAULT_RX	(XGMAC_RBUE | XGMAC_RIE)
 #define XGMAC_DMA_INT_DEFAULT_TX	(XGMAC_TIE)
 #define XGMAC_DMA_CH_Rx_WATCHDOG(x)	(MAC_OFFSET + (0x0000313c + (0x80 * (x))))
 #define XGMAC_RWT			GENMASK(7, 0)
 #define XGMAC_DMA_CH_STATUS(x)		(MAC_OFFSET + (0x00003160 + (0x80 * (x))))
+
+#define XGMAC_DMA_CH_DBG_STATUS(x)	(MAC_OFFSET + (0x00003164 + (0x80 * (x))))
+
 #define XGMAC_NIS			BIT(15)
 #define XGMAC_AIS			BIT(14)
 #define XGMAC_FBE			BIT(12)
@@ -647,6 +723,8 @@
 #define XGMAC_TBU			BIT(2)
 #define XGMAC_TPS			BIT(1)
 #define XGMAC_TI			BIT(0)
+#define XGMAC_RPS			BIT(8)
+
 #define XGMAC_DMA_CH_Cur_TxDESC_HADDR(x)	(MAC_OFFSET + (0x00003140 + (0x80 * (x))))
 #define XGMAC_DMA_CH_Cur_TxDESC_LADDR(x)	(MAC_OFFSET + (0x00003144 + (0x80 * (x))))
 #define XGMAC_DMA_CH_Cur_RxDESC_HADDR(x)	(MAC_OFFSET + (0x00003148 + (0x80 * (x))))
@@ -655,6 +733,9 @@
 #define XGMAC_DMA_CH_Cur_TxBuff_LADDR(x)	(MAC_OFFSET + (0x00003154 + (0x80 * (x))))
 #define XGMAC_DMA_CH_Cur_RxBuff_HADDR(x)	(MAC_OFFSET + (0x00003158 + (0x80 * (x))))
 #define XGMAC_DMA_CH_Cur_RxBuff_LADDR(x)	(MAC_OFFSET + (0x0000315c + (0x80 * (x))))
+
+#define XGMAC_DMA_DEBUG_STATUS0			(MAC_OFFSET + 0x3020)
+
 #ifdef TC956X
 #define XGMAC_REGSIZE			(0x000034FC / 4)
 #else
@@ -710,6 +791,10 @@
 #define XGMAC_TDES3_VT			GENMASK(15, 0)
 #define XGMAC_TDES3_FL			GENMASK(14, 0)
 #define XGMAC_RDES2_HL			GENMASK(9, 0)
+#ifdef TC956X_SRIOV_VF
+#define XGMAC_RDES2_TNP			BIT(11)
+#define XGMAC_RDES2_TNP_SHIFT		11
+#endif
 #define XGMAC_RDES3_OWN		BIT(31)
 #define XGMAC_RDES3_CTXT		BIT(30)
 #define XGMAC_RDES3_IOC		BIT(30)
@@ -718,11 +803,18 @@
 #define XGMAC_RDES3_RSV		BIT(26)
 #define XGMAC_RDES3_L34T		GENMASK(23, 20)
 #define XGMAC_RDES3_L34T_SHIFT		20
+#ifdef TC956X_SRIOV_VF
+#define XGMAC_RDES3_ETLT		GENMASK(19, 16)
+#define XGMAC_RDES3_ETLT_SHIFT		16
+#endif
 #define XGMAC_L34T_IP4TCP		0x1
 #define XGMAC_L34T_IP4UDP		0x2
 #define XGMAC_L34T_IP6TCP		0x9
 #define XGMAC_L34T_IP6UDP		0xA
 #define XGMAC_RDES3_ES			BIT(15)
+#ifdef TC956X_SRIOV_VF
+#define XGMAC_RDES3_ES_SHIFT		15
+#endif
 #define XGMAC_RDES3_PL			GENMASK(13, 0)
 #define XGMAC_RDES3_TSD		BIT(6)
 #define XGMAC_RDES3_TSA		BIT(4)
@@ -747,4 +839,55 @@
 		 _prefix##_##_field##_WIDTH)
 #endif
 
+#ifdef TC956X_SRIOV_VF
+#define XGMAC_RDES3_PMT		GENMASK(3, 0)
+
+#define XGMAC_RDES2_AVTDP		BIT(1)
+#define XGMAC_RDES2_AVTCP		BIT(0)
+
+#define XGMAC_L34T_NON_IP	0
+#define XGMAC_L34T_IPV4_TCP	1
+#define XGMAC_L34T_IPV4_UDP	2
+#define XGMAC_L34T_IPV4_ICMP	3
+#define XGMAC_L34T_IPV4_IGMP	4
+#define XGMAC_L34T_IPV4_UNKNOWN	7
+#define XGMAC_L34T_IPV6_TCP	9
+#define XGMAC_L34T_IPV6_UDP	10
+#define XGMAC_L34T_IPV6_ICMP	11
+#define XGMAC_L34T_IPV6_UNKNOWN	15
+
+
+#define XGMAC_ET_WD_TIMEOUT	1
+#define XGMAC_ET_INV_GMII	2
+#define XGMAC_ET_CRC		3
+#define XGMAC_ET_GIANT_PKT	4
+#define XGMAC_ET_IP_HEADER	5
+#define XGMAC_ET_L4_CSUM	6
+#define XGMAC_ET_OVERFLOW	7
+#define XGMAC_ET_BUS		8
+#define XGMAC_ET_LENGTH		9
+#define XGMAC_ET_GOOD_RUNT	10
+#define XGMAC_ET_DRIBBLE	12
+
+#define XGMAC_ET_T_OUTER_IP_HEADER		5
+#define XGMAC_ET_T_OUTER_HEADER_PAYLOAD_L4_CSUM	6
+#define XGMAC_ET_T_INNER_IP_HEADER		9
+#define XGMAC_ET_T_INNER_L4_PAYLOAD		10
+#define XGMAC_ET_T_INV_VXLAN_HEADER		11
+
+#define XGMAC_LT_LENGTH			0
+#define XGMAC_LT_MAC_CONTROL		1
+#define XGMAC_LT_DCB_CONTROL		2
+#define XGMAC_LT_ARP_REQ		3
+#define XGMAC_LT_OAM			4
+#define XGMAC_LT_MAC_RX_ETH_TYPE_MATCH	5
+#define XGMAC_LT_OTH_TYPE		7
+#define XGMAC_LT_SVLAN			8
+#define XGMAC_LT_CVLAN			9
+#define XGMAC_LT_D_CVLAN_CVLAN		10
+#define XGMAC_LT_D_SVLAN_SVLAN		11
+#define XGMAC_LT_D_SVLAN_CVLAN		12
+#define XGMAC_LT_D_CVLAN_SVLAN		13
+#define XGMAC_LT_UNTAG_AV_CONTROL	6
+#endif /* #ifdef TC956X_SRIOV_VF */
 #endif /* __TC956XMAC_DWXGMAC2_H__ */
