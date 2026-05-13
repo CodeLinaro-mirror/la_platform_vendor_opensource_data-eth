@@ -1291,8 +1291,8 @@ static int stmmac_open(struct net_device *dev)
 	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST ) {
 		if(priv->clks_config)
 			priv->clks_config(priv->plat->bsp_priv, true);
-        dev_dbg(priv->device, "%s:Invoke ethqos_client_connect\n", __func__);
-        priv->ethqos_client_connect(priv->plat->bsp_priv);
+		dev_dbg(priv->device, "%s:Invoke ethqos_client_connect\n", __func__);
+		priv->ethqos_client_connect(priv->plat->bsp_priv);
 	}
 
 	dev_info(priv->device, "%s: ret = %d\n", __func__, ret);
@@ -2155,6 +2155,105 @@ read_again:
 	return count;
 }
 
+/**
+ * stmmac_tx_clean_trylock - opportunistic TX cleanup from RX NAPI context
+ * @priv: driver private structure
+ * @budget: max descriptors to clean
+ * @queue: TX queue index
+ *
+ * Attempts a non-blocking TX descriptor cleanup during RX NAPI poll.
+ * Uses __netif_tx_trylock to avoid blocking stmmac_xmit on the TX path.
+ * This helps free TX ring space for DL ACKs during bidirectional traffic,
+ * reducing ACK compression (RFC 3449).
+ */
+static void stmmac_tx_clean_trylock(struct stmmac_priv *priv, int budget,
+				    u32 queue)
+{
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue;
+	struct netdev_queue *ndev_txq;
+	unsigned int bytes_compl = 0, pkts_compl = 0;
+	unsigned int entry, count = 0;
+	int status;
+
+	if (queue != priv->queue)
+		return;
+
+	/* Nothing to clean */
+	if (tx_q->dirty_tx == tx_q->cur_tx)
+		return;
+
+	ndev_txq = netdev_get_tx_queue(priv->dev, queue);
+
+	/* Non-blocking: skip if xmit holds the lock */
+	if (!__netif_tx_trylock(ndev_txq))
+		return;
+
+	entry = tx_q->dirty_tx;
+	while ((entry != tx_q->cur_tx) && (count < budget)) {
+		struct sk_buff *skb = tx_q->tx_skbuff[entry];
+		struct dma_desc *p;
+
+		p = tx_q->dma_tx + entry;
+
+		status = stmmac_tx_status(priv, &priv->dev->stats,
+					  &priv->xstats, p, priv->ioaddr);
+		if (unlikely(status & tx_dma_own))
+			break;
+
+		count++;
+		dma_rmb();
+
+		if (likely(!(status & tx_not_ls))) {
+			if (unlikely(status & tx_err)) {
+				priv->dev->stats.tx_errors++;
+			} else {
+				priv->dev->stats.tx_packets++;
+				priv->xstats.tx_pkt_n++;
+				priv->xstats.q_tx_pkt_n[queue]++;
+			}
+			stmmac_get_tx_hwtstamp(priv, p, skb);
+		}
+
+		if (likely(tx_q->tx_skbuff_dma[entry].buf)) {
+			if (tx_q->tx_skbuff_dma[entry].map_as_page)
+				dma_unmap_page(priv->device,
+					       tx_q->tx_skbuff_dma[entry].buf,
+					       tx_q->tx_skbuff_dma[entry].len,
+					       DMA_TO_DEVICE);
+			else
+				dma_unmap_single(priv->device,
+						 tx_q->tx_skbuff_dma[entry].buf,
+						 tx_q->tx_skbuff_dma[entry].len,
+						 DMA_TO_DEVICE);
+			tx_q->tx_skbuff_dma[entry].buf = 0;
+			tx_q->tx_skbuff_dma[entry].len = 0;
+			tx_q->tx_skbuff_dma[entry].map_as_page = false;
+		}
+
+		tx_q->tx_skbuff_dma[entry].last_segment = false;
+
+		if (likely(skb)) {
+			pkts_compl++;
+			bytes_compl += skb->len;
+			dev_consume_skb_any(skb);
+			tx_q->tx_skbuff[entry] = NULL;
+		}
+
+		stmmac_release_tx_desc(priv, p, priv->mode);
+		entry = STMMAC_GET_ENTRY(entry, DMA_TX_SIZE);
+	}
+	tx_q->dirty_tx = entry;
+
+	if (!priv->tx_coal_timer_disable)
+		netdev_tx_completed_queue(ndev_txq, pkts_compl, bytes_compl);
+
+	if (unlikely(netif_tx_queue_stopped(ndev_txq)) &&
+	    stmmac_tx_avail(priv) > STMMAC_TX_THRESH)
+		netif_tx_wake_queue(ndev_txq);
+
+	__netif_tx_unlock(ndev_txq);
+}
+
 static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 {
 	struct stmmac_channel *ch =
@@ -2165,8 +2264,18 @@ static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 
 	priv->xstats.napi_poll++;
 
+	/* Opportunistic TX cleanup: free TX ring space for DL ACKs.
+	 * Head budget 16 is robust sweet spot across TSQ settings
+	 */
+	stmmac_tx_clean_trylock(priv, STMMAC_TX_TRYLOCK_BUDGET_HEAD, chan);
+
 	trace_stmmac_poll_enter(chan);
 	work_done = stmmac_rx(priv, budget, chan);
+
+	/* Second TX cleanup: free ring space for ACKs queued after DL batch.
+	 * Budget 24 is the experimentally validated sweet spot
+	 */
+	stmmac_tx_clean_trylock(priv, STMMAC_TX_TRYLOCK_BUDGET_TAIL, chan);
 
 	if (work_done < budget && napi_complete_done(napi, work_done)) {
 		trace_stmmac_enable_irq(chan);
@@ -2187,7 +2296,7 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
 
 	priv->xstats.napi_poll++;
 
-	work_done = stmmac_tx_clean(priv, DMA_TX_SIZE, chan);
+	work_done = stmmac_tx_clean(priv, budget, chan);
 	work_done = min(work_done, budget);
 
 	if (work_done < budget)
@@ -2702,6 +2811,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 	if (priv->plat->flags & STMMAC_FLAG_TSO_EN) {
 		ndev->hw_features |= NETIF_F_TSO | NETIF_F_TSO6;
 		ndev->hw_features |= NETIF_F_GSO_UDP_L4;
+		netif_set_tso_max_size(ndev, SZ_32K);
 		priv->tso = true;
 		dev_info(priv->device, "TSO feature enabled\n");
 	}
@@ -2742,8 +2852,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 
 	mutex_init(&priv->lock);
 
-	/* Disable tx_coal_timer if plat provides callback */
-	priv->tx_coal_timer_disable = false;
+	priv->tx_coal_timer_disable = true;
 
 	return ret;
 
