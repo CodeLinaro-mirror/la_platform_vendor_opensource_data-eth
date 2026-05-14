@@ -77,6 +77,22 @@ static bool is_valid_tsn_ch_config(struct channel_info *channel)
 	return false;
 }
 
+static bool is_valid_pppoe_qos_ch_config(struct channel_info *channel)
+{
+	if (!channel->pppoe_qos_enabled)
+		return false;
+
+	if (channel->traffic_type_info == IOSS_TRAFFIC_BE
+		&& channel->channel_num == PPPOE_QOS_CHANNEL_RX_BE)
+		return true;
+
+	if (channel->traffic_type_info == IOSS_TRAFFIC_BE_VID
+		&& channel->channel_num == PPPOE_QOS_CHANNEL_RX_BE_TAGGED)
+		return true;
+
+	return false;
+}
+
 static bool is_valid_qos_ch_config(struct channel_info *channel)
 {
 	if (!channel->qos_enabled)
@@ -96,7 +112,8 @@ static bool valid_ch_config(struct channel_info *channel)
 	return (is_valid_default_ch_config(channel)
 		|| is_valid_easymesh_ch_config(channel)
 		|| is_valid_tsn_ch_config(channel)
-		|| is_valid_qos_ch_config(channel));
+		|| is_valid_qos_ch_config(channel)
+		|| is_valid_pppoe_qos_ch_config(channel));
 }
 
 /* Local SMC buffer is valid only for HW where IO macro space is moved to TZ.
@@ -158,6 +175,36 @@ static int disable_ezmesh_vlan_filtering(struct stmmac_priv *priv)
 						 true);
 	if (ret)
 		netdev_err(priv->dev, "Failed to disable Ezmesh VLAN filtering");
+	return ret;
+}
+
+static int enable_pppoe_qos_vlan_filtering(struct stmmac_priv *priv, u32 vlan_id)
+{
+	int ret = 0;
+
+	/* Packets which don't match the filter will go to default mapped channel (Channel 0) */
+	stmmac_map_mtl_to_dma(priv, priv->hw, PPPOE_QOS_QUEUE_RX_BE_TAGGED,
+			      PPPOE_QOS_CHANNEL_RX_BE);
+
+	/* Enable dynamic dma channel selection for the queue and install exact-match VLAN routing
+	* filter to route all VLAN packets to Channel 2 */
+	stmmac_enable_queue_dynamic_dma_ch_selection(priv, priv->hw, PPPOE_QOS_QUEUE_RX_BE_TAGGED);
+	ret = stmmac_add_hw_vlan_rx_routing_fltr(priv, priv->dev, priv->hw, vlan_id,
+						 PPPOE_QOS_CHANNEL_RX_BE_TAGGED, false);
+	if (ret)
+		netdev_err(priv->dev, "Failed to enable PPPOE QoS VLAN filtering ret=%d", ret);
+	return ret;
+}
+
+static int disable_pppoe_qos_vlan_filtering(struct stmmac_priv *priv, u32 vlan_id)
+{
+	int ret = 0;
+
+	stmmac_disable_queue_dynamic_dma_ch_selection(priv, priv->hw, PPPOE_QOS_QUEUE_RX_BE_TAGGED);
+	ret = stmmac_del_hw_vlan_rx_routing_fltr(priv, priv->dev, priv->hw, vlan_id,
+						 false);
+	if (ret)
+		netdev_err(priv->dev, "Failed to disable PPPOE QoS VLAN filtering");
 	return ret;
 }
 
@@ -735,6 +782,12 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 	if (!strcmp(channel_input->ipa_config_info, "ezmesh"))
 		channel->ezmesh_enabled = true;
 
+	if (!strcmp(channel_input->ipa_config_info, "pppoe_qos")) {
+		channel->pppoe_qos_enabled = true;
+		channel->qos_enabled = true;
+		channel->pppoe_qos_vlan_id = channel_input->pppoe_qos_vlan_id;
+	}
+
 	if (!strcmp(channel_input->ipa_config_info, "tsn"))
 		channel->tsn_enabled = true;
 
@@ -750,6 +803,10 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 			&& (channel->direction == CH_DIR_TX)) {
 		channel->channel_num = TSN_CHANNEL_TX_LL;
 		queue_num = TSN_QUEUE_TX_LL;
+	}
+	else if (channel->pppoe_qos_enabled && channel->traffic_type_info == IOSS_TRAFFIC_BE_VID) {
+		channel->channel_num = PPPOE_QOS_CHANNEL_RX_BE_TAGGED;
+		queue_num = PPPOE_QOS_QUEUE_RX_BE_TAGGED;
 	}
 	else if (channel->qos_enabled) {
 		channel->channel_num = channel_input->channel_num;
@@ -830,6 +887,10 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 		stmmac_map_mtl_to_dma(priv, priv->hw, queue_num, channel->channel_num);
 		if ((queue_num == EASYMESH_QUEUE_RX_TX_BE) && (channel->ezmesh_enabled))
 			enable_ezmesh_vlan_filtering(priv);
+
+		if ((queue_num == PPPOE_QOS_QUEUE_RX_BE) && (channel->pppoe_qos_enabled))
+			enable_pppoe_qos_vlan_filtering(priv, channel->pppoe_qos_vlan_id);
+
 		if ((queue_num == QOS_RX_PCP0_QUEUE) && (channel->qos_enabled) && (priv->unique_filter_new != PCP))
 			stmmac_enable_queue_dynamic_dma_ch_selection(priv, priv->hw, QOS_RX_PCP0_QUEUE);
 	}
@@ -1333,7 +1394,7 @@ int disable_event(struct net_device *ndev, struct channel_info *channel)
 		rgmii_updatel(ethqos, reg, 0, EMAC0_EMAC_INTERRUPT_ENABLE);
 #endif
 	} else if (channel->direction == CH_DIR_RX) {
-		if (channel->ezmesh_enabled)
+		if (channel->ezmesh_enabled || channel->pppoe_qos_enabled)
 		{
 			reg |= (EMAC0_IPA_RX_INTR_EN | EMAC0_IPA_RX2_INTR_EN);
 		}
@@ -1665,6 +1726,8 @@ int stop_channel(struct net_device *ndev, struct channel_info *channel)
 		stmmac_stop_rx(priv, priv->ioaddr, channel->channel_num);
 		if (channel->ezmesh_enabled)
 			disable_ezmesh_vlan_filtering(priv);
+		if (channel->pppoe_qos_enabled)
+			disable_pppoe_qos_vlan_filtering(priv, channel->pppoe_qos_vlan_id);
 		if (channel->channel_num == 0) {
 			stmmac_map_mtl_to_dma(priv, priv->hw, channel->channel_num, sw_chan);
 		} else {

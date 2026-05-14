@@ -68,6 +68,13 @@
 /* QOS Config */
 #define QOS_RX_PCP0_QUEUE	0
 
+/* PPPOE QOS Config */
+#define PPPOE_QOS_QUEUE_RX_BE_TAGGED	IPA_MUL_QUEUE_BE0
+#define PPPOE_QOS_QUEUE_RX_BE	IPA_MUL_QUEUE_BE0
+
+#define PPPOE_QOS_CHANNEL_RX_BE_TAGGED	IPA_MUL_CHANNEL_BE2
+#define PPPOE_QOS_CHANNEL_RX_BE	IPA_MUL_CHANNEL_BE0
+
 enum channel_dir {
 	CH_DIR_RX,
 	CH_DIR_TX,
@@ -135,6 +142,8 @@ struct channel_info {
 	bool ezmesh_enabled;		/* stores ezmesh enabled infomration */
 	bool tsn_enabled;		/* flag to know if tsn feature is enabled or not*/
 	bool qos_enabled;		/* flag to check if qos is enabled*/
+	bool pppoe_qos_enabled;		/* flag to check if PPPOE QOS is enabled*/
+	u32 pppoe_qos_vlan_id;		/* VLAN ID for PPPoE QOS filtering */
 	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
 
 };
@@ -158,6 +167,7 @@ struct request_channel_input {
 	enum ioss_traffic_type traffic_type_info; /* Stores traffic type */
 	phys_addr_t tail_ptr_addr;
 	int channel_num;
+	u32 pppoe_qos_vlan_id;
 };
 
 struct mem_ops {
