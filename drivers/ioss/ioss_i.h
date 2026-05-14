@@ -118,6 +118,7 @@ void ioss_bus_unregister_iface(struct ioss_interface *iface);
 int ioss_net_watch_device(struct ioss_device *idev);
 int ioss_net_unwatch_device(struct ioss_device *idev);
 int ioss_net_link_device(struct ioss_device *idev);
+void ioss_net_apply_channel_config(struct ioss_channel *ch);
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
 int ioss_log_init(void);
