@@ -13,10 +13,6 @@
 
 #define ETHDBG_UIO_VERSION "1.0.0"
 
-static void eth_uio_module_release(struct device *dev)
-{
-}
-
 static void set_map_info(struct ethdbg_device *dev)
 {
 	struct ethdbg_map *map;
