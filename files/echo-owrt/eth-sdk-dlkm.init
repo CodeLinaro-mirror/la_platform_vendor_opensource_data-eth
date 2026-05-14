@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+
+#Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+#SPDX-License-Identifier: BSD-3-Clause-Clear
+
+START=10
+STOP=97
+
+start() {
+	echo "Starting ioss Instance"
+	/etc/initscripts/eth-sdk-dlkm start
+}
+
+stop() {
+	echo "Stopping ioss Instance"
+	/etc/initscripts/eth-sdk-dlkm stop
+}
