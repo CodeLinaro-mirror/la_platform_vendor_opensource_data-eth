@@ -70,7 +70,7 @@ struct ethdbg_hw_block {
  *
  * Contains all captured register data for panic analysis.
  */
-struct ethdbg_panic_data {
+struct ethdbg_dump_data {
 	struct ethdbg_hw_block *blocks;
 	unsigned int num_blocks;
 };
@@ -94,7 +94,7 @@ struct ethdbg_device {
 	struct uio_info uio_info;
 
 	/* Panic structure for data capture */
-	struct ethdbg_panic_data panic_data;
+	struct ethdbg_dump_data dump_data;
 };
 
 /**
@@ -117,8 +117,8 @@ struct ethdbg_interface {
 int ethdbg_uio_add(struct ethdbg_interface *iface);
 void ethdbg_uio_del(struct ethdbg_interface *iface);
 
-int ethdbg_panic_register(struct ethdbg_device *dev, const char *interface_name);
-void ethdbg_panic_unregister(struct ethdbg_device *dev);
+int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name);
+void ethdbg_dump_unregister(struct ethdbg_device *dev);
 int ethdbg_panic_init(void);
 void ethdbg_panic_deinit(void);
 

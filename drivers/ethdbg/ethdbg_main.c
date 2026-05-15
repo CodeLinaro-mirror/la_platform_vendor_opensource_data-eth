@@ -164,9 +164,9 @@ static int register_interface_device(struct ethdbg_interface *iface,
 		return ret;
 
 	/* Register for panic capture */
-	ret = ethdbg_panic_register(dev, iface->interface_name);
+	ret = ethdbg_dump_register(dev, iface->interface_name);
 	if (ret)
-		pr_err("Failed to register panic capture: %d\n", ret);
+		pr_err("Failed to register dump capture: %d\n", ret);
 
 	return 0;
 }
@@ -180,7 +180,7 @@ static void unregister_interface_device(struct ethdbg_interface *iface)
 
 	dev = iface->device;
 	if (dev) {
-		ethdbg_panic_unregister(dev);
+		ethdbg_dump_unregister(dev);
 		ethdbg_uio_del(iface);
 
 		if (dev->net_dev)
