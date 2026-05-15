@@ -19,6 +19,7 @@ ifeq ($(TARGET_DATAETH_ENABLE), true)
             # Add only for sun target
             ifeq ($(TARGET_BOARD_PLATFORM), sun)
                 BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/tc956x_pcie_eth.ko
+		BOARD_VENDOR_KERNEL_MODULES += $(KERNEL_MODULES_OUT)/qca81xx-phy.ko
             endif
         endif
     endif

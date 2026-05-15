@@ -71,4 +71,19 @@ LOCAL_MODULE_KO_DIRS := drivers/qps615/src
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
 ###########################################################
 
+################################ laguna ################################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
+LOCAL_MODULE              := qca81xx-phy.ko
+LOCAL_MODULE_KBUILD_NAME  := qca81xx-phy.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+#Enabling BAZEL
+LOCAL_MODULE_DDK_BUILD    := true
+LOCAL_MODULE_KO_DIRS      := drivers/qca-nss-phy/linux_std/qca81xx
+$(info DEBUG: LOCAL_MODULE_DDK_BUILD set to $(LOCAL_MODULE_DDK_BUILD) for module $(LOCAL_MODULE))
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+########################################################################
+
 endif # DLKM check

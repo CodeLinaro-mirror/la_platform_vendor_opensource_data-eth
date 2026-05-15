@@ -5,6 +5,7 @@ def define_modules(target, variant):
     kernel_build_variant = "{}_{}".format(target, variant)
     include_base = "../../../{}".format(native.package_name())
     qps615_rule = "{}_tc956x_pcie_eth".format(kernel_build_variant)
+    qca_nss_phy_rule = "{}_qca_nss_phy".format(kernel_build_variant)
     r8125_rule = "{}_r8125".format(kernel_build_variant)
 
     mod_list = []
@@ -58,6 +59,25 @@ def define_modules(target, variant):
     )
 
     mod_list.append(":{}".format(qps615_rule))
+
+    ddk_module(
+	name = qca_nss_phy_rule,
+	out = "qca81xx-phy.ko",
+	srcs = [
+	    "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx.c",
+	    "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx_hwmon.c",
+	    "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx_macsec.c",
+	],
+	kernel_build = base_kernel,
+	deps = [":qca_nss_phy_headers"] + header_deps,
+	copts = [
+            "-Werror",
+	    "-Wall",
+            "-Wmissing-prototypes",
+	],
+    )
+
+    mod_list.append(":{}".format(qca_nss_phy_rule))
 
     ddk_module(
         name = r8125_rule,
