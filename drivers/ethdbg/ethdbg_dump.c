@@ -76,22 +76,22 @@ static void ethdbg_capture_hw_block(struct ethdbg_hw_block *block,
 static void ethdbg_capture_interface(struct ethdbg_interface *iface)
 {
 	struct ethdbg_device *dev = iface->device;
-	struct ethdbg_panic_data *panic_data;
+	struct ethdbg_dump_data *dump_data;
 	int regs_captured = 0, regs_skipped = 0;
 
 	if (!dev)
 		return;
 
-	panic_data = &dev->panic_data;
+	dump_data = &dev->dump_data;
 
-	for (int i = 0; i < panic_data->num_blocks; i++) {
-		ethdbg_capture_hw_block(&panic_data->blocks[i], iface->interface_name);
-		regs_captured += panic_data->blocks[i].num_captured;
-		regs_skipped += panic_data->blocks[i].num_skipped;
+	for (int i = 0; i < dump_data->num_blocks; i++) {
+		ethdbg_capture_hw_block(&dump_data->blocks[i], iface->interface_name);
+		regs_captured += dump_data->blocks[i].num_captured;
+		regs_skipped += dump_data->blocks[i].num_skipped;
 	}
 
 		pr_emerg("ETHDBG: [%s] ethdbg_device=0x%px blocks=%u captured regs=%u skipped "
-			 "regs=%u\n", iface->interface_name, dev, panic_data->num_blocks,
+			 "regs=%u\n", iface->interface_name, dev, dump_data->num_blocks,
 			 regs_captured, regs_skipped);
 }
 
@@ -187,10 +187,10 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 	return 0;
 }
 
-static int ethdbg_setup_panic_blocks(struct ethdbg_device *dev,
+static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 				      const char *interface_name)
 {
-	struct ethdbg_panic_data *panic_data = &dev->panic_data;
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
 	struct ethdbg_map *map;
 	const struct ethdbg_hw_desc *hw_desc;
 	int hw_block_idx = 0, ret;
@@ -200,7 +200,7 @@ static int ethdbg_setup_panic_blocks(struct ethdbg_device *dev,
 		if (!hw_desc || !hw_desc->reg_desc || hw_desc->num_reg_desc == 0)
 			continue;
 
-		ret = ethdbg_init_hw_block(&panic_data->blocks[hw_block_idx], map,
+		ret = ethdbg_init_hw_block(&dump_data->blocks[hw_block_idx], map,
 					   hw_desc, interface_name);
 		if (ret == 0)
 			hw_block_idx++;
@@ -209,44 +209,44 @@ static int ethdbg_setup_panic_blocks(struct ethdbg_device *dev,
 	return hw_block_idx;
 }
 
-int ethdbg_panic_register(struct ethdbg_device *dev, const char *interface_name)
+int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name)
 {
-	struct ethdbg_panic_data *panic_data;
+	struct ethdbg_dump_data *dump_data;
 	int block_count;
 
-	memset(&dev->panic_data, 0, sizeof(dev->panic_data));
-	panic_data = &dev->panic_data;
+	memset(&dev->dump_data, 0, sizeof(dev->dump_data));
+	dump_data = &dev->dump_data;
 
 	block_count = ethdbg_count_hw_blocks(dev);
 	if (block_count == 0)
 		return 0;
 
-	panic_data->blocks = kzalloc(block_count * sizeof(struct ethdbg_hw_block),
+	dump_data->blocks = kzalloc(block_count * sizeof(struct ethdbg_hw_block),
 				     GFP_KERNEL);
-	if (!panic_data->blocks)
+	if (!dump_data->blocks)
 		return -ENOMEM;
 
-	panic_data->num_blocks = ethdbg_setup_panic_blocks(dev, interface_name);
+	dump_data->num_blocks = ethdbg_setup_dump_blocks(dev, interface_name);
 	return 0;
 }
 
-void ethdbg_panic_unregister(struct ethdbg_device *dev)
+void ethdbg_dump_unregister(struct ethdbg_device *dev)
 {
-	struct ethdbg_panic_data *panic_data;
+	struct ethdbg_dump_data *dump_data;
 	int i;
 
-	panic_data = &dev->panic_data;
-	if (!panic_data->blocks)
+	dump_data = &dev->dump_data;
+	if (!dump_data->blocks)
 		return;
 
-	for (i = 0; i < panic_data->num_blocks; i++) {
-		iounmap(panic_data->blocks[i].base);
-		kfree(panic_data->blocks[i].reg_list);
+	for (i = 0; i < dump_data->num_blocks; i++) {
+		iounmap(dump_data->blocks[i].base);
+		kfree(dump_data->blocks[i].reg_list);
 	}
 
-	kfree(panic_data->blocks);
-	panic_data->blocks = NULL;
-	panic_data->num_blocks = 0;
+	kfree(dump_data->blocks);
+	dump_data->blocks = NULL;
+	dump_data->num_blocks = 0;
 }
 
 int ethdbg_panic_init(void)
