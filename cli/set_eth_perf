@@ -58,6 +58,7 @@ if [ /sys/class/net/"$1"/device/driver -ef /sys/bus/platform/drivers/qcom-ethqos
 		exit 1
 	fi
 elif [ /sys/class/net/"$1"/device/driver -ef /sys/bus/usb/drivers/r8152 ]; then
+	ethtool -K "$1" rx-udp-gro-forwarding on
 	# Set RPS CPUs setting
 	set_rps_cpus $1
 else
