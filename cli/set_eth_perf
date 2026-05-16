@@ -53,6 +53,7 @@ if [ /sys/class/net/"$1"/device/driver -ef /sys/bus/platform/drivers/qcom-ethqos
 		if ! grep -wq "erss=rss" /proc/cmdline; then
 			set_rps_cpus $1
 		fi
+		ethtool -K "$1" rx-udp-gro-forwarding on
 	else
 		echo "Error: Invalid interface. Only 'eth0' or 'eth1' are allowed."
 		exit 1
