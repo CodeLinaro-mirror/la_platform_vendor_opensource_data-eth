@@ -180,16 +180,8 @@ static void tcm_mem_free(struct ioss_device *idev, size_t size, void *addr, dma_
 			 struct ioss_mem_allocator *alctr)
 {
 	struct device *dev = ioss_idev_to_real(idev);
-	struct iommu_domain *domain = iommu_get_domain_for_dev(dev);
-	size_t map_size;
 
-	map_size = PAGE_ALIGN(size + (daddr & (PAGE_SIZE - 1)));
-
-	size_t unmapped = iommu_unmap(domain, daddr & PAGE_MASK, map_size);
-	if (unmapped != map_size) {
-		ioss_dev_err(idev, "Failed to unmap IOMMU: map_size=%zu, unmapped=%zu",
-			     map_size, unmapped);
-	}
+	dma_unmap_resource(dev, daddr, size, DMA_BIDIRECTIONAL, 0);
 
 	gen_pool_free(ioss_tcm_pool, (unsigned long)addr, size);
 	ioss_dev_cfg(idev, "Freed %zu bytes from TCM", size);
