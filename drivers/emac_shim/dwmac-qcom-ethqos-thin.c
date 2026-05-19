@@ -500,6 +500,14 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 
 	priv->emac_state = EMAC_INIT_ST;
 
+	ret = register_netdev(ndev);
+	dev_info(priv->device, "register_netdev[%s] ret=%d\n", ndev->name, ret);
+	if (ret) {
+		dev_err(priv->device, "%s: ERROR %i registering the device\n",
+				__func__, ret);
+	        goto error_netdev_register;
+	}
+
 	while (count < 10) {
 		if (!emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,
 						    (void *)ethqos))
@@ -517,6 +525,9 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	ETHQOSINFO("End\n");
 	return 0;
 
+error_netdev_register:
+	netif_napi_del(&priv->channel.rx_napi);
+	netif_napi_del(&priv->channel.tx_napi);
 err_reg:
 	destroy_workqueue(ethqos->wq);
 err_smmu:

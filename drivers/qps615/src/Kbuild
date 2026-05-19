@@ -1,0 +1,22 @@
+obj-m := tc956x_pcie_eth.o
+tc956x_pcie_eth-objs := \
+    dwxgmac2_core.o \
+    dwxgmac2_descs.o \
+    dwxgmac2_dma.o \
+    hwif.o \
+    mmc_core.o \
+    tc956x_pci.o \
+    tc956x_pcie_logstat.o \
+    tc956x_pma.o \
+    tc956x_qcom.o \
+    tc956x_xpcs.o \
+    tc956xmac_ethtool.o \
+    tc956xmac_hwtstamp.o \
+    tc956xmac_main.o \
+    tc956xmac_mdio.o \
+    tc956xmac_ptp.o \
+    tc956xmac_tc.o \
+    tc956x_msigen.o \
+    tc956x_pf_mbx.o \
+    tc956x_pf_mbx_wrapper.o \
+    tc956x_pf_rsc_mng.o

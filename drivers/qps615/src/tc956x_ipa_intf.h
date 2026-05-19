@@ -94,7 +94,7 @@ struct rxp_filter_entry {
 	u16 res4;
 };
 
-struct rx_filter_info{
+struct rx_filter_info {
 	u32 nve;	/* Max block entries user want to write */
 	u32 npe;	/* number of parsable entries in the Instruction Table. */
 	struct rxp_filter_entry entries[128];	/* FRP table entries */
@@ -122,8 +122,6 @@ struct channel_info {
 	unsigned int ch_flags;
 
 	struct pci_dev* dma_pdev;	/* pdev that should be used for dma allocation */
-	dma_addr_t dma_map_dbaddr;	/* dma mapped address for ntn3 fw to access the db*/
-
 };
 
 struct request_channel_input {
@@ -261,11 +259,11 @@ int release_channel(struct net_device *ndev, struct channel_info *channel);
  * \remarks :
  *	     If this API is invoked for a channel without calling release_event(),
  *	     then the PCIe address and value for that channel will be overwritten
- * 	     Mask = 2 ^ (CM3_TAMAP_ATR_SIZE + 1) - 1
+ *	     Mask = 2 ^ (CM3_TAMAP_ATR_SIZE + 1) - 1
  *	     TRSL_ADDR = DMA_PCIe_ADDR & ~((2 ^ (ATR_SIZE + 1) - 1) = TRSL_ADDR = DMA_PCIe_ADDR & ~Mask
  *	     CM3 Target Address = DMA_PCIe_ADDR & Mask | SRC_ADDR
  */
-int request_event(struct net_device *ndev, struct channel_info *channel, phys_addr_t db_addr);
+int request_event(struct net_device *ndev, struct channel_info *channel, dma_addr_t addr);
 
 
 /*!

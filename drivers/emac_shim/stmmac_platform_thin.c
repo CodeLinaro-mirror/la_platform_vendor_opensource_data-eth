@@ -237,7 +237,7 @@ stmmac_thin_probe_config_dt(struct platform_device *pdev, u8 *mac, u32 ch)
 		if (PTR_ERR(plat->stmmac_rst) == -EPROBE_DEFER)
 			goto error_hw_init;
 
-		dev_info(&pdev->dev, "no reset control found\n");
+		dev_dbg(&pdev->dev, "no reset control found\n");
 		plat->stmmac_rst = NULL;
 	}
 
@@ -286,36 +286,16 @@ int stmmac_thin_get_platform_resources(struct platform_device *pdev,
 	 * probe if needed before we went too far with resource allocation.
 	 */
 	stmmac_res->tx_irq[0] = platform_get_irq_byname(pdev, "tx_ch0_intr");
-	stmmac_res->tx_irq[1] = platform_get_irq_byname(pdev, "tx_ch1_intr");
-	stmmac_res->tx_irq[2] = platform_get_irq_byname(pdev, "tx_ch2_intr");
-	stmmac_res->tx_irq[3] = platform_get_irq_byname(pdev, "tx_ch3_intr");
-	stmmac_res->tx_irq[4] = platform_get_irq_byname(pdev, "tx_ch4_intr");
-	stmmac_res->tx_irq[5] = platform_get_irq_byname(pdev, "tx_ch5_intr");
-	stmmac_res->tx_irq[6] = platform_get_irq_byname(pdev, "tx_ch6_intr");
-	stmmac_res->tx_irq[7] = platform_get_irq_byname(pdev, "tx_ch7_intr");
 	stmmac_res->rx_irq[0] = platform_get_irq_byname(pdev, "rx_ch0_intr");
-	stmmac_res->rx_irq[1] = platform_get_irq_byname(pdev, "rx_ch1_intr");
-	stmmac_res->rx_irq[2] = platform_get_irq_byname(pdev, "rx_ch2_intr");
-	stmmac_res->rx_irq[3] = platform_get_irq_byname(pdev, "rx_ch3_intr");
-	stmmac_res->rx_irq[4] = platform_get_irq_byname(pdev, "rx_ch4_intr");
-	stmmac_res->rx_irq[5] = platform_get_irq_byname(pdev, "rx_ch5_intr");
-	stmmac_res->rx_irq[6] = platform_get_irq_byname(pdev, "rx_ch6_intr");
-	stmmac_res->rx_irq[7] = platform_get_irq_byname(pdev, "rx_ch7_intr");
 
 	for (i = 0; i < MAX_NUM_CH; i++) {
-		if (stmmac_res->tx_irq[i] < 0) {
-			dev_warn(&pdev->dev,
-				 "tx ch irq [%d] not configured\n", i);
+		if (stmmac_res->tx_irq[i] < 0)
 			stmmac_res->tx_irq[i] = 0;
 		}
-	}
 	for (i = 0; i < MAX_NUM_CH; i++) {
-		if (stmmac_res->rx_irq[i] < 0) {
-			dev_warn(&pdev->dev,
-				 "rx ch irq [%d] not configured\n", i);
+		if (stmmac_res->rx_irq[i] < 0)
 			stmmac_res->rx_irq[i] = 0;
 		}
-	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {

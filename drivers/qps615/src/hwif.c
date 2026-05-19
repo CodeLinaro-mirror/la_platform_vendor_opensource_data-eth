@@ -4,7 +4,7 @@
  * hwif.c
  *
  * Copyright (C) 2018 Synopsys, Inc. and/or its affiliates.
- * Copyright (C) 2021 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2024 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro and Synopsys Linux driver,
  * and developed or modified for TC956X.
@@ -30,14 +30,18 @@
  *
  *  15 Mar 2021 : Base lined
  *  VERSION     : 01-00
+ *  13 Feb 2024 : 1. Merged CPE and Automotive package
+ *  VERSION     : 04-00
  */
 
 #include "common.h"
 #include "tc956xmac.h"
 #include "tc956xmac_ptp.h"
+#ifndef TC956X_SRIOV_VF
 #ifdef TC956X
 #include "tc956x_xpcs.h"
 #include "tc956x_pma.h"
+#endif
 #endif
 
 static u32 tc956xmac_get_id(struct tc956xmac_priv *priv, u32 id_reg)
@@ -117,6 +121,12 @@ static const struct tc956xmac_hwif_entry {
 	const void *tc;
 	const void *mmc;
 	const void *pma;
+#if defined(TC956X_SRIOV_PF) | defined(TC956X_SRIOV_VF)
+	const void *msi;
+	const void *rsc;
+	const void *mbx;
+	const void *mbx_wrapper;
+#endif
 	int (*setup)(struct tc956xmac_priv *priv);
 	int (*quirks)(struct tc956xmac_priv *priv);
 } tc956xmac_hw[] = {
@@ -240,9 +250,11 @@ static const struct tc956xmac_hwif_entry {
 		.regs = {
 			.ptp_off = PTP_XGMAC_OFFSET_BASE,
 			.mmc_off = MMC_XGMAC_OFFSET_BASE,
+#ifndef TC956X_SRIOV_VF
 #ifdef TC956X
 			.xpcs_off = XPCS_XGMAC_OFFSET,
 			.pma_off = PMA_XGMAC_OFFSET,
+#endif
 #endif
 		},
 		.desc = &dwxgmac210_desc_ops,
@@ -252,8 +264,19 @@ static const struct tc956xmac_hwif_entry {
 		.mode = NULL,
 		.tc = &dwmac510_tc_ops,
 		.mmc = &dwxgmac_mmc_ops,
+#ifndef TC956X_SRIOV_VF
 #ifdef TC956X
 		.pma = &tc956x_pma_ops,
+#endif
+#endif
+#if defined(TC956X_SRIOV_PF) | defined(TC956X_SRIOV_VF)
+		.msi = &tc956x_msigen_ops,
+		.rsc = &tc956xmac_rsc_mng_ops,
+#endif
+
+#if (defined(TC956X_SRIOV_PF) && !defined(TC956X_AUTOMOTIVE_CONFIG) && !defined(TC956X_ENABLE_MAC2MAC_BRIDGE) && !defined(TC956X_CPE_CONFIG)) | defined(TC956X_SRIOV_VF)
+		.mbx = &tc956xmac_mbx_ops,
+		.mbx_wrapper = &tc956xmac_mbx_wrapper_ops,
 #endif
 		.setup = dwxgmac2_setup,
 		.quirks = NULL,
@@ -288,9 +311,11 @@ int tc956xmac_hwif_init(struct tc956xmac_priv *priv)
 		(needs_gmac4 ? PTP_GMAC4_OFFSET : PTP_GMAC3_X_OFFSET);
 	priv->mmcaddr = priv->ioaddr +
 		(needs_gmac4 ? MMC_GMAC4_OFFSET : MMC_GMAC3_X_OFFSET);
+#ifndef TC956X_SRIOV_VF
 #ifdef TC956X
 	priv->xpcsaddr = priv->ioaddr + XPCS_XGMAC_OFFSET;
 	priv->pmaaddr = priv->ioaddr + PMA_XGMAC_OFFSET;
+#endif
 #endif
 
 	/* Check for HW specific setup first */
@@ -326,14 +351,23 @@ int tc956xmac_hwif_init(struct tc956xmac_priv *priv)
 		mac->mode = mac->mode ? : entry->mode;
 		mac->tc = mac->tc ? : entry->tc;
 		mac->mmc = mac->mmc ? : entry->mmc;
+#ifndef TC956X_SRIOV_VF
 		mac->pma = mac->pma ? : entry->pma;
-
+#endif
+#if defined(TC956X_SRIOV_PF) | defined(TC956X_SRIOV_VF)
+		mac->msi = mac->msi ? : entry->msi;
+		mac->rsc = mac->rsc ? : entry->rsc;
+		mac->mbx = mac->mbx ? : entry->mbx;
+		mac->mbx_wrapper = mac->mbx_wrapper ? : entry->mbx_wrapper;
+#endif
 		priv->hw = mac;
 		priv->ptpaddr = priv->ioaddr + mac_offset_base + entry->regs.ptp_off;
 		priv->mmcaddr = priv->ioaddr + mac_offset_base + entry->regs.mmc_off;
+#ifndef TC956X_SRIOV_VF
 #ifdef TC956X
 		priv->xpcsaddr = priv->ioaddr + mac_offset_base + entry->regs.xpcs_off;
 		priv->pmaaddr = priv->ioaddr + mac_offset_base + entry->regs.pma_off;
+#endif
 #endif
 		/* Entry found */
 		if (needs_setup) {

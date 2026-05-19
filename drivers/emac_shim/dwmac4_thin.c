@@ -361,7 +361,7 @@ static void dwmac4_dma_stop_tx(void __iomem *ioaddr, u32 chan)
 static void dwmac4_dma_start_rx(void __iomem *ioaddr, u32 chan)
 {
 	u32 value = readl_relaxed(ioaddr + DMA_CHAN_RX_CONTROL(chan));
-
+	value &= ~DMA_CONTROL_RPF;
 	value |= DMA_CONTROL_SR;
 
 	writel_relaxed(value, ioaddr + DMA_CHAN_RX_CONTROL(chan));
@@ -370,7 +370,7 @@ static void dwmac4_dma_start_rx(void __iomem *ioaddr, u32 chan)
 static void dwmac4_dma_stop_rx(void __iomem *ioaddr, u32 chan)
 {
 	u32 value = readl_relaxed(ioaddr + DMA_CHAN_RX_CONTROL(chan));
-
+	value |= DMA_CONTROL_RPF;
 	value &= ~DMA_CONTROL_SR;
 	writel_relaxed(value, ioaddr + DMA_CHAN_RX_CONTROL(chan));
 }

@@ -11,11 +11,14 @@ LOCAL_PATH := $(call my-dir)
 LOCAL_MODULE_DDK_BUILD := true
 DATAETH_SELECT := CONFIG_DATAETH=m
 DATAETH_SELECT += CONFIG_EMAC_SHIM=m
+DATAETH_SELECT += CONFIG_EMAC_SHIM_GY=m
 DATAETH_SELECT += CONFIG_EMAC_CTRL_FE=m
 
 LOCAL_MODULE_DDK_BUILD := true
 LOCAL_MODULE_DDK_ALLOW_UNSAFE_HEADERS := true
-LOCAL_MODULE_KO_DIRS := emac_thin.ko
+LOCAL_MODULE_KO_DIRS := stmmac_thin_core.ko
+LOCAL_MODULE_KO_DIRS += emac_thin.ko
+LOCAL_MODULE_KO_DIRS += emac_thin_gy.ko
 LOCAL_MODULE_KO_DIRS += emac_ctrl_fe_virtio.ko
 
 # This makefile is only for DLKM
@@ -59,11 +62,39 @@ KBUILD_OPTIONS += $(DATAETH_SELECT)
 KBUILD_OPTIONS += ENABLE_DDK_BUILD=true
 include $(DLKM_DIR)/Build_external_kernelmodule.mk
 
-################################ emac_shim ################################
+########################## stmmac_thin_core (common code) ############################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
+LOCAL_MODULE              := stmmac_thin_core.ko
+LOCAL_MODULE_KBUILD_NAME  := stmmac_thin_core.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+TARGET_KERNEL_DLKM_OVERRIDE += $(LOCAL_MODULE)
+KBUILD_OPTIONS += DATAETH_ROOT=$(DATAETH_BLD_DIR)
+KBUILD_OPTIONS += $(DATAETH_SELECT)
+KBUILD_OPTIONS += ENABLE_DDK_BUILD=true
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+
+################################ emac_thin for HQX ################################
 include $(CLEAR_VARS)
 LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
 LOCAL_MODULE              := emac_thin.ko
 LOCAL_MODULE_KBUILD_NAME  := emac_thin.ko
+LOCAL_MODULE_TAGS         := optional
+LOCAL_MODULE_DEBUG_ENABLE := true
+LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)
+TARGET_KERNEL_DLKM_OVERRIDE += $(LOCAL_MODULE)
+KBUILD_OPTIONS += DATAETH_ROOT=$(DATAETH_BLD_DIR)
+KBUILD_OPTIONS += $(DATAETH_SELECT)
+KBUILD_OPTIONS += ENABLE_DDK_BUILD=true
+include $(DLKM_DIR)/Build_external_kernelmodule.mk
+
+################################ emac_thin_gy for HGY ################################
+include $(CLEAR_VARS)
+LOCAL_SRC_FILES           := $(DATAETH_SRC_FILES)
+LOCAL_MODULE              := emac_thin_gy.ko
+LOCAL_MODULE_KBUILD_NAME  := emac_thin_gy.ko
 LOCAL_MODULE_TAGS         := optional
 LOCAL_MODULE_DEBUG_ENABLE := true
 LOCAL_MODULE_PATH         := $(KERNEL_MODULES_OUT)

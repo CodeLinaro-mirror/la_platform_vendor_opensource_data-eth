@@ -107,11 +107,14 @@ struct stmmac_priv {
 	unsigned int rx_copybreak;
 	u32 rx_riwt;
 	int hwts_rx_en;
+	bool is_gy_en;
 
 	void __iomem *ioaddr;
 	struct net_device *dev;
 	struct device *device;
 	struct mac_device_info *hw;
+	int (*ethqos_client_connect)(void *prv);
+	int (*clks_config)(void *priv, bool high);
 	int (*hwif_quirks)(struct stmmac_priv *priv);
 	int (*add_filter)(struct net_device *ndev);
 	int (*del_filter)(struct net_device *ndev);
