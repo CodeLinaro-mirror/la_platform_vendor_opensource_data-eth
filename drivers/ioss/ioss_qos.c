@@ -2148,10 +2148,16 @@ void ioss_qos_remove_sysfs(struct device *dev)
 {
         struct ioss_device *idev = to_ioss_device(dev);
 
-	kobject_del(idev->qos_tc_params_kobj);
-	kobject_put(idev->qos_tc_params_kobj);
-	kobject_del(idev->qos_kobj);
-	kobject_put(idev->qos_kobj);
+	if (idev->qos_tc_params_kobj) {
+		kobject_del(idev->qos_tc_params_kobj);
+		kobject_put(idev->qos_tc_params_kobj);
+		idev->qos_tc_params_kobj = NULL;
+	}
+	if (idev->qos_kobj) {
+		kobject_del(idev->qos_kobj);
+		kobject_put(idev->qos_kobj);
+		idev->qos_kobj = NULL;
+	}
 }
 
 int ioss_qos_add_idev(struct ioss_device *idev)
