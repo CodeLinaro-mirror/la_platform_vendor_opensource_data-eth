@@ -7705,7 +7705,7 @@ static int tc956xmac_open(struct net_device *dev)
 				pwol_dev_name = priv->int_name_wol;
 				snprintf(pwol_dev_name, sizeof(priv->int_name_wol), "%s_wol", dev->name);
 				ret = request_irq(priv->wol_irq, tc956xmac_wol_interrupt,
-						  IRQF_NO_SUSPEND, pwol_dev_name, dev);
+						  0, pwol_dev_name, dev);
 				if (unlikely(ret < 0)) {
 					netdev_err(priv->dev,
 						   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
