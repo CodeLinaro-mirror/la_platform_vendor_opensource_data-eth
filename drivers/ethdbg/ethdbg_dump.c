@@ -9,6 +9,8 @@
 #include <linux/netdevice.h>
 #include "ethdbg.h"
 #include "ethdbg_regs.h"
+#include <linux/of.h>
+#include <linux/of_address.h>
 
 #define REG_SIZE 4
 
@@ -20,14 +22,25 @@ static struct notifier_block ethdbg_panic_nb = {
 	.priority = INT_MAX,
 };
 
-static const struct ethdbg_hw_desc *ethdbg_find_hw_desc(const char *name)
+static const struct ethdbg_hw_desc *ethdbg_find_hw_desc(struct ethdbg_device * dbgdev , const char *name)
 {
 	int i;
+        struct device *parent_dev = dbgdev->net_dev->dev.parent;
 
-	for (i = 0; echo_hw_descs[i].name != NULL; i++) {
-		if (strcmp(echo_hw_descs[i].name, name) == 0)
-			return &echo_hw_descs[i];
-	}
+	if (parent_dev){
+		if(of_device_is_compatible(parent_dev->of_node, "qcom,stmmac-ethqos")) {
+			for (i = 0; kova_hw_descs[i].name != NULL; i++) {
+				if (strcmp(kova_hw_descs[i].name, name) == 0)
+				return &kova_hw_descs[i];
+			}
+		}
+		else if(of_device_is_compatible(parent_dev->of_node, "qcom,echo-ethqos")){
+			for (i = 0; echo_hw_descs[i].name != NULL; i++) {
+				if (strcmp(echo_hw_descs[i].name, name) == 0)
+				return &echo_hw_descs[i];
+			}
+		}
+        }
 	return NULL;
 }
 
@@ -64,12 +77,12 @@ static void ethdbg_capture_regs(struct ethdbg_hw_block *block,
 	}
 }
 
-static void ethdbg_capture_hw_block(struct ethdbg_hw_block *block,
+static void ethdbg_capture_hw_block(struct ethdbg_device *dev,struct ethdbg_hw_block *block,
 				    const char *interface_name)
 {
 	const struct ethdbg_hw_desc *hw_desc;
 
-	hw_desc = ethdbg_find_hw_desc(block->map->name);
+	hw_desc = ethdbg_find_hw_desc(dev,block->map->name);
 	ethdbg_capture_regs(block, hw_desc, interface_name);
 }
 
@@ -85,7 +98,7 @@ static void ethdbg_capture_interface(struct ethdbg_interface *iface)
 	dump_data = &dev->dump_data;
 
 	for (int i = 0; i < dump_data->num_blocks; i++) {
-		ethdbg_capture_hw_block(&dump_data->blocks[i], iface->interface_name);
+		ethdbg_capture_hw_block(dev,&dump_data->blocks[i], iface->interface_name);
 		regs_captured += dump_data->blocks[i].num_captured;
 		regs_skipped += dump_data->blocks[i].num_skipped;
 	}
@@ -113,7 +126,7 @@ static int ethdbg_count_hw_blocks(struct ethdbg_device *dev)
 	int count = 0;
 
 	list_for_each_entry(map, &dev->map_regions, list) {
-		const struct ethdbg_hw_desc *hw_desc = ethdbg_find_hw_desc(map->name);
+		const struct ethdbg_hw_desc *hw_desc = ethdbg_find_hw_desc(dev, map->name);
 		if (hw_desc && hw_desc->reg_desc && hw_desc->num_reg_desc > 0)
 			count++;
 	}
@@ -196,7 +209,7 @@ static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 	int hw_block_idx = 0, ret;
 
 	list_for_each_entry(map, &dev->map_regions, list) {
-		hw_desc = ethdbg_find_hw_desc(map->name);
+		hw_desc = ethdbg_find_hw_desc(dev, map->name);
 		if (!hw_desc || !hw_desc->reg_desc || hw_desc->num_reg_desc == 0)
 			continue;
 

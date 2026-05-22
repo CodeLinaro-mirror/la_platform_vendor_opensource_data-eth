@@ -36,5 +36,6 @@ struct ethdbg_hw_desc {
 };
 
 #include "ethdbg_regs_echo.h"
+#include "ethdbg_regs_kova.h"
 
 #endif /* _ETHDBG_REGS_H_ */
