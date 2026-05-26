@@ -252,7 +252,8 @@ err:
 		}
 	}
 
-	kvfree_sensitive(iface->ioss_priv,ksize(iface->ioss_priv));
+	kvfree_sensitive(iface->ioss_priv, ksize(iface->ioss_priv));
+	iface->ioss_priv = NULL;
 
 	return -EINVAL;
 }
