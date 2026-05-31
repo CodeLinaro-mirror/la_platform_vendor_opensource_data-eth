@@ -1,5 +1,6 @@
-# Android makefile for Data ETH modules
+ifneq ($(TARGET_DISABLE_DATA_ETH_DLKM),true)
 
+# Android makefile for Data ETH modules
 LOCAL_PATH := $(call my-dir)
 
 ifneq ($(call is-board-platform-in-list, gen5), true)
@@ -15,6 +16,10 @@ DATAETH_SELECT += CONFIG_EMAC_SHIM=m
 DATAETH_SELECT += CONFIG_EMAC_SHIM_GY=m
 endif
 ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm_gy_sgt)
+DATAETH_SELECT += CONFIG_EMAC_SHIM=m
+DATAETH_SELECT += CONFIG_EMAC_SHIM_GY=m
+endif
+ifeq ($(TARGET_BOARD_PLATFORM)$(TARGET_BOARD_SUFFIX)$(TARGET_BOARD_DERIVATIVE_SUFFIX), gen4_gvm_gy_qmaa)
 DATAETH_SELECT += CONFIG_EMAC_SHIM=m
 DATAETH_SELECT += CONFIG_EMAC_SHIM_GY=m
 endif
@@ -102,3 +107,4 @@ endif # DLKM check
 endif # supported target check
 endif # Product Type Check
 endif # Nord check
+endif
