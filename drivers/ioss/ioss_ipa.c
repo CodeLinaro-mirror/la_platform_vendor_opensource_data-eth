@@ -23,7 +23,6 @@ static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type
 	static const enum ipa_eth_pipe_traffic_type ipa_map[IOSS_TRAFFIC_TYPE_MAX] = {
 		[IOSS_TRAFFIC_BE] = IPA_ETH_PIPE_BEST_EFFORT,
 		[IOSS_TRAFFIC_BE_TAGGED] = IPA_ETH_PIPE_BEST_EFFORT_VLAN,
-		[IOSS_TRAFFIC_QOS]	=	IPA_ETH_PIPE_TRAFFIC_TYPE_QOS,
 		[IOSS_TRAFFIC_LL] = IPA_ETH_PIPE_LOW_LATENCY,
 	};
 
@@ -36,7 +35,6 @@ static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa
 		[IPA_ETH_PIPE_BEST_EFFORT] = IOSS_TRAFFIC_BE,
 		[IPA_ETH_PIPE_LOW_LATENCY] = IOSS_TRAFFIC_LL,
 		[IPA_ETH_PIPE_BEST_EFFORT_VLAN] = IOSS_TRAFFIC_BE_TAGGED,
-		[IPA_ETH_PIPE_TRAFFIC_TYPE_QOS]	=	IOSS_TRAFFIC_QOS,
 	};
 
 	return ioss_map[ipa_type];
@@ -89,7 +87,6 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 
 	pi->dir = to_ipa_dir(ch->direction);
 	pi->traffic_type = to_ipa_traffic_type(ch->traffic_type);
-	pi->tc_bmap = ch->tc_mapping;
 
 	desc_mem = list_first_entry_or_null(
 			&ch->desc_mem, typeof(*desc_mem), node);
@@ -360,11 +357,6 @@ static bool validate_channel(struct ioss_channel *ch,
 	if (ch->direction != dir)
 		return false;
 
-	if (traffic == IOSS_TRAFFIC_QOS) {
-		ch->traffic_type = IOSS_TRAFFIC_QOS;
-		return true;
-	}
-
 	if (ch->traffic_type != traffic)
 		return false;
 
@@ -444,8 +436,6 @@ int ioss_ipa_validate_channels(struct ioss_interface *iface)
 	ioss_ipa_invalidate_channels(iface);
 
 	required_channels = ipa_config->num_dma_channel;
-	if (!strcmp(ipa_config->config, "qos"))
-		required_channels = 2;
 
 	return ioss_ipa_validate_one_channel(
 			iface, ipa_config->dma_config, required_channels);
@@ -456,8 +446,8 @@ void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
 	struct ioss_channel *ch, *tmp_ch;
 
 	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
-		ioss_dev_log(ioss_iface_dev(iface), "Ch : %d, id : %d, dir : %d, traffic : %d, tc_mapping : %d",
-			     ch->channel_num, ch->id, ch->direction, ch->traffic_type, ch->tc_mapping);
+		ioss_dev_log(ioss_iface_dev(iface), "Ch : %d, id : %d, dir : %d, traffic : %d",
+			     ch->channel_num, ch->id, ch->direction, ch->traffic_type);
 		list_move(&ch->node, &iface->invalid_channels);
 	}
 }

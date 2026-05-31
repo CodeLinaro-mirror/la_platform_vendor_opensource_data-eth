@@ -26,7 +26,6 @@ MODULE_PARM_DESC(log_pages, "Number of IPC log pages");
 
 static void *ioss_ipclog_buf_norm;
 static void *ioss_ipclog_buf_prio;
-static void *ioss_qos_ipclog_buf;
 
 void *ioss_get_ipclog_buf_norm(void)
 {
@@ -46,15 +45,8 @@ void *ioss_get_ipclog_buf_prio(void)
 }
 EXPORT_SYMBOL(ioss_get_ipclog_buf_prio);
 
-void *ioss_qos_get_ipclog_buf(void)
-{
-	return ioss_qos_ipclog_buf;
-}
-EXPORT_SYMBOL(ioss_qos_get_ipclog_buf);
-
 #define IOSS_IPCLOG_NAME IOSS_SUBSYS
 #define IOSS_IPCLOG_PRIO_NAME (IOSS_SUBSYS "_prio")
-#define IOSS_QOS_IPCLOG_NAME IOSS_QOS_SUBSYS
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
 int ioss_log_init(void)
@@ -80,13 +72,6 @@ int ioss_log_init(void)
 		return -EFAULT;
 	}
 
-	ioss_qos_ipclog_buf =
-		ipc_log_context_create(log_pages, IOSS_QOS_IPCLOG_NAME, 0);
-	if (!ioss_qos_ipclog_buf) {
-		pr_err("IOSS QOS: Failed to create IPC log context\n");
-		return -EFAULT;
-	}
-
 	ioss_log_cfg(NULL,
 		"IOSS version 0x%lx, API version %lu", ioss_ver, ioss_api_ver);
 
@@ -103,11 +88,6 @@ void ioss_log_deinit(void)
 	if (ioss_ipclog_buf_prio) {
 		ipc_log_context_destroy(ioss_ipclog_buf_prio);
 		ioss_ipclog_buf_prio = NULL;
-	}
-
-	if (ioss_qos_ipclog_buf) {
-		ipc_log_context_destroy(ioss_qos_ipclog_buf);
-		ioss_qos_ipclog_buf = NULL;
 	}
 }
 #endif
@@ -179,7 +159,6 @@ static const char * const traffic_type_map[IOSS_TRAFFIC_TYPE_MAX] = {
 	[IOSS_TRAFFIC_BE] = "best-effort",
 	[IOSS_TRAFFIC_BE_TAGGED] = "best-effort-tagged",
 	[IOSS_TRAFFIC_LL] = "low-latency",
-	[IOSS_TRAFFIC_QOS] = "qos",
 };
 
 const char *ioss_traffic_name(enum ioss_traffic_type t)

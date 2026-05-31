@@ -142,13 +142,5 @@ void ioss_sysfs_remove_idev(struct ioss_device* idev);
 int ioss_sysfs_add_channel(struct ioss_channel* ch);
 void ioss_sysfs_remove_channel(struct ioss_channel* ch);
 
-int ioss_qos_reconfigure(struct ioss_device *idev);
-int ioss_qos_enable(struct ioss_device *idev);
-void ioss_qos_clear_cache(struct ioss_device *idev);
-void ioss_qos_refresh(struct ioss_device *idev);
-void ioss_qos_remove_channels(struct ioss_interface *iface);
-void ioss_qos_init(struct ioss_device *idev);
-int ioss_qos_add_idev(struct ioss_device *idev);
-void ioss_qos_remove_idev(struct ioss_device *idev);
 
 #endif /* _IOSS_I_H_ */

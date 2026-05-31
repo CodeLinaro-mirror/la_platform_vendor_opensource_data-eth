@@ -112,7 +112,6 @@ static ssize_t show_suspend_ipa_offload(struct device *dev,
 static ssize_t store_suspend_ipa_offload(struct device *dev,
 		struct device_attribute *attr, const char *user_buf, size_t size)
 {
-	int ret = 0;
 	struct net_device *net_dev = NULL;
 	struct ioss_interface *iface = NULL;
 	struct ioss_device *idev = NULL;
@@ -138,19 +137,7 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 
 	idev->dev.offline = input;
 
-	if (!input && idev->qos_enabled) {
-		ret = ioss_qos_reconfigure(idev);
-		if (ret)
-			ioss_dev_err(idev, "ioss_qos_reconfigure failed on resume");
-	}
-
 	ioss_iface_queue_refresh(iface, true);
-
-	if (!input && idev->qos_enabled) {
-		ret = ioss_qos_enable(idev);
-		if (ret)
-			ioss_dev_err(idev, "enable_qos failed on resume");
-	}
 
 	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
@@ -270,12 +257,6 @@ static int ioss_bus_probe(struct device *dev)
 		goto err_create_sysfs;
 	}
 
-	rc = ioss_qos_add_idev(idev);
-	if (rc) {
-		ioss_dev_err(idev, "QoS add failed");
-		goto err_qos_add;
-	}
-
 	if (iface->auto_resume_disabled) {
 		ioss_dev_cfg(idev, "creating dev char device for auto platform\n");
 
@@ -327,8 +308,6 @@ emac_ipa_cdev_add_fail:
 fail_alloc_emac_ipa_cdev:
 	unregister_chrdev_region(emac_ipa_dev_num, 1);
 err_chrdev:
-	ioss_qos_remove_idev(idev);
-err_qos_add:
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
@@ -354,8 +333,6 @@ static void ioss_bus_remove(struct device *dev)
 	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "De-initializing device");
-
-	ioss_qos_remove_idev(idev);
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
@@ -608,8 +585,6 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	idev->dev.parent = dev;
 	idev->dev.bus = &ioss_bus;
 	idev->dev.type = &ioss_idev_type;
-
-	ioss_qos_init(idev);
 
 	mutex_init(&idev->refresh_lock);
 
