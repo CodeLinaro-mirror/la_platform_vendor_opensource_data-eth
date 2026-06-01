@@ -142,12 +142,6 @@ static ssize_t store_suspend_ipa_offload(struct device *dev,
 
 	ioss_iface_queue_refresh(iface, true);
 
-	if (!input && idev->qos_enabled) {
-		ret = ioss_qos_enable(idev);
-		if (ret)
-			ioss_dev_err(idev, "enable_qos failed on resume");
-	}
-
 	ioss_dev_log(idev, "Device Offline set to %d", idev->dev.offline);
 
 	return size;
