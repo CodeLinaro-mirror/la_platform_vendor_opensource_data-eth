@@ -153,6 +153,7 @@ enum ioss_traffic_type {
 	IOSS_TRAFFIC_BE_TAGGED, /* Best Effort VLAN tagged */
 	IOSS_TRAFFIC_LL, /* Low Latency */
 	IOSS_TRAFFIC_QOS, /* Quality of Service */
+	IOSS_TRAFFIC_BE_VID, /* PPPOE QOS VID */
 	IOSS_TRAFFIC_TYPE_MAX
 };
 
@@ -346,6 +347,7 @@ struct ioss_channel {
 
 	int channel_num;
 	u32 tc_mapping;
+	u32 pppoe_qos_vlan_id;
 };
 
 struct ioss_device {

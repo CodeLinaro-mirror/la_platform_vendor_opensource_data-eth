@@ -117,6 +117,8 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 	if (!!of_find_property(np, "qcom,rx-filter-ip", NULL))
 		ch->filter_types |= IOSS_RXF_F_IP;
 
+	of_property_read_u32(np, "qcom,pppoe-qos-vlan-id", &ch->pppoe_qos_vlan_id);
+
 	if (ioss_of_parse_traffic_type(idev, np, ch))
 		goto err;
 
