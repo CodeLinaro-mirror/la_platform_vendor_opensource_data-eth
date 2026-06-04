@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 # SPDX-License-Identifier: BSD-3-Clause-Clear
 
@@ -9,7 +9,7 @@ EINVAL=1
 
 add_flow() {
 	local handle=""
-	if [[ "$1" == "-h" ]]; then
+	if [ "$1" = "-h" ]; then
 		shift
 		handle="$1"
 		shift
@@ -22,47 +22,65 @@ add_flow() {
 	local src=""
 	local dst=""
 
-	while [[ $# -gt 0 ]]; do
+	while [ $# -gt 0 ]; do
 		case "$1" in
 			"--smac")
 				shift
-				while [[ $# -gt 0 && "$1" != "-"* ]]; do
-					smac+=" $1"
+				while [ $# -gt 0 ]; do
+					case "$1" in
+						-*) break ;;
+					esac
+					smac="$smac $1"
 					shift
 				done
 				;;
 			"--dmac")
 				shift
-				while [[ $# -gt 0 && "$1" != "-"* ]]; do
-					dmac+=" $1"
+				while [ $# -gt 0 ]; do
+					case "$1" in
+						-*) break ;;
+					esac
+					dmac="$dmac $1"
 					shift
 				done
 				;;
 			"--vlan")
 				shift
-				while [[ $# -gt 0 && "$1" != "-"* ]]; do
-					vlan+=" $1"
+				while [ $# -gt 0 ]; do
+					case "$1" in
+						-*) break ;;
+					esac
+					vlan="$vlan $1"
 					shift
 				done
 				;;
 			"--pcp")
 				shift
-				while [[ $# -gt 0 && "$1" != "-"* ]]; do
-					pcp+=" $1"
+				while [ $# -gt 0 ]; do
+					case "$1" in
+						-*) break ;;
+					esac
+					pcp="$pcp $1"
 					shift
 				done
 				;;
 			"--src")
 				shift
-				while [[ $# -gt 0 && "$1" != "-"* ]]; do
-					src+=" $1"
+				while [ $# -gt 0 ]; do
+					case "$1" in
+						-*) break ;;
+					esac
+					src="$src $1"
 					shift
 				done
 				;;
 			"--dst")
 				shift
-				while [[ $# -gt 0 && "$1" != "-"* ]]; do
-					dst+=" $1"
+				while [ $# -gt 0 ]; do
+					case "$1" in
+						-*) break ;;
+					esac
+					dst="$dst $1"
 					shift
 				done
 				;;
@@ -77,13 +95,12 @@ add_flow() {
 		esac
 	done
 
-	# Remove leading spaces
-	smac="${smac:1}"
-	dmac="${dmac:1}"
-	vlan="${vlan:1}"
-	pcp="${pcp:1}"
-	src="${src:1}"
-	dst="${dst:1}"
+	smac="${smac# }"
+	dmac="${dmac# }"
+	vlan="${vlan# }"
+	pcp="${pcp# }"
+	src="${src# }"
+	dst="${dst# }"
 
 	if [ -z "$smac" ] && [ -z "$dmac" ] && [ -z "$vlan" ] && \
 		[ -z "$pcp" ] && [ -z "$src" ] && [ -z "$dst" ];
@@ -128,7 +145,7 @@ add_flow() {
 }
 
 add_tc () {
-	if [[ $# -lt 5 ]];
+	if [ $# -lt 5 ];
 	then
 		print_usage
 		return $EINVAL
@@ -146,7 +163,7 @@ add_tc () {
 	local bw=""
 	local tx_handle=""
 
-	if [[ "$1" == "--action" ]]; then
+	if [ "$1" = "--action" ]; then
 		shift
 		action="$1"
 		shift
@@ -161,9 +178,9 @@ add_tc () {
 		echo "$dir" "$action" > /sys/class/net/"$dev"/qos/add_tc_params/action
 	fi
 
-	if [[ "$dir" == "rx" ]]; then
-		if [[ "$1" == "-h" ]]; then
-			while [[ $# -gt 0 ]]; do
+	if [ "$dir" = "rx" ]; then
+		if [ "$1" = "-h" ]; then
+			while [ $# -gt 0 ]; do
 				case "$1" in
 					"-h")
 						add_flow "$@"
@@ -179,8 +196,8 @@ add_tc () {
 		fi
 	fi
 
-	if [[ "$dir" == "tx" ]]; then
-		while [[ $# -gt 0 ]]; do
+	if [ "$dir" = "tx" ]; then
+		while [ $# -gt 0 ]; do
 			case "$1" in
 				"--bw")
 					shift
@@ -188,7 +205,7 @@ add_tc () {
 					shift
 					;;
 				"-h")
-					if [[ -z "$tx_handle" ]]; then
+					if [ -z "$tx_handle" ]; then
 						shift
 						tx_handle="$1"
 						shift
@@ -199,8 +216,11 @@ add_tc () {
 					;;
 				"--pcp")
 					shift
-					while [[ $# -gt 0 && "$1" != "--"* && "$1" != "-"* ]]; do
-						pcp+=" $1"
+					while [ $# -gt 0 ]; do
+						case "$1" in
+							--*|-*) break ;;
+						esac
+						pcp="$pcp $1"
 						shift
 					done
 					;;
@@ -210,6 +230,7 @@ add_tc () {
 					;;
 			esac
 		done
+		pcp="${pcp# }"
 		if [ -n "$bw" ]; then
 			echo "$bw" > /sys/class/net/"$dev"/qos/add_tc_params/bw
 		fi
@@ -225,7 +246,7 @@ add_tc () {
 }
 
 del_tc () {
-	if [[ $# -lt 3 ]];
+	if [ $# -lt 3 ];
 	then
 		print_usage
 		return $EINVAL
@@ -238,7 +259,7 @@ del_tc () {
 	local tc="$1"
 	shift
 
-	if [[ $# -gt 0 ]];
+	if [ $# -gt 0 ];
 	then
 		echo "Unexpected extra arguments"
 		print_usage
@@ -249,7 +270,7 @@ del_tc () {
 }
 
 clear_table () {
-	if [[ $# -lt 1 ]];
+	if [ $# -lt 1 ];
 	then
 		print_usage
 		return $EINVAL
@@ -259,11 +280,11 @@ clear_table () {
 	shift
 	local cmd="clear"
 
-	while [[ $# -gt 0 ]]; do
+	while [ $# -gt 0 ]; do
 		case "$1" in
 			"--pending")
 				shift
-				cmd+="-pending"
+				cmd="${cmd}-pending"
 				;;
 			"--"*|*)
 				echo "Unknown option $1"
@@ -277,7 +298,7 @@ clear_table () {
 }
 
 show () {
-	if [[ $# -lt 1 ]];
+	if [ $# -lt 1 ];
 	then
 		print_usage
 		return $EINVAL
@@ -290,7 +311,7 @@ show () {
 }
 
 commit() {
-	if [[ $# -lt 1 ]];
+	if [ $# -lt 1 ];
 	then
 		print_usage
 		return $EINVAL
@@ -303,7 +324,7 @@ commit() {
 }
 
 info() {
-	if [[ $# -lt 1 ]];
+	if [ $# -lt 1 ];
 	then
 		print_usage
 		return $EINVAL
@@ -329,27 +350,27 @@ Usage:
 	"
 }
 
-if [ "$1" == "add" ]
+if [ "$1" = "add" ]
 then
 	shift
 	add_tc "$@"
-elif [ "$1" == "del" ]
+elif [ "$1" = "del" ]
 then
 	shift
 	del_tc "$@"
-elif [ "$1" == "clear" ]
+elif [ "$1" = "clear" ]
 then
 	shift
 	clear_table "$@"
-elif [ "$1" == "show" ]
+elif [ "$1" = "show" ]
 then
 	shift
 	show "$@"
-elif [ "$1" == "commit" ]
+elif [ "$1" = "commit" ]
 then
 	shift
 	commit "$@"
-elif [ "$1" == "info" ]
+elif [ "$1" = "info" ]
 then
 	shift
 	info "$@"
