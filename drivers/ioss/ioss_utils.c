@@ -15,6 +15,8 @@
 #endif
 
 #define IOSS_IPC_LOG_PAGES_DEFAULT 128
+/* Set bit[16] to enable minidump */
+#define MINIDUMP_MASK 0x10000
 
 static bool log_debug = IOSS_LOG_DEBUG_DEFAULT;
 module_param(log_debug, bool, 0644);
@@ -63,7 +65,7 @@ int ioss_log_init(void)
 		return 0;
 
 	ioss_ipclog_buf_prio =
-		ipc_log_context_create(log_pages, IOSS_IPCLOG_PRIO_NAME, 0);
+		ipc_log_context_create(log_pages, IOSS_IPCLOG_PRIO_NAME, MINIDUMP_MASK);
 	if (!ioss_ipclog_buf_prio) {
 		pr_err("IOSS: Failed to create IPC log context (prio)\n");
 		return -EFAULT;
