@@ -6,7 +6,7 @@
 #include <soc/qcom/minidump.h>
 #include "ethdbg.h"
 
-static int ethdbg_minidump_add_region(const char *name, uintptr_t vaddr, size_t size)
+int ethdbg_minidump_add_region(const char *name, uintptr_t vaddr, size_t size)
 {
 	struct md_region md_entry;
 	int ret;
@@ -26,7 +26,7 @@ static int ethdbg_minidump_add_region(const char *name, uintptr_t vaddr, size_t 
 	return ret;
 }
 
-static int ethdbg_minidump_remove_region(const char *name, uintptr_t vaddr, size_t size)
+int ethdbg_minidump_remove_region(const char *name, uintptr_t vaddr, size_t size)
 {
 	struct md_region md_entry;
 	int ret;

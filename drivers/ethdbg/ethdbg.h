@@ -157,15 +157,31 @@ void ethdbg_dump_device(struct ethdbg_device *dev);
 void ethdbg_dump_device_phy(struct ethdbg_device *dev);
 
 #ifdef CONFIG_QCOM_MINIDUMP
+int ethdbg_minidump_add_region(const char *name, uintptr_t vaddr, size_t size);
+int ethdbg_minidump_remove_region(const char *name, uintptr_t vaddr, size_t size);
 void ethdbg_minidump_register(struct ethdbg_device *dev,
 			      const char *interface_name);
 void ethdbg_minidump_unregister(struct ethdbg_device *dev,
 				const char *interface_name);
+void ethdbg_stmmac_minidump_register(struct ethdbg_device *dev,
+				     const char *interface_name);
+void ethdbg_stmmac_minidump_unregister(struct ethdbg_device *dev,
+				       const char *interface_name);
 #else
+static inline int ethdbg_minidump_add_region(const char *name,
+					     uintptr_t vaddr,
+					     size_t size) { return 0; }
+static inline int ethdbg_minidump_remove_region(const char *name,
+						uintptr_t vaddr,
+						size_t size) { return 0; }
 static inline void ethdbg_minidump_register(struct ethdbg_device *dev,
 					const char *interface_name) {}
 static inline void ethdbg_minidump_unregister(struct ethdbg_device *dev,
 					  const char *interface_name) {}
-#endif
+static inline void ethdbg_stmmac_minidump_register(struct ethdbg_device *dev,
+					   const char *interface_name) {}
+static inline void ethdbg_stmmac_minidump_unregister(struct ethdbg_device *dev,
+					     const char *interface_name) {}
+#endif /* CONFIG_QCOM_MINIDUMP */
 
 #endif /* _ETHDBG_H_ */

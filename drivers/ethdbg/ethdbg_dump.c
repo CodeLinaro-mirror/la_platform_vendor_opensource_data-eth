@@ -244,6 +244,7 @@ int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name)
 
 	dump_data->num_blocks = ethdbg_setup_dump_blocks(dev, interface_name);
 	ethdbg_minidump_register(dev, interface_name);
+	ethdbg_stmmac_minidump_register(dev, interface_name);
 	return 0;
 }
 
@@ -258,6 +259,7 @@ void ethdbg_dump_unregister(struct ethdbg_interface *iface)
 	if (!dump_data->blocks)
 		return;
 
+	ethdbg_stmmac_minidump_unregister(dev, interface_name);
 	ethdbg_minidump_unregister(dev, interface_name);
 
 	for (i = 0; i < dump_data->num_blocks; i++) {
