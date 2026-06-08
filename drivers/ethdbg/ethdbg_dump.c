@@ -243,17 +243,22 @@ int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name)
 		return -ENOMEM;
 
 	dump_data->num_blocks = ethdbg_setup_dump_blocks(dev, interface_name);
+	ethdbg_minidump_register(dev, interface_name);
 	return 0;
 }
 
-void ethdbg_dump_unregister(struct ethdbg_device *dev)
+void ethdbg_dump_unregister(struct ethdbg_interface *iface)
 {
+	struct ethdbg_device *dev = iface->device;
+	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data;
 	int i;
 
 	dump_data = &dev->dump_data;
 	if (!dump_data->blocks)
 		return;
+
+	ethdbg_minidump_unregister(dev, interface_name);
 
 	for (i = 0; i < dump_data->num_blocks; i++) {
 		if (!dump_data->blocks[i].is_phy)
@@ -350,8 +355,10 @@ static void ethdbg_capture_phy_block(struct ethdbg_hw_block *block,
 	block->num_captured = block->num_registers;
 }
 
-int ethdbg_dump_register_phy(struct ethdbg_device *dev)
+int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 {
+	struct ethdbg_device *dev = iface->device;
+	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data = &dev->dump_data;
 	const struct ethdbg_hw_desc *vendor_desc;
 	struct phy_device *phydev;
@@ -393,6 +400,7 @@ int ethdbg_dump_register_phy(struct ethdbg_device *dev)
 	}
 	dump_data->num_blocks++;
 
+	ethdbg_minidump_register(dev, interface_name);
 	return 0;
 }
 

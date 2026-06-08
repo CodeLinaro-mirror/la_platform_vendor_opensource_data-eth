@@ -30,6 +30,9 @@ struct ethdbg_reg_entry {
  * @name: Name of the memory region (e.g., "mac", "phy", "pcs")
  * @base_addr: Physical base address of the memory region
  * @size: Size of the memory region in bytes
+ * @index: Position of this map in the map_regions list, assigned at
+ *         parse time. Used as the IDX in minidump region names so that
+ *         eth0-reg<IDX> and eth0-map<IDX> can be correlated in a dump.
  *
  * Represents a single memory-mapped region that will be exposed
  * through UIO for userspace access.
@@ -39,6 +42,7 @@ struct ethdbg_map {
 	const char *name;
 	unsigned long base_addr;
 	unsigned long size;
+	unsigned int index;
 };
 
 /**
@@ -53,6 +57,8 @@ struct ethdbg_map {
  * @num_captured: Number of registers actually captured
  * @num_skipped: Number of registers skipped due to out-of-bounds access
  * @map: Pointer to the original ethdbg_map structure, NULL for PHY blocks
+ * @minidump_registered: (CONFIG_QCOM_MINIDUMP only) True when reg_list is
+ *                       registered with minidump
  *
  * Represents a single hardware block (STMMAC, PCS, RGMII,
  * or SERDES) for panic register capture. During panic,
@@ -70,6 +76,9 @@ struct ethdbg_hw_block {
 	unsigned int num_skipped;
 	struct ethdbg_map *map;
 	struct ethdbg_reg_entry *reg_list;
+#ifdef CONFIG_QCOM_MINIDUMP
+	bool minidump_registered;
+#endif
 };
 
 /**
@@ -139,12 +148,24 @@ int ethdbg_uio_add_phy(struct ethdbg_interface *iface);
 void ethdbg_uio_del_phy(struct ethdbg_interface *iface);
 
 int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name);
-int  ethdbg_dump_register_phy(struct ethdbg_device *dev);
-void ethdbg_dump_unregister(struct ethdbg_device *dev);
+int ethdbg_dump_register_phy(struct ethdbg_interface *iface);
+void ethdbg_dump_unregister(struct ethdbg_interface *iface);
 
 int ethdbg_panic_init(void);
 void ethdbg_panic_deinit(void);
 void ethdbg_dump_device(struct ethdbg_device *dev);
 void ethdbg_dump_device_phy(struct ethdbg_device *dev);
+
+#ifdef CONFIG_QCOM_MINIDUMP
+void ethdbg_minidump_register(struct ethdbg_device *dev,
+			      const char *interface_name);
+void ethdbg_minidump_unregister(struct ethdbg_device *dev,
+				const char *interface_name);
+#else
+static inline void ethdbg_minidump_register(struct ethdbg_device *dev,
+					const char *interface_name) {}
+static inline void ethdbg_minidump_unregister(struct ethdbg_device *dev,
+					  const char *interface_name) {}
+#endif
 
 #endif /* _ETHDBG_H_ */

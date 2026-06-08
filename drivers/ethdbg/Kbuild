@@ -2,3 +2,4 @@ obj-m += ethdbg.o
 ethdbg-y := ethdbg_main.o
 ethdbg-y += ethdbg_uio.o
 ethdbg-y += ethdbg_dump.o
+ethdbg-$(CONFIG_QCOM_MINIDUMP) += ethdbg_minidump.o

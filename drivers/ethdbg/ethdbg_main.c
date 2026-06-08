@@ -30,26 +30,27 @@ static void parse_memory_regions(const struct device_node *np,
 {
 	struct resource res;
 	struct ethdbg_map *map;
+	unsigned int start_index = list_count_nodes(map_list);
 	int i = 0;
 
 	while (of_address_to_resource(np, i, &res) == 0) {
 		map = kzalloc(sizeof(*map), GFP_KERNEL);
 		if (!map) {
-			pr_err("Failed to allocate memory for region %d, skipping\n", i);
+			pr_err("Failed to allocate memory for region %d, skipping\n", start_index + i);
 			i++;
 			continue;
 		}
 
 		map->base_addr = res.start;
 		map->size = resource_size(&res);
+		map->index = start_index + i;
 
 		/* Get the corresponding reg-name */
 		of_property_read_string_index(np, "reg-names", i, &map->name);
 
 		list_add_tail(&map->list, map_list);
 
-		pr_info("Region %d: %s - Base: 0x%llx, Size: 0x%llx\n",
-			i, map->name,
+		pr_info("Region %u: %s - Base: 0x%llx, Size: 0x%llx\n", map->index, map->name,
 			(unsigned long long)res.start,
 			(unsigned long long)resource_size(&res));
 		i++;
@@ -138,7 +139,7 @@ static int register_interface_phy(struct ethdbg_interface *iface)
 	if (iface->device->phy_registered)
 		return 0;
 
-	ret = ethdbg_dump_register_phy(iface->device);
+	ret = ethdbg_dump_register_phy(iface);
 	if (ret)
 		return ret;
 
@@ -212,7 +213,7 @@ static int register_interface_device(struct ethdbg_interface *iface,
 	return 0;
 
 err_dump_unregister:
-	ethdbg_dump_unregister(dev);
+	ethdbg_dump_unregister(iface);
 err_free_maps:
 	free_map_regions(dev);
 	dev_put(net_dev);
@@ -231,7 +232,7 @@ static void unregister_interface(struct ethdbg_interface *iface)
 	dev = iface->device;
 	if (dev) {
 		unregister_interface_phy(iface);
-		ethdbg_dump_unregister(dev);
+		ethdbg_dump_unregister(iface);
 		ethdbg_uio_del(iface);
 		free_map_regions(dev);
 		if (dev->net_dev)
