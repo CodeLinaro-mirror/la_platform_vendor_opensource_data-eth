@@ -20,8 +20,6 @@
 #include <linux/ethtool.h>
 #include <linux/version.h>
 
-#include "ioss_qos.h"
-
 /**
  *   API
  * Version    Changes
@@ -37,10 +35,9 @@
  *   7      - Added support for channel allocation using IPA config type and channel
  *            traffic type properties
  *   8	    - Added API to update skb coming in UL exception path
- *   9	    - Added QOS Support
  */
 
-#define IOSS_API_VER 9
+#define IOSS_API_VER 8
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -153,7 +150,6 @@ enum ioss_traffic_type {
 	IOSS_TRAFFIC_BE, /* 0 = Best Effort */
 	IOSS_TRAFFIC_BE_TAGGED, /* Best Effort VLAN tagged */
 	IOSS_TRAFFIC_LL, /* Low Latency */
-	IOSS_TRAFFIC_QOS, /* Quality of Service */
 	IOSS_TRAFFIC_TYPE_MAX
 };
 
@@ -350,7 +346,6 @@ struct ioss_channel {
 
 	int channel_num;
 	int queue_number;
-	u32 tc_mapping;
 
 	bool tcm_desc_en;
 	bool tcm_buf_en;
@@ -386,18 +381,6 @@ struct ioss_device {
 		u64 system_resume;
 	} pm_stats;
 
-	bool qos_enabled;
-	bool clear_qos_hw;
-	u8 qos_rx_channels;
-	u8 qos_tx_channels;
-	struct qos_pipe_mapping curr_qos_config;
-	struct ioss_qos_hw_caps qos_hw_cap;
-	struct kobject *qos_kobj;
-	struct kobject *qos_tc_params_kobj;
-	struct IOSS_QOS_TABLE ioss_qos_table;
-	struct IOSS_QOS_NEW_NODES ioss_qos_new_nodes;
-	bool qos_commit_in_progress;
-	struct response qos_response;
 	struct mutex refresh_lock;
 };
 
@@ -667,7 +650,6 @@ struct ioss_driver {
 	bool (*match)(struct device *dev);
 
 	struct ioss_driver_ops *ops;
-	struct ioss_qos_ops *qos_ops;
 	enum ioss_filter_types filter_types;
 
 	/* IOSS managed */

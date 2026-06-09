@@ -195,8 +195,6 @@ static void ioss_net_event_going_down(struct ioss_interface *iface,
 
 	ioss_dev_log(idev, "GOING_DOWN event for %s", net_dev->name);
 
-	ioss_qos_clear_cache(idev);
-
 	ioss_iface_queue_refresh(iface, false);
 }
 
@@ -617,8 +615,6 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		goto err_validate_channels;
 	}
 
-	ioss_qos_refresh(idev);
-
 	rc = ioss_net_alloc_channels(iface);
 	if (rc) {
 		ioss_dev_err(idev, "Failed to allocate channels");
@@ -669,8 +665,6 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 		}
 	}
 	iface->state = IOSS_IF_ST_ONLINE;
-
-	ioss_qos_enable(idev);
 
 	ioss_dev_log(idev, "Brought up %s successfully", idev->net_dev->name);
 
@@ -773,8 +767,6 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 	}
 
 	ioss_ipa_invalidate_channels(iface);
-
-	ioss_qos_remove_channels(iface);
 
 	ioss_dev_log(idev, "Brought down %s successsfully", idev->net_dev->name);
 }
