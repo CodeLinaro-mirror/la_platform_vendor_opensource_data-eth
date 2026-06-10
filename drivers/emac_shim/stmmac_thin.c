@@ -1216,7 +1216,8 @@ static int stmmac_hw_setup(struct net_device *dev)
 	int ret;
 
 	dev_info(priv->device, "%s: ch = %u\n", __func__, chan);
-	priv->mac_addr(dev);
+	if(!priv->is_gy_en)
+		priv->mac_addr(dev);
 
 	/* DMA initialization and SW reset */
 	ret = stmmac_init_dma_engine(priv);
@@ -1246,8 +1247,6 @@ static int stmmac_hw_setup(struct net_device *dev)
 	if (priv->tso)
 		stmmac_enable_tso(priv, priv->ioaddr, 1, chan);
 
-	/* Start the ball rolling... */
-	stmmac_start_dma(priv);
 	return 0;
 }
 
@@ -1284,10 +1283,17 @@ static int stmmac_open(struct net_device *dev)
 	priv->dev_opened = true;
 	priv->dev_inited = false;
 
-	if (priv->emac_state > EMAC_INIT_ST)
+	if (priv->emac_state > EMAC_INIT_ST && !priv->dev_inited)
 		ret = stmmac_dvr_init(dev);
 	if (!ret && priv->emac_state == EMAC_LINK_UP_ST)
 		stmmac_mac_link_up(dev);
+
+	if (priv->is_gy_en  && priv->emac_state == EMAC_INIT_ST ) {
+		if(priv->clks_config)
+			priv->clks_config(priv->plat->bsp_priv, true);
+		dev_dbg(priv->device, "%s:Invoke ethqos_client_connect\n", __func__);
+		priv->ethqos_client_connect(priv->plat->bsp_priv);
+	}
 
 	dev_info(priv->device, "%s: ret = %d\n", __func__, ret);
 	return ret;
@@ -1305,16 +1311,20 @@ static int stmmac_release(struct net_device *dev)
 	u32 ch = priv->queue;
 	int filter_del;
 
-	dev_info(priv->device, "%s Enter\n", __func__);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	priv->dev_inited = false;
 	priv->dev_opened = false;
 
+	if (!priv->is_gy_en && priv->del_mc_broadcast_filter){
 	filter_del = priv->del_mc_broadcast_filter();
 	if(filter_del)
-	  pr_info("qcom_ethqos_thin: Filter delete unsuccessful");
+		pr_info("qcom-ethqos-thin: Filter delete unsuccessful");
 	else
-	  pr_info("qcom_ethqos_thin: Filter delete successful");
+		pr_info("qcom-ethqos-thin: Filter delete successful");
+	}
 
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_stop_queue(priv);
 
 	stmmac_disable_queue(priv);
@@ -1331,6 +1341,10 @@ static int stmmac_release(struct net_device *dev)
 
 	/* Release and free the Rx/Tx resources */
 	free_dma_desc_resources(priv);
+	}
+
+	if(priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, false);
 
 	netif_carrier_off(dev);
 
@@ -1929,10 +1943,15 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 		stmmac_set_desc_addr(priv, p, buf->addr);
 
 		rx_q->rx_count_frames++;
-		rx_q->rx_count_frames += priv->rx_coal_frames;
-		if (rx_q->rx_count_frames > priv->rx_coal_frames)
+		/* Enable IOC only after fixed number of packets.
+		 */
+		if (rx_q->rx_count_frames >= priv->rx_coal_frames)
 			rx_q->rx_count_frames = 0;
-		use_rx_wd = priv->use_riwt && rx_q->rx_count_frames;
+		/* Check if Coalesce is enabled, and watchdog is always enabled
+		 * because Rx Watchdog is available in the COREs newer than the 3.40
+		 */
+		use_rx_wd = !priv->rx_coal_frames;
+		use_rx_wd |= rx_q->rx_count_frames > 0;
 
 		dma_wmb();
 		stmmac_set_rx_owner(priv, p, use_rx_wd);
@@ -2047,6 +2066,12 @@ read_again:
 			prev_len = len;
 			len = stmmac_get_rx_frame_len(priv, p, coe);
 		}
+
+		/* ACS is disabled; strip manually. */
+		if (priv->is_gy_en && likely(!(status & rx_not_ls))) {
+				len -= ETH_FCS_LEN;
+		}
+
 		if (!skb) {
 			skb = napi_alloc_skb(&ch->rx_napi, len);
 			if (!skb) {
@@ -2130,6 +2155,105 @@ read_again:
 	return count;
 }
 
+/**
+ * stmmac_tx_clean_trylock - opportunistic TX cleanup from RX NAPI context
+ * @priv: driver private structure
+ * @budget: max descriptors to clean
+ * @queue: TX queue index
+ *
+ * Attempts a non-blocking TX descriptor cleanup during RX NAPI poll.
+ * Uses __netif_tx_trylock to avoid blocking stmmac_xmit on the TX path.
+ * This helps free TX ring space for DL ACKs during bidirectional traffic,
+ * reducing ACK compression (RFC 3449).
+ */
+static void stmmac_tx_clean_trylock(struct stmmac_priv *priv, int budget,
+				    u32 queue)
+{
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue;
+	struct netdev_queue *ndev_txq;
+	unsigned int bytes_compl = 0, pkts_compl = 0;
+	unsigned int entry, count = 0;
+	int status;
+
+	if (queue != priv->queue)
+		return;
+
+	/* Nothing to clean */
+	if (tx_q->dirty_tx == tx_q->cur_tx)
+		return;
+
+	ndev_txq = netdev_get_tx_queue(priv->dev, queue);
+
+	/* Non-blocking: skip if xmit holds the lock */
+	if (!__netif_tx_trylock(ndev_txq))
+		return;
+
+	entry = tx_q->dirty_tx;
+	while ((entry != tx_q->cur_tx) && (count < budget)) {
+		struct sk_buff *skb = tx_q->tx_skbuff[entry];
+		struct dma_desc *p;
+
+		p = tx_q->dma_tx + entry;
+
+		status = stmmac_tx_status(priv, &priv->dev->stats,
+					  &priv->xstats, p, priv->ioaddr);
+		if (unlikely(status & tx_dma_own))
+			break;
+
+		count++;
+		dma_rmb();
+
+		if (likely(!(status & tx_not_ls))) {
+			if (unlikely(status & tx_err)) {
+				priv->dev->stats.tx_errors++;
+			} else {
+				priv->dev->stats.tx_packets++;
+				priv->xstats.tx_pkt_n++;
+				priv->xstats.q_tx_pkt_n[queue]++;
+			}
+			stmmac_get_tx_hwtstamp(priv, p, skb);
+		}
+
+		if (likely(tx_q->tx_skbuff_dma[entry].buf)) {
+			if (tx_q->tx_skbuff_dma[entry].map_as_page)
+				dma_unmap_page(priv->device,
+					       tx_q->tx_skbuff_dma[entry].buf,
+					       tx_q->tx_skbuff_dma[entry].len,
+					       DMA_TO_DEVICE);
+			else
+				dma_unmap_single(priv->device,
+						 tx_q->tx_skbuff_dma[entry].buf,
+						 tx_q->tx_skbuff_dma[entry].len,
+						 DMA_TO_DEVICE);
+			tx_q->tx_skbuff_dma[entry].buf = 0;
+			tx_q->tx_skbuff_dma[entry].len = 0;
+			tx_q->tx_skbuff_dma[entry].map_as_page = false;
+		}
+
+		tx_q->tx_skbuff_dma[entry].last_segment = false;
+
+		if (likely(skb)) {
+			pkts_compl++;
+			bytes_compl += skb->len;
+			dev_consume_skb_any(skb);
+			tx_q->tx_skbuff[entry] = NULL;
+		}
+
+		stmmac_release_tx_desc(priv, p, priv->mode);
+		entry = STMMAC_GET_ENTRY(entry, DMA_TX_SIZE);
+	}
+	tx_q->dirty_tx = entry;
+
+	if (!priv->tx_coal_timer_disable)
+		netdev_tx_completed_queue(ndev_txq, pkts_compl, bytes_compl);
+
+	if (unlikely(netif_tx_queue_stopped(ndev_txq)) &&
+	    stmmac_tx_avail(priv) > STMMAC_TX_THRESH)
+		netif_tx_wake_queue(ndev_txq);
+
+	__netif_tx_unlock(ndev_txq);
+}
+
 static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 {
 	struct stmmac_channel *ch =
@@ -2140,8 +2264,18 @@ static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 
 	priv->xstats.napi_poll++;
 
+	/* Opportunistic TX cleanup: free TX ring space for DL ACKs.
+	 * Head budget 16 is robust sweet spot across TSQ settings
+	 */
+	stmmac_tx_clean_trylock(priv, STMMAC_TX_TRYLOCK_BUDGET_HEAD, chan);
+
 	trace_stmmac_poll_enter(chan);
 	work_done = stmmac_rx(priv, budget, chan);
+
+	/* Second TX cleanup: free ring space for ACKs queued after DL batch.
+	 * Budget 24 is the experimentally validated sweet spot
+	 */
+	stmmac_tx_clean_trylock(priv, STMMAC_TX_TRYLOCK_BUDGET_TAIL, chan);
 
 	if (work_done < budget && napi_complete_done(napi, work_done)) {
 		trace_stmmac_enable_irq(chan);
@@ -2162,7 +2296,7 @@ static int stmmac_napi_poll_tx(struct napi_struct *napi, int budget)
 
 	priv->xstats.napi_poll++;
 
-	work_done = stmmac_tx_clean(priv, DMA_TX_SIZE, chan);
+	work_done = stmmac_tx_clean(priv, budget, chan);
 	work_done = min(work_done, budget);
 
 	if (work_done < budget)
@@ -2207,7 +2341,7 @@ static void stmmac_set_rx_mode(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
-	if (priv->emac_state > EMAC_INIT_ST) {
+	if (!priv->is_gy_en && priv->emac_state > EMAC_INIT_ST) {
 		if (!netdev_mc_empty(dev)) {
 			priv->filter_type = MULTICAST_TYPE;
 			priv->add_filter(dev);
@@ -2307,7 +2441,7 @@ static int stmmac_set_mac_address(struct net_device *ndev, void *addr)
 	if (ret)
 		return ret;
 
-	if (priv->emac_state > EMAC_INIT_ST)
+	if (!priv->is_gy_en && priv->emac_state > EMAC_INIT_ST)
 		ret = priv->mac_addr(ndev);
 
 	return ret;
@@ -2462,6 +2596,7 @@ void stmmac_mac_link_down(struct net_device *ndev)
 	}
 #endif
 }
+EXPORT_SYMBOL_GPL(stmmac_mac_link_down);
 
 void stmmac_mac_link_up(struct net_device *ndev)
 {
@@ -2472,9 +2607,13 @@ void stmmac_mac_link_up(struct net_device *ndev)
 
 	priv = netdev_priv(ndev);
 	if (priv->dev_inited) {
+		/* Start the ball rolling... */
+		stmmac_start_dma(priv);
 		netif_carrier_on(ndev);
+		dev_info(priv->device, "Ethernet is Ready. Link is UP");
 	}
 }
+EXPORT_SYMBOL_GPL(stmmac_mac_link_up);
 
 void stmmac_ch_status(struct net_device *ndev)
 {
@@ -2494,6 +2633,7 @@ void stmmac_ch_status(struct net_device *ndev)
 				       priv->queue);
 	}
 }
+EXPORT_SYMBOL_GPL(stmmac_ch_status);
 
 int stmmac_dvr_init(struct net_device *dev)
 {
@@ -2576,6 +2716,7 @@ dma_desc_error:
 	mutex_unlock(&priv->lock);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(stmmac_dvr_init);
 
 /**
  * stmmac_thin_dvr_probe
@@ -2597,7 +2738,12 @@ int stmmac_thin_dvr_probe(struct device *device,
 	struct stmmac_channel *ch;
 
 	/* Set tx used queue to 4 so NW stack can trigger tx queue selection */
+#if IS_ENABLED(CONFIG_EMAC_SHIM_GY)
+		ndev = devm_alloc_etherdev_mqs(device, sizeof(struct stmmac_priv), 4, 1);
+#else
 	ndev = alloc_netdev_mqs(sizeof(struct stmmac_priv), "eth1", NET_NAME_ENUM,ether_setup, 4, 1);
+#endif
+
 
 	if (!ndev)
 		return -ENOMEM;
@@ -2621,7 +2767,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 		priv->tx_irq[i] = res->tx_irq[i];
 
 	if (!IS_ERR_OR_NULL(res->mac))
-		memcpy((void*) priv->dev->dev_addr, (void*)res->mac, ETH_ALEN);
+		eth_hw_addr_set(priv->dev, res->mac);
 
 	dev_set_drvdata(device, priv->dev);
 
@@ -2665,6 +2811,7 @@ int stmmac_thin_dvr_probe(struct device *device,
 	if (priv->plat->flags & STMMAC_FLAG_TSO_EN) {
 		ndev->hw_features |= NETIF_F_TSO | NETIF_F_TSO6;
 		ndev->hw_features |= NETIF_F_GSO_UDP_L4;
+		netif_set_tso_max_size(ndev, SZ_32K);
 		priv->tso = true;
 		dev_info(priv->device, "TSO feature enabled\n");
 	}
@@ -2705,28 +2852,10 @@ int stmmac_thin_dvr_probe(struct device *device,
 
 	mutex_init(&priv->lock);
 
-	/* If a specific clk_csr value is passed from the platform
-	 * this means that the CSR Clock Range selection cannot be
-	 * changed at run-time and it is fixed. Viceversa the driver'll try to
-	 * set the MDC clock dynamically according to the csr actual
-	 * clock input.
-	 */
-	ret = register_netdev(ndev);
-	dev_info(priv->device, "register_netdev[%s] ret=%d\n", ndev->name, ret);
-	if (ret) {
-		dev_err(priv->device, "%s: ERROR %i registering the device\n",
-			__func__, ret);
-		goto error_netdev_register;
-	}
-
-	/* Disable tx_coal_timer if plat provides callback */
-	priv->tx_coal_timer_disable = false;
+	priv->tx_coal_timer_disable = true;
 
 	return ret;
 
-error_netdev_register:
-	netif_napi_del(&ch->rx_napi);
-	netif_napi_del(&ch->tx_napi);
 error_hw_init:
 	destroy_workqueue(priv->wq);
 
@@ -2778,9 +2907,12 @@ int stmmac_thin_suspend(struct device *dev)
 	if (!ndev || !netif_running(ndev))
 		return 0;
 
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
 	mutex_lock(&priv->lock);
-
 	netif_device_detach(ndev);
+
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_stop_queue(priv);
 
 	stmmac_disable_queue(priv);
@@ -2792,9 +2924,12 @@ int stmmac_thin_suspend(struct device *dev)
 	free_dma_desc_resources(priv);
 
 	netif_carrier_off(ndev);
+	}
 
 	mutex_unlock(&priv->lock);
-
+	if(priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, false);
+	dev_info(priv->device, "%s: Exit\n", __func__);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(stmmac_thin_suspend);
@@ -2830,12 +2965,16 @@ int stmmac_thin_resume(struct device *dev)
 	if (!ndev)
 		return -ENOMEM;
 
-	pr_info("%s: Enter\n", __func__);
 	if (!netif_running(ndev))
 		return 0;
 
-	mutex_lock(&priv->lock);
+	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
+				__func__, priv->emac_state);
+	if (priv->is_gy_en && priv->clks_config)
+		priv->clks_config(priv->plat->bsp_priv, true);
 
+	mutex_lock(&priv->lock);
+	if (priv->emac_state > EMAC_INIT_ST) {
 	stmmac_reset_queues_param(priv);
 	ret = alloc_dma_desc_resources(priv);
 	if (ret < 0) {
@@ -2868,7 +3007,9 @@ int stmmac_thin_resume(struct device *dev)
 
 	stmmac_start_queue(priv);
 	netif_device_attach(ndev);
+	}
 	mutex_unlock(&priv->lock);
+	dev_info(priv->device, "%s: Exit\n", __func__);
 
 	return 0;
 init_error:

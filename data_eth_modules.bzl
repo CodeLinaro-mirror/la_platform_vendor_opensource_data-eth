@@ -50,19 +50,46 @@ def register_data_eth_modules(name, path = None, config_opt = None, srcs = [], c
 # --- Data ETH Modules ---
 
 register_data_eth_modules(
-    name = "emac_thin",
+    name = "stmmac_thin_core",
     path = EMAC_SHIM_PATH,
     config_opt = "CONFIG_EMAC_SHIM",
     srcs = [
         "dwmac4_descs.c",
         "dwmac4_thin.c",
-        "dwmac-qcom-ethqos-thin.c",
         "hwif_thin.c",
         "stmmac_ethtool_thin.c",
         "stmmac_platform_thin.c",
         "stmmac_thin.c",
     ],
     deps = [
+        ":emac_shim_headers",
+        ":include_headers",
+    ],
+)
+
+register_data_eth_modules(
+    name = "emac_thin_gy",
+    path = EMAC_SHIM_PATH,
+    config_opt = "CONFIG_EMAC_SHIM_GY",
+    srcs = [
+        "dwmac-qcom-ethqos-thin-gy.c",
+    ],
+    deps = [
+        "%b_stmmac_thin_core",
+        ":emac_shim_headers",
+        ":include_headers",
+    ],
+)
+
+register_data_eth_modules(
+    name = "emac_thin",
+    path = EMAC_SHIM_PATH,
+    config_opt = "CONFIG_EMAC_SHIM",
+    srcs = [
+        "dwmac-qcom-ethqos-thin.c",
+    ],
+    deps = [
+        "%b_stmmac_thin_core",
         "%b_emac_ctrl_fe_virtio",
         ":emac_shim_headers",
 	":include_headers",
