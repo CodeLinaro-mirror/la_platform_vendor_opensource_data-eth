@@ -686,6 +686,7 @@ static unsigned int dwmac_qcom_get_plat_tx_coal_frames(struct sk_buff *skb)
 
 static const struct of_device_id qcom_ethqos_match[] = {
 	{ .compatible = "qcom,stmmac-ethqos-emac1-gy", },
+	{ .compatible = "qcom,stmmac-ethqos-emac-gy", },
 	{ }
 };
 
@@ -789,7 +790,8 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv->del_filter = qcom_ethqos_del_filter;
 	priv->is_gy_en = true;
 
-	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1-gy")) {
+	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1-gy") ||
+		of_device_is_compatible(np, "qcom,stmmac-ethqos-emac-gy")) {
 		if (!pm_runtime_enabled(&ethqos->pdev->dev)) {
 			ret_domain = devm_pm_runtime_enable(&ethqos->pdev->dev);
 			if (ret_domain)
