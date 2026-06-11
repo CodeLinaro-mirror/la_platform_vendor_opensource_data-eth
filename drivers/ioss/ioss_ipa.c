@@ -1,16 +1,21 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/cpumask.h>
 #include <linux/etherdevice.h>
 #include <linux/string.h>
 
 #include "ioss_i.h"
 
-#ifdef CONFIG_MSM_BOOT_TIME_MARKER
-#include <soc/qcom/boot_stats.h>
+#if IPA_ETH_API_VER >= 8
+bool disable_ipa_tx;
+#else
+bool disable_ipa_tx = true;
 #endif
+module_param(disable_ipa_tx, bool, 0644);
+MODULE_PARM_DESC(disable_ipa_tx, "Disable IPA OFFLOAD TX feature globally");
 
 #define to_ipa_dir(ioss_dir) \
 	((ioss_dir == IOSS_CH_DIR_TX)? IPA_ETH_PIPE_DIR_TX : IPA_ETH_PIPE_DIR_RX)
@@ -42,41 +47,79 @@ static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa
 	return ioss_map[ipa_type];
 }
 
-static void ioss_ipa_notify_cb(void *priv,
-					enum ipa_dp_evt_type evt,
-					unsigned long data)
+static void ioss_ipa_rx_callback(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
 {
 	struct ioss_channel *ch = priv;
 	struct sk_buff *skb = (struct sk_buff *)data;
 	struct ioss_interface *iface = ch->iface;
-#ifdef CONFIG_MSM_BOOT_TIME_MARKER
-	struct rtnl_link_stats64 netdev_stats;
-#endif
 	struct ioss_device *idev = ioss_ch_dev(ch);
+	struct ioss_driver *idrv = to_ioss_driver(idev->dev.driver);
 
 	if (evt != IPA_RECEIVE)
 		return;
 
-	iface->exception_stats.rx_packets++;
-
-#ifdef CONFIG_MSM_BOOT_TIME_MARKER
-	if(iface->exception_stats.rx_packets == 1) {
-		memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
-		dev_get_stats(ioss_iface_to_netdev(iface), &netdev_stats);
-		if (netdev_stats.rx_packets == 1)
-			update_marker("M - Ethernet first packet received");
-	}
-#endif
-
-	iface->exception_stats.rx_bytes += skb->len;
-
 	skb->protocol = eth_type_trans(skb, ioss_iface_to_netdev(iface));
+	skb_set_queue_mapping(skb, ch->queue_number);
 
+	if (idrv && idrv->ops->receive_skb) {
+		ioss_dev_op(idev, receive_skb, ch, skb);
+		return;
+	}
+
+	/* Fall back to the Linux networking stack when the driver has no receive_skb hook. */
+	iface->exception_stats.rx_packets++;
+	iface->exception_stats.rx_bytes += skb->len;
 	ioss_dev_op(idev, update_skb, ch, skb);
-
 	if (netif_rx(skb) == NET_RX_DROP)
 		iface->exception_stats.rx_drops++;
 }
+
+#if IPA_ETH_API_VER >= 8
+static void ioss_ipa_tx_callback(void *priv, enum ipa_dp_evt_type evt, unsigned long data)
+{
+	struct ioss_channel *ch = priv;
+	struct ioss_iface_priv *ifp = ch->iface->ioss_priv;
+	struct sk_buff *skb = (struct sk_buff *)data;
+
+	if (evt != IPA_WRITE_DONE)
+		return;
+
+	struct ioss_driver *idrv = to_ioss_driver(ioss_ch_dev(ch)->dev.driver);
+
+	bool ready = ifp->ipa_config.offload_max_pkts &&
+			  atomic_dec_return(&ch->ipa_tx_outstanding_pkts) <=
+				ifp->ipa_config.offload_max_pkts / 2;
+
+	if (WARN_RATELIMIT(!idrv || !idrv->ops->xmit_done, "IPA TX: xmit_done is NULL"))
+		return;
+	idrv->ops->xmit_done(ch, skb, 0, ready);
+}
+
+int ioss_ipa_xmit(struct ioss_channel *ch, struct sk_buff *skb)
+{
+	struct ioss_ch_priv *cp = ch->ioss_priv;
+	struct ioss_iface_priv *ifp = ch->iface->ioss_priv;
+	u32 max_pkts = ifp->ipa_config.offload_max_pkts;
+	int ret;
+
+	if (max_pkts &&
+	    atomic_inc_return(&ch->ipa_tx_outstanding_pkts) > max_pkts) {
+		atomic_dec(&ch->ipa_tx_outstanding_pkts);
+		return -ENOSPC;
+	}
+
+	ret = ipa_eth_offload_tx_dp(&cp->ipa_pi, skb);
+	if (ret && max_pkts)
+		atomic_dec(&ch->ipa_tx_outstanding_pkts);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(ioss_ipa_xmit);
+#else
+int ioss_ipa_xmit(struct ipa_eth_client_pipe_info *pi, struct sk_buff *skb)
+{
+	return -ENOTSUPP;
+}
+#endif
 
 static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 		struct ipa_eth_client_pipe_info *pi)
@@ -125,9 +168,16 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 	}
 
 	if (pi->dir == IPA_ETH_PIPE_DIR_RX) {
-		si->notify = ioss_ipa_notify_cb;
+		si->notify = ioss_ipa_rx_callback;
 		si->priv = ch;
 	}
+
+#if IPA_ETH_API_VER >= 8
+	if (pi->dir == IPA_ETH_PIPE_DIR_TX) {
+		si->notify = ioss_ipa_tx_callback;
+		si->priv   = ch;
+	}
+#endif
 
 	if (ioss_ipa_hal_fill_si(ch)) {
 		ioss_dev_err(idev,
@@ -456,6 +506,134 @@ void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
 		list_move(&ch->node, &iface->invalid_channels);
 	}
 }
+
+static unsigned long ioss_ipa_be_txq_mask(struct ioss_interface *iface)
+{
+	struct ioss_channel *ch;
+	unsigned long mask = 0;
+
+	ioss_for_each_channel(ch, iface) {
+		if (ch->direction == IOSS_CH_DIR_TX &&
+		    ch->traffic_type == IOSS_TRAFFIC_BE &&
+		    ch->queue_number < BITS_PER_LONG)
+			set_bit(ch->queue_number, &mask);
+	}
+
+	return mask;
+}
+
+#if IPA_ETH_API_VER >= 8
+static void ioss_ipa_xps_configure_tx_offload(struct ioss_interface *iface)
+{
+	struct net_device *ndev = ioss_iface_to_netdev(iface);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	unsigned long be_txq_mask = ioss_ipa_be_txq_mask(iface);
+	unsigned long q;
+
+	/* Clear XPS CPU and RXQ masks on all TXQs */
+	for (q = 0; q < ndev->real_num_tx_queues; q++) {
+		ioss_net_xps_set_cpu_mask(iface, cpu_none_mask, q);
+		ioss_net_xps_set_rxq_mask(iface, 0, q);
+	}
+
+	/* Steer all CPUs to BE TXQs */
+	for_each_set_bit(q, &be_txq_mask, BITS_PER_LONG)
+		ioss_net_xps_set_cpu_mask(iface, cpu_possible_mask, q);
+
+	ioss_dev_log(idev, "XPS: IPA connected - all CPUs to TXQs 0x%lx", be_txq_mask);
+}
+
+static void ioss_ipa_clear_be_xps(struct ioss_interface *iface)
+{
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	unsigned long be_txq_mask = ioss_ipa_be_txq_mask(iface);
+	unsigned long q;
+
+	for_each_set_bit(q, &be_txq_mask, BITS_PER_LONG) {
+		ioss_net_xps_set_cpu_mask(iface, cpu_none_mask, q);
+		ioss_net_xps_set_rxq_mask(iface, 0, q);
+	}
+
+	ioss_dev_log(idev, "XPS: IPA disabled - cleared CPUs from TXQs 0x%lx", be_txq_mask);
+}
+
+void ioss_ipa_emb_tx_enable(struct ioss_interface *iface)
+{
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_config *ipa_config = &ifp->ipa_config;
+	struct ioss_ipa_tx_state *state_save = &iface->ipa_tx_state_saved;
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	struct net_device *ndev = ioss_iface_to_netdev(iface);
+
+	if (iface->ipa_tx_disabled || disable_ipa_tx) {
+		ioss_ipa_clear_be_xps(iface);
+		return;
+	}
+
+	rtnl_lock();
+	state_save->hw_features     = ndev->hw_features;
+	state_save->features        = ndev->features;
+	state_save->wanted_features = ndev->wanted_features;
+	state_save->gso_max_size    = ndev->gso_max_size;
+	state_save->gso_ipv4_max_size = ndev->gso_ipv4_max_size;
+
+	ndev->hw_features     = ipa_config->offload_features;
+	ndev->wanted_features = ipa_config->offload_features;
+	WRITE_ONCE(ndev->gso_max_size, ipa_config->offload_gso_max_size);
+	WRITE_ONCE(ndev->gso_ipv4_max_size, ipa_config->offload_gso_max_size);
+	ndev->needed_headroom += ipa_config->offload_headroom;
+	netdev_features_change(ndev);
+	rtnl_unlock();
+
+	ioss_ipa_xps_configure_tx_offload(iface);
+
+	ioss_dev_log(idev,
+		     "ULSO enabled: features=0x%llx gso_max=%u headroom=%u",
+		     (unsigned long long)ipa_config->offload_features,
+		     ipa_config->offload_gso_max_size,
+		     ipa_config->offload_headroom);
+}
+
+void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
+{
+	struct ioss_iface_priv *ifp = iface->ioss_priv;
+	struct ipa_eth_config *ipa_config = &ifp->ipa_config;
+	struct ioss_ipa_tx_state *saved_state = &iface->ipa_tx_state_saved;
+	struct net_device *ndev = ioss_iface_to_netdev(iface);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	struct ioss_channel *ch;
+
+	if (iface->ipa_tx_disabled || disable_ipa_tx)
+		return;
+
+	ioss_net_xps_reset(iface);
+
+	ioss_for_each_channel(ch, iface) {
+		if (ch->direction == IOSS_CH_DIR_TX)
+			atomic_set(&ch->ipa_tx_outstanding_pkts, 0);
+	}
+
+	rtnl_lock();
+	ndev->hw_features     = saved_state->hw_features;
+	ndev->wanted_features = saved_state->wanted_features;
+	ndev->features        = saved_state->features;
+	WRITE_ONCE(ndev->gso_max_size, saved_state->gso_max_size);
+	WRITE_ONCE(ndev->gso_ipv4_max_size, saved_state->gso_ipv4_max_size);
+	ndev->needed_headroom -= ipa_config->offload_headroom;
+	netdev_update_features(ndev);
+	rtnl_unlock();
+
+	ioss_dev_log(idev, "Restored device feature flags after IPA disconnect");
+}
+#else
+void ioss_ipa_emb_tx_enable(struct ioss_interface *iface)
+{
+}
+
+void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
+{
+}
+#endif
 
 #if IPA_ETH_API_VER >= 9
 int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 tc_bmap)

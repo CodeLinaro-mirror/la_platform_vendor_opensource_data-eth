@@ -37,9 +37,10 @@
  *   8	    - Added API to update skb coming in UL exception path
  *   9	    - Added QOS Support (legacy). *Removed
  *  10	    - Added QOS Support (ioss_ipa_set_tc_bmap)
+ *  11	    - Added IPA TX offload support
  */
 
-#define IOSS_API_VER 10
+#define IOSS_API_VER 11
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -176,6 +177,14 @@ struct ioss {
 struct ioss_driver;
 struct ioss_device;
 
+struct ioss_ipa_tx_state {
+	netdev_features_t hw_features;
+	netdev_features_t features;
+	netdev_features_t wanted_features;
+	unsigned int gso_max_size;
+	unsigned int gso_ipv4_max_size;
+};
+
 struct ioss_interface {
 	struct device dev;
 	enum ioss_interface_state state;
@@ -205,6 +214,8 @@ struct ioss_interface {
 
 	struct net_device_ops netdev_ops;
 	const struct net_device_ops *netdev_ops_real;
+	struct ioss_ipa_tx_state ipa_tx_state_saved;
+	bool ipa_tx_disabled;
 	bool auto_resume_disabled;
 	bool is_pci_device;
 	bool disable_ioss_auto_resume;
@@ -343,6 +354,8 @@ struct ioss_channel {
 
 	bool allocated;
 	bool enabled;
+
+	atomic_t ipa_tx_outstanding_pkts;
 
 	void *ioss_priv;
 	int multi_rx_queues;
@@ -698,8 +711,9 @@ struct ioss_driver_ops {
 				      struct ioss_channel_stats *stats);
 	int (*get_channel_status)(struct ioss_channel *ch,
 				  struct ioss_channel_status *status);
-	int (*update_skb)(struct ioss_channel *ch,
-			  struct sk_buff *skb);
+	int (*receive_skb)(struct ioss_channel *ch, struct sk_buff *skb);
+	int (*update_skb)(struct ioss_channel *ch, struct sk_buff *skb);
+	void (*xmit_done)(struct ioss_channel *ch, struct sk_buff *skb, int status, bool wake_queue);
 };
 
 #define ioss_dev_op(idev, op, args...) \
@@ -718,6 +732,16 @@ void ioss_pci_unregister_driver(struct ioss_driver *drv);
 int ioss_plat_register_driver(struct ioss_driver *idrv, struct module *owner);
 
 void ioss_plat_unregister_driver(struct ioss_driver *drv);
+
+/**
+ * ioss_ipa_xmit - Transmit an skb via the IPA TX path.
+ * @ch:  The TX ioss_channel.
+ * @skb: Packet to transmit.  Ownership transfers to IPA on success.
+ *
+ * Returns 0 on success, -ENOSPC if IPA TX queue is full, -EAGAIN to retry,
+ * or another negative errno on unrecoverable error.
+ */
+int ioss_ipa_xmit(struct ioss_channel *ch, struct sk_buff *skb);
 
 int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch, u32 tc_bmap);
 
