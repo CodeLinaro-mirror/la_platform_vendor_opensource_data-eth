@@ -4,7 +4,7 @@
  * dwxgmac2_core.c
  *
  * Copyright (C) 2018 Synopsys, Inc. and/or its affiliates.
- * Copyright (C) 2021 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2025 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro and Synopsys Linux driver,
  * and developed or modified for TC956X.
@@ -26,7 +26,7 @@
 
 /*! History:
  *  17 July 2020 : 1. Filtering updates
- *  VERSION	 : 00-01
+ *  VERSION      : 00-01
  *
  *  15 Mar 2021 : Base lined
  *  VERSION     : 01-00
@@ -39,26 +39,42 @@
  *  22 Jul 2021 : 1. USXGMII/XFI/SGMII/RGMII interface supported with module parameters
  *  VERSION     : 01-00-04
  *  14 Sep 2021 : 1. Synchronization between ethtool vlan features
- *  		  "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
- * 		  2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter",
- *  		  and "tx-vlan-offload".
- * 		  3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
- * 		  4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
+ *                   "rx-vlan-offload", "rx-vlan-filter", "tx-vlan-offload" output and register settings.
+ *                2. Added ethtool support to update "rx-vlan-offload", "rx-vlan-filter",
+ *                   and "tx-vlan-offload".
+ *                3. Removed IOCTL TC956XMAC_VLAN_STRIP_CONFIG.
+ *                4. Removed "Disable VLAN Filter" option in IOCTL TC956XMAC_VLAN_FILTERING.
  *  VERSION     : 01-00-13
  *  23 Sep 2021 : 1. Filtering All pause frames by default
  *  VERSION     : 01-00-14
  *  14 Oct 2021 : 1. Configuring pause frame control using kernel module parameter also forwarding
- *  		  only Link partner pause frames to Application and filtering PHY pause frames using FRP
+ *                only Link partner pause frames to Application and filtering PHY pause frames using FRP
  *  VERSION     : 01-00-16
  *  26 Oct 2021 : 1. Added EEE print in host IRQ and updated EEE configuration.
  *  VERSION     : 01-00-19
  *  04 Nov 2021 : 1. Added separate control functons for MAC TX and RX start/stop
  *  VERSION     : 01-00-20
  *  24 Nov 2021 : 1. EEE update for runtime configuration and LPI interrupt disabled.
- 		  2. USXGMII support during link change
+ *                2. USXGMII support during link change
  *  VERSION     : 01-00-24
  *  08 Dec 2021 : 1. Renamed pause frames module parameter
  *  VERSION     : 01-00-30
+ *  10 Nov 2023 : 1. Kernel 6.1 Porting changes
+ *  VERSION     : 01-02-59
+ *  13 Feb 2024 : 1. Merged CPE and Automotive package
+ *                2. Updated with Register Configuration Check.
+ *  VERSION     : 04-00
+ *  31 May 2024 : 1. Modified for TC FPE support
+ *  VERSION     : 05-00
+ *  06 Dec 2024 : 1. Modification to support PHY_INTERFACE_MODE_10GBASER interface type
+ *  VERSION     : 04-00-02
+ *  11 Dec 2024 : 1. Modification to support port interface setting overlay from dts.
+ *  VERSION     : 04-00-03
+ *  31 Jan 2025 : 1. Merge of Automotive limited github branches as listed above after 5-00 version
+ *                2. Fix to avoid unbound access of SW MAC table during deletion
+ *  VERSION     : 05-00-01
+ *  28 Feb 2025 : 1. Support for phy pause frames module paramter array
+ *  VERSION     : 05-02-00
  */
 
 #include <linux/bitrev.h>
@@ -68,8 +84,16 @@
 #include "tc956xmac_ptp.h"
 #include "dwxgmac2.h"
 
-extern unsigned int mac0_filter_phy_pause;
-extern unsigned int mac1_filter_phy_pause;
+#ifdef TC956X_SRIOV_DEBUG
+void tc956x_filter_debug(struct tc956xmac_priv *priv);
+#endif
+#ifdef TC956X_SRIOV_PF
+int tc956x_pf_set_mac_filter(struct net_device *dev, int vf, const u8 *mac);
+void tc956x_pf_del_mac_filter(struct net_device *dev, int vf, const u8 *mac);
+void tc956x_pf_del_umac_addr(struct tc956xmac_priv *priv, int index, int vf);
+void tc956x_pf_set_vlan_filter(struct net_device *dev, u16 vf, u16 vid);
+void tc956x_pf_del_vlan_filter(struct net_device *dev, u16 vf, u16 vid);
+#endif
 
 static void tc956x_set_mac_addr(struct tc956xmac_priv *priv, struct mac_device_info *hw,
 				const u8 *mac, int index, int vf);
@@ -123,12 +147,17 @@ static void dwxgmac2_core_init(struct tc956xmac_priv *priv,
 		}
 	}
 #ifndef TC956X
-	if (priv->plat->interface == PHY_INTERFACE_MODE_RGMII)
+	if ((priv->plat->interface == PHY_INTERFACE_MODE_RGMII) ||
+		(priv->plat->interface == PHY_INTERFACE_MODE_RGMII_ID))
 		tx |= hw->link.speed1000;
 	else if (priv->plat->interface == PHY_INTERFACE_MODE_SGMII)
 		tx |= hw->link.speed2500;
 	else if ((priv->plat->interface == PHY_INTERFACE_MODE_USXGMII) ||
-		(priv->plat->interface == PHY_INTERFACE_MODE_10GKR))
+		(priv->plat->interface == PHY_INTERFACE_MODE_10GKR)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
+		|| (priv->plat->interface == PHY_INTERFACE_MODE_10GBASER)
+#endif
+			)
 		tx |= hw->link.xgmii.speed10000;
 #endif
 	writel(tx, ioaddr + XGMAC_TX_CONFIG);
@@ -278,7 +307,24 @@ static void tc956x_rx_queue_routing(struct tc956xmac_priv *priv,
 		{ XGMAC_RXQCTRL_MCBCQ_MASK, XGMAC_RXQCTRL_MCBCQ_SHIFT },
 		{ XGMAC_RXQCTRL_FPRQ_MASK, XGMAC_RXQCTRL_FPRQ_SHIFT },
 	};
+#if defined(TC956X_SRIOV_PF) && !defined(TC956X_AUTOMOTIVE_CONFIG) && !defined(TC956X_ENABLE_MAC2MAC_BRIDGE) && !defined(TC956X_CPE_CONFIG)
+	/* Fail packet routing for UC, MC, VLAN */
+	if (packet == PACKET_FILTER_FAIL) {
+		value = readl(ioaddr + XGMAC_RXQ_CTRL4);
 
+		value &= (~(XGMAC_VFFQ_MASK | XGMAC_MFFQ_MASK | XGMAC_UFFQ_MASK));
+
+		value |= ((queue << XGMAC_UFFQ_SHIFT) | \
+				(queue << XGMAC_MFFQ_SHIFT) | \
+				(queue << XGMAC_VFFQ_SHIFT));
+
+		value |= XGMAC_UFFQE | XGMAC_MFFQE | XGMAC_VFFQE;
+
+		writel(value, ioaddr + XGMAC_RXQ_CTRL4);
+
+		return;
+	}
+#endif
 	value = readl(ioaddr + XGMAC_RXQ_CTRL1);
 
 	/* routing configuration */
@@ -352,7 +398,7 @@ static void dwxgmac2_prog_mtl_tx_algorithms(struct tc956xmac_priv *priv,
 	writel(value, ioaddr + XGMAC_MTL_OPMODE);
 
 	/* Set ETS if desired */
-	for (i = 0; i < MTL_MAX_TX_QUEUES; i++) {
+	for (i = 0; i < MTL_MAX_TX_TC; i++) {
 		value = readl(ioaddr + XGMAC_MTL_TCx_ETS_CONTROL(i));
 		value &= ~XGMAC_TSA;
 		if (ets)
@@ -363,13 +409,16 @@ static void dwxgmac2_prog_mtl_tx_algorithms(struct tc956xmac_priv *priv,
 
 static void dwxgmac2_set_mtl_tx_queue_weight(struct tc956xmac_priv *priv,
 					     struct mac_device_info *hw,
-					     u32 weight, u32 queue)
+					     u32 weight, u32 tc)
 {
 	void __iomem *ioaddr = hw->pcsr;
+	u32 value = readl(ioaddr + XGMAC_MTL_TCx_QUANTUM_WEIGHT(tc));
 
-	writel(weight, ioaddr + XGMAC_MTL_TCx_QUANTUM_WEIGHT(queue));
+	value &= ~XGMAC_MTL_TCx_QUANTUM_WEIGHT_ISCQW_MASK;
+	value |= weight & XGMAC_MTL_TCx_QUANTUM_WEIGHT_ISCQW_MASK;
+	writel(value, ioaddr + XGMAC_MTL_TCx_QUANTUM_WEIGHT(tc));
 
-	netdev_dbg(priv->dev, "%s: MTLQ%d weight = %d", __func__, queue, weight);
+	netdev_dbg(priv->dev, "%s: MTL_TC%d weight = %d", __func__, tc, weight);
 }
 
 static void dwxgmac2_map_mtl_to_dma(struct tc956xmac_priv *priv,
@@ -377,15 +426,25 @@ static void dwxgmac2_map_mtl_to_dma(struct tc956xmac_priv *priv,
 				    u32 chan)
 {
 	void __iomem *ioaddr = hw->pcsr;
-	u32 value, reg;
+	u32 value, reg, rx_q;
 
+	rx_q = queue;
 	reg = (queue < 4) ? XGMAC_MTL_RXQ_DMA_MAP0 : XGMAC_MTL_RXQ_DMA_MAP1;
 	if (queue >= 4)
 		queue -= 4;
 
 	value = readl(ioaddr + reg);
-	value &= ~XGMAC_QxMDMACH(queue);
-	value |= (chan << XGMAC_QxMDMACH_SHIFT(queue)) & XGMAC_QxMDMACH(queue);
+#ifdef TC956X_SRIOV_PF
+	/* Set QxDDMACH to enable Rx Q-ch mapping based on DA Filter Value */
+	if (priv->plat->rx_queues_cfg[rx_q].chan == TC956X_DA_MAP) {
+		value |= 1 << XGMAC_QxDDMACH_SHIFT(queue);
+	} else {
+#endif
+		value &= ~XGMAC_QxMDMACH(queue);
+		value |= (chan << XGMAC_QxMDMACH_SHIFT(queue)) & XGMAC_QxMDMACH(queue);
+#ifdef TC956X_SRIOV_PF
+	}
+#endif
 
 	writel(value, ioaddr + reg);
 
@@ -393,7 +452,6 @@ static void dwxgmac2_map_mtl_to_dma(struct tc956xmac_priv *priv,
 			readl(ioaddr + reg));
 }
 
-#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 static void dwxgmac2_config_cbs(struct tc956xmac_priv *priv,
 				struct mac_device_info *hw,
 				u32 send_slope, u32 idle_slope,
@@ -405,28 +463,46 @@ static void dwxgmac2_config_cbs(struct tc956xmac_priv *priv,
 
 	traffic_class = priv->plat->tx_queues_cfg[queue].traffic_class;
 
-	writel(send_slope & GENMASK(15, 0), ioaddr + XGMAC_MTL_TCx_SENDSLOPE(traffic_class));
-	writel(idle_slope & GENMASK(20, 0), ioaddr + XGMAC_MTL_TCx_QUANTUM_WEIGHT(traffic_class));
-	writel(high_credit & GENMASK(28, 0), ioaddr + XGMAC_MTL_TCx_HICREDIT(traffic_class));
-	writel(low_credit & GENMASK(28, 0), ioaddr + XGMAC_MTL_TCx_LOCREDIT(traffic_class));
+	/* configure send slope */
+	value = readl(ioaddr + XGMAC_MTL_TCx_SENDSLOPE(traffic_class));
+	value &= ~XGMAC_MTL_TCx_SENDSLOPE_CRED_SSC_MASK;
+	value |= send_slope & XGMAC_MTL_TCx_SENDSLOPE_CRED_SSC_MASK;
+	writel(value, ioaddr + XGMAC_MTL_TCx_SENDSLOPE(traffic_class));
 
+	/* configure idle slope (same register as tx weight) */
+	value = readl(ioaddr + XGMAC_MTL_TCx_QUANTUM_WEIGHT(traffic_class));
+	value &= ~XGMAC_MTL_TCx_QUANTUM_WEIGHT_ISCQW_MASK;
+	value |= idle_slope & XGMAC_MTL_TCx_QUANTUM_WEIGHT_ISCQW_MASK;
+	writel(value, ioaddr + XGMAC_MTL_TCx_QUANTUM_WEIGHT(traffic_class));
+
+	/* configure high credit */
+	value = readl(ioaddr + XGMAC_MTL_TCx_HICREDIT(traffic_class));
+	value &= ~XGMAC_MTL_TCx_HICREDIT_HC_MASK;
+	value |= high_credit & XGMAC_MTL_TCx_HICREDIT_HC_MASK;
+	writel(value, ioaddr + XGMAC_MTL_TCx_HICREDIT(traffic_class));
+
+	/* configure low credit */
+	value = readl(ioaddr + XGMAC_MTL_TCx_LOCREDIT(traffic_class));
+	value &= ~XGMAC_MTL_TCx_LOCREDIT_LC_MASK;
+	value |= low_credit & XGMAC_MTL_TCx_LOCREDIT_LC_MASK;
+	writel(value, ioaddr + XGMAC_MTL_TCx_LOCREDIT(traffic_class));
 	value = readl(ioaddr + XGMAC_MTL_TCx_ETS_CONTROL(traffic_class));
+
 	/* CC is always set 0 */
 	value &= ~(XGMAC_TSA | XGMAC_CC);
 	value |= XGMAC_CBS;
 	writel(value, ioaddr + XGMAC_MTL_TCx_ETS_CONTROL(traffic_class));
 
-	netdev_dbg(priv->dev, "%s: MTLQ%d Send Slope Register = 0x%x", __func__, traffic_class,
+	netdev_dbg(priv->dev, "%s: MTL_TC%d Send Slope Register = 0x%x", __func__, traffic_class,
 			readl(ioaddr + XGMAC_MTL_TCx_SENDSLOPE(traffic_class)));
-	netdev_dbg(priv->dev, "%s: MTLQ%d Idle Slope Register = 0x%x", __func__, traffic_class,
+	netdev_dbg(priv->dev, "%s: MTL_TC%d Idle Slope Register = 0x%x", __func__, traffic_class,
 			readl(ioaddr + XGMAC_MTL_TCx_QUANTUM_WEIGHT(traffic_class)));
-	netdev_dbg(priv->dev, "%s: MTLQ%d High Credit Register = 0x%x", __func__, traffic_class,
+	netdev_dbg(priv->dev, "%s: MTL_TC%d High Credit Register = 0x%x", __func__, traffic_class,
 			readl(ioaddr + XGMAC_MTL_TCx_HICREDIT(traffic_class)));
-	netdev_dbg(priv->dev, "%s: MTLQ%d Lo Credit Register = 0x%x", __func__, traffic_class,
+	netdev_dbg(priv->dev, "%s: MTL_TC%d Lo Credit Register = 0x%x", __func__, traffic_class,
 			readl(ioaddr + XGMAC_MTL_TCx_LOCREDIT(traffic_class)));
 
 }
-#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 
 static void dwxgmac2_dump_regs(struct tc956xmac_priv *priv,
 				struct mac_device_info *hw, u32 *reg_space)
@@ -434,19 +510,27 @@ static void dwxgmac2_dump_regs(struct tc956xmac_priv *priv,
 	void __iomem *ioaddr = hw->pcsr;
 	int i, ch, tc, k;
 
-	for (i = ETH_CORE_DUMP_OFFSET1; i <= ETH_CORE_DUMP_OFFSET1_END; i++)/*MAC reg*/
+	KPRINT_DEBUG1("************************************EMAC Dump***********************************************");
+	for (i = ETH_CORE_DUMP_OFFSET1; i <= ETH_CORE_DUMP_OFFSET1_END; i++) {/*MAC reg*/
 		reg_space[i] = readl(ioaddr + MAC_OFFSET + (i * 4));
+		KPRINT_DEBUG1("%04x : %08x\n", i*4, reg_space[i]);
+	}
 
-	for (i = ETH_CORE_DUMP_OFFSET2; i <= ETH_CORE_DUMP_OFFSET2_END; i++)/*MAC reg*/
+	for (i = ETH_CORE_DUMP_OFFSET2; i <= ETH_CORE_DUMP_OFFSET2_END; i++) { /*MAC reg*/
 		reg_space[i] = readl(ioaddr + MAC_OFFSET + (i * 4));
+		KPRINT_DEBUG1("%04x : %08x\n", i*4, reg_space[i]);
+	}
 
-	for (i = ETH_CORE_DUMP_OFFSET3; i <= ETH_CORE_DUMP_OFFSET3_END; i++)/*MTL reg*/
+	for (i = ETH_CORE_DUMP_OFFSET3; i <= ETH_CORE_DUMP_OFFSET3_END; i++) {/*MTL reg*/
 		reg_space[i] = readl(ioaddr + MAC_OFFSET + (i * 4));
+		KPRINT_DEBUG1("%04x : %08x\n", i*4, reg_space[i]);
+	}
 
 	for (i = ETH_CORE_DUMP_OFFSET4; i <= ETH_CORE_DUMP_OFFSET4_END; i++) {/*MTL TX reg*/
 		for (ch = 0; ch < 8; ch++) {
 			k = i + (0x20 * ch);
 			reg_space[k] = readl(ioaddr + MAC_OFFSET + ((0x0080 * ch) + (i * 4)));
+			KPRINT_DEBUG1("%04x : %08x\n", (0x0080 * ch) + (i * 4), reg_space[k]);
 		}
 	}
 
@@ -454,6 +538,7 @@ static void dwxgmac2_dump_regs(struct tc956xmac_priv *priv,
 		for (tc = 0; tc < 5; tc++) {
 			k = i + (0x20 * tc);
 			reg_space[k] = readl(ioaddr + MAC_OFFSET + ((0x0080 * tc) + (i * 4)));
+			KPRINT_DEBUG1("%04x : %08x\n", (0x0080 * tc) + (i * 4), reg_space[k]);
 		}
 	}
 
@@ -461,6 +546,7 @@ static void dwxgmac2_dump_regs(struct tc956xmac_priv *priv,
 		for (ch = 0; ch < 8; ch++) {
 			k = i + (0x20 * ch);
 			reg_space[k] = readl(ioaddr + MAC_OFFSET + (0x0080*ch) + (i * 4));
+			KPRINT_DEBUG1("%04x : %08x\n", (0x0080 * ch) + (i * 4), reg_space[k]);
 		}
 	}
 }
@@ -472,10 +558,7 @@ static int dwxgmac2_host_irq_status(struct tc956xmac_priv *priv,
 	void __iomem *ioaddr = hw->pcsr;
 	u32 stat, en;
 	int ret = 0;
-#ifdef EEE
-	int val;
-#endif
-
+	int val = 0;
 
 	en = readl(ioaddr + XGMAC_INT_EN);
 	stat = readl(ioaddr + XGMAC_INT_STATUS);
@@ -491,7 +574,7 @@ static int dwxgmac2_host_irq_status(struct tc956xmac_priv *priv,
 		u32 lpi = readl(ioaddr + XGMAC_LPI_CTRL);
 
 		if (lpi & XGMAC_TLPIEN) {
-			KPRINT_INFO("Transmit LPI Entry..... \n");
+			KPRINT_INFO("Transmit LPI Entry.....\n");
 			ret |= CORE_IRQ_TX_PATH_IN_LPI_MODE;
 			x->irq_tx_path_in_lpi_mode_n++;
 		}
@@ -501,11 +584,11 @@ static int dwxgmac2_host_irq_status(struct tc956xmac_priv *priv,
 			x->irq_tx_path_exit_lpi_mode_n++;
 		}
 		if (lpi & XGMAC_RLPIEN) {
-			KPRINT_INFO("Receive LPI Entry....... \n");
+			KPRINT_INFO("Receive LPI Entry.......\n");
 			x->irq_rx_path_in_lpi_mode_n++;
 		}
 		if (lpi & XGMAC_RLPIEX) {
-			KPRINT_INFO("Receive LPI Exit...... \n");
+			KPRINT_INFO("Receive LPI Exit......\n");
 			x->irq_rx_path_exit_lpi_mode_n++;
 		}
 
@@ -520,13 +603,22 @@ static int dwxgmac2_host_irq_status(struct tc956xmac_priv *priv,
 		}
 
 		val = tc956x_xpcs_read(priv->xpcsaddr, XGMAC_SR_XS_PCS_STS1);
-		if ( val & XGMAC_RX_LPI_RECEIVE)
+		if (val & XGMAC_RX_LPI_RECEIVE)
 			KPRINT_INFO("XPCS RX LPI Received......");
-		if ( val & XGAMC_TX_LPI_RECEIVE)
+		if (val & XGAMC_TX_LPI_RECEIVE)
 			KPRINT_INFO("XPCS TX LPI Received......");
 #endif
 	}
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 13, 0)
+	if (stat & XGMAC_TSIS) {
+		val = readl(ioaddr + PTP_XGMAC_OFFSET + PTP_TS_STATUS);
+		if (val & XGMAC_AUXTSTRIG) {
+			KPRINT_INFO("\n");
+			KPRINT_INFO("second: %x\n",	readl(ioaddr + PTP_XGMAC_OFFSET + PTP_ATS_SEC));
+			KPRINT_INFO("subsec(ns): %x\n", readl(ioaddr + PTP_XGMAC_OFFSET + PTP_ATS_NSEC));
+		}
+	}
+#endif
 	return ret;
 }
 
@@ -558,22 +650,27 @@ static void dwxgmac2_flow_ctrl(struct tc956xmac_priv *priv,
 	void __iomem *ioaddr = hw->pcsr;
 	u32 i, flow;
 
-	flow = 0;
+	flow = readl(ioaddr + XGMAC_RX_FLOW_CTRL);
+	flow &= ~XGMAC_RFE;
 	if (fc & FLOW_RX)
+#ifdef TC956X_SRIOV_PF
 		flow |= XGMAC_RFE;
-
+#elif defined TC956X_SRIOV_VF
+		flow |= XGMAC_RFE;
+#endif
 	writel(flow, ioaddr + XGMAC_RX_FLOW_CTRL);
 
-	flow = 0;
-	if (fc & FLOW_TX) {
-		flow |= XGMAC_TFE;
+	for (i = 0; i < tx_cnt; i++) {
+		flow = readl(ioaddr + XGMAC_Qx_TX_FLOW_CTRL(i));
+		flow &= ~(XGMAC_FCB | XGMAC_TFE | XGMAC_PT);
+		if (fc & FLOW_TX) {
+			flow |= XGMAC_TFE;
 
-		if (duplex)
-			flow |= pause_time << XGMAC_PT_SHIFT;
-	}
-
-	for (i = 0; i < tx_cnt; i++)
+			if (duplex)
+				flow |= (pause_time << XGMAC_PT_SHIFT) & XGMAC_PT;
+		}
 		writel(flow, ioaddr + XGMAC_Qx_TX_FLOW_CTRL(i));
+	}
 }
 
 #ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
@@ -681,7 +778,11 @@ static void dwxgmac2_set_eee_timer(struct tc956xmac_priv *priv,
 	void __iomem *ioaddr = hw->pcsr;
 	u32 value;
 
-	value = (tw & 0xffff) | ((ls & 0x3ff) << 16);
+	value = readl(ioaddr + XGMAC_LPI_TIMER_CTRL);
+
+	value &= ~(XGMAC_LPI_TIMER_CTRL_TWT_MASK | XGMAC_LPI_TIMER_CTRL_LST_MASK);
+	value |= ((tw & XGMAC_LPI_TIMER_CTRL_TWT_MASK)
+		| ((ls << XGMAC_LPI_TIMER_CTRL_LST_SHIFT) & XGMAC_LPI_TIMER_CTRL_LST_MASK));
 	writel(value, ioaddr + XGMAC_LPI_TIMER_CTRL);
 }
 
@@ -712,56 +813,179 @@ static void dwxgmac2_set_mchash(struct tc956xmac_priv *priv, void __iomem *ioadd
 	}
 }
 
-static void tc956x_set_dma_ch(struct tc956xmac_priv *priv, struct mac_device_info *hw, int index, int vf)
+#ifdef TC956X_SRIOV_PF
+static s32 tc956x_mac_ind_acc_wr_rd(struct tc956xmac_priv *priv, u8 wr_rd, u32 msel, u32 offset, u32 *val)
 {
-	void __iomem *ioaddr = hw->pcsr;
+	u32 reg_data, limit;
+	void __iomem *ioaddr = priv->ioaddr;
+
+	/* Wait till previous operation is complete */
+	limit = 1000;
+	while (limit--) {
+		if (!(readl(ioaddr + XGMAC_INDR_ACC_CTRL) & XGMAC_INDR_ACC_CTRL_OB))
+			break;
+		udelay(1);
+	}
+	if (limit < 0)
+		return -EBUSY;
+
+	/* Clear previous values */
+	reg_data = readl(ioaddr + XGMAC_INDR_ACC_CTRL);
+	reg_data &= (~(XGMAC_INDR_ACC_CTRL_RSVD | XGMAC_INDR_ACC_CTRL_MSEL | \
+			XGMAC_INDR_ACC_CTRL_AOFF | XGMAC_INDR_ACC_CTRL_COM | \
+			XGMAC_INDR_ACC_CTRL_AUTO));
+
+	if (wr_rd) {
+		/* Indirect Read sequence */
+
+		/* Set read params */
+		reg_data |= (msel << XGMAC_INDR_ACC_CTRL_MSEL_SHIFT) | \
+				(wr_rd << XGMAC_INDR_ACC_CTRL_COM_SHIFT) | \
+				(offset << XGMAC_INDR_ACC_CTRL_AOFF_SHIFT);
+
+		writel(reg_data, ioaddr + XGMAC_INDR_ACC_CTRL);
+
+
+		/* Start Operation */
+		reg_data |= XGMAC_INDR_ACC_CTRL_OB;
+
+		writel(reg_data, ioaddr + XGMAC_INDR_ACC_CTRL);
+
+		/* Wait for completion */
+		limit = 1000;
+		while (limit--) {
+			if (!(readl(ioaddr + XGMAC_INDR_ACC_CTRL) & XGMAC_INDR_ACC_CTRL_OB))
+				break;
+			udelay(1);
+		}
+		if (limit < 0)
+			return -EBUSY;
+
+		/* Read value */
+		*val = readl(ioaddr + XGMAC_INDR_ACC_DATA);
+
+
+	} else {
+		/* Indirect Write sequence */
+
+		/* Set write value and params */
+		writel(*val, ioaddr + XGMAC_INDR_ACC_DATA);
+
+		reg_data |= (msel << XGMAC_INDR_ACC_CTRL_MSEL_SHIFT) | \
+				(offset << XGMAC_INDR_ACC_CTRL_AOFF_SHIFT);
+
+		writel(reg_data, ioaddr + XGMAC_INDR_ACC_CTRL);
+
+		/* Start Operation */
+		reg_data |= XGMAC_INDR_ACC_CTRL_OB;
+
+		writel(reg_data, ioaddr + XGMAC_INDR_ACC_CTRL);
+
+		/* Wait for completion */
+		limit = 1000;//10000;
+		while (limit--) {
+			if (!(readl(ioaddr + XGMAC_INDR_ACC_CTRL) & XGMAC_INDR_ACC_CTRL_OB))
+				break;
+			udelay(1);
+		}
+		if (limit < 0)
+			return -EBUSY;
+
+	}
+
+	return 0;
+
+}
+
+#ifdef TC956X_SRIOV_DEBUG
+void tc956x_filter_debug(struct tc956xmac_priv *priv)
+{
+	u32 reg_data = 0, offset;
+	void __iomem *ioaddr = priv->ioaddr;
+
+	for (offset = 0; offset < 32; offset++) {
+		if (tc956x_mac_ind_acc_wr_rd(priv, XGMAC_COM_READ, XGMAC_MSEL_DCHSEL, offset, &reg_data)) {
+			netdev_err(priv->dev, "Setting XDCS Failed\n");
+			return;
+		}
+		KPRINT_INFO("%d %08x %08x %01x\n", offset, readl(ioaddr + XGMAC_ADDRx_HIGH(offset)), readl(ioaddr + XGMAC_ADDRx_LOW(offset)), reg_data);
+	}
+}
+#endif
+#ifdef TC956X_ENABLE_MAC2MAC_BRIDGE
+static void tc956x_set_dma_ch(struct tc956xmac_priv *priv, struct mac_device_info *hw, int index, int vf, bool mc_addr)
+#else
+static void tc956x_set_dma_ch(struct tc956xmac_priv *priv, struct mac_device_info *hw, int index, int vf)
+#endif
+{
 	u32 data = 0, reg_data = 0;
 
 	reg_data = 0;
-	reg_data = readl(ioaddr + XGMAC_DMA_In(index));
 
-	if (vf == 1) /* IVI */
-		data |= TC956XMAC_CHA_NO_0;
-	else if (vf == 2) /* TCU */
-		data |= TC956XMAC_CHA_NO_1;
-	else if (vf == 3) /* ADAS */
-		data |= TC956XMAC_CHA_NO_2;
-	else if (vf == PF_DRIVER) /* PF */
-		data |= TC956XMAC_CHA_NO_3;
-	else
+	if (tc956x_mac_ind_acc_wr_rd(priv, XGMAC_COM_READ, XGMAC_MSEL_DCHSEL, index, &reg_data)) {
+		netdev_err(priv->dev, "Setting XDCS Failed\n");
+		return;
+	}
+
+	if (vf == TC956XMAC_VF_IVI) /* IVI */
+		data |= TC956XMAC_CHA_IVI;
+	else if (vf == TC956XMAC_VF_TCU) /* TCU */
+		data |= TC956XMAC_CHA_TCU;
+	else if (vf == TC956XMAC_VF_ADAS) /* ADAS */
+		data |= TC956XMAC_CHA_ADAS;
+	else if (vf == PF_DRIVER) {/* PF */
+#if defined(TC956X_ENABLE_MAC2MAC_BRIDGE)
+		if (mc_addr)
+			data |= TC956XMAC_CHA_M2M;
+		data |= TC956XMAC_CHA_PF;
+
+#else
+		data |= TC956XMAC_CHA_PF;
+#endif
+	} else
 		data |= TC956XMAC_CHA_NO_0;
 
 	reg_data |= data;
 
-	writel(reg_data, ioaddr + XGMAC_DMA_In(index));
+	if (tc956x_mac_ind_acc_wr_rd(priv, XGMAC_COM_WRITE, XGMAC_MSEL_DCHSEL, index, &reg_data)) {
+		netdev_err(priv->dev, "Setting XDCS Failed\n");
+		return;
+	}
 
 }
 
 static void tc956x_del_dma_ch(struct tc956xmac_priv *priv, struct mac_device_info *hw,
 				int index, int vf)
 {
-	void __iomem *ioaddr = hw->pcsr;
 	u32 data = 0, reg_data = 0;
 
-	reg_data = readl(ioaddr + XGMAC_DMA_In(index));
 
-	if (vf == 1) /* IVI */
-		data |= TC956XMAC_CHA_NO_0;
-	else if (vf == 2) /* TCU */
-		data |= TC956XMAC_CHA_NO_1;
-	else if (vf == 3) /* ADAS */
-		data |= TC956XMAC_CHA_NO_2;
+	if (tc956x_mac_ind_acc_wr_rd(priv, XGMAC_COM_READ, XGMAC_MSEL_DCHSEL, index, &reg_data)) {
+		netdev_err(priv->dev, "Setting XDCS Failed\n");
+		return;
+	}
+
+	if (vf == TC956XMAC_VF_IVI) /* IVI */
+		data |= TC956XMAC_CHA_IVI;
+	else if (vf == TC956XMAC_VF_TCU) /* TCU */
+		data |= TC956XMAC_CHA_TCU;
+	else if (vf == TC956XMAC_VF_ADAS) /* ADAS */
+		data |= TC956XMAC_CHA_ADAS;
 	else if (vf == PF_DRIVER) /* PF */
-		data |= TC956XMAC_CHA_NO_3;
+		data |= TC956XMAC_CHA_PF;
 	else
 		data |= TC956XMAC_CHA_NO_0;
 
 	reg_data &= ~data;
 
-	writel(reg_data, ioaddr + XGMAC_DMA_In(index));
+
+	if (tc956x_mac_ind_acc_wr_rd(priv, XGMAC_COM_WRITE, XGMAC_MSEL_DCHSEL, index, &reg_data)) {
+		netdev_err(priv->dev, "Setting XDCS Failed\n");
+		return;
+	}
 }
 
-
+#endif
 
 static void tc956x_set_mac_addr(struct tc956xmac_priv *priv, struct mac_device_info *hw,
 				const u8 *mac, int index, int vf)
@@ -769,6 +993,10 @@ static void tc956x_set_mac_addr(struct tc956xmac_priv *priv, struct mac_device_i
 	void __iomem *ioaddr = hw->pcsr;
 	unsigned long data = 0;
 	u32 value;
+#ifdef TC956X_ENABLE_MAC2MAC_BRIDGE
+	u8 flow_ctrl_addr[6] = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x01};
+	bool multicast_addr = false;
+#endif
 
 	data = (mac[5] << 8) | mac[4];
 	/* For MAC Addr registers se have to set the Address Enable (AE)
@@ -785,6 +1013,20 @@ static void tc956x_set_mac_addr(struct tc956xmac_priv *priv, struct mac_device_i
 	data = (mac[3] << 24) | (mac[2] << 16) | (mac[1] << 8) | mac[0];
 	writel(data, ioaddr + XGMAC_ADDRx_LOW(index));
 
+#ifdef TC956X_SRIOV_PF
+#ifdef TC956X_ENABLE_MAC2MAC_BRIDGE
+	if (is_multicast_ether_addr(mac))
+		multicast_addr = true;
+
+	/* Route all multicast Flow control packets to PCI path */
+	if (!memcmp(&flow_ctrl_addr[0], &mac[0], TC956X_SIX))
+		multicast_addr = false;
+
+	tc956x_set_dma_ch(priv, hw, index, vf, multicast_addr);
+#else
+	tc956x_set_dma_ch(priv, hw, index, vf);
+#endif
+#endif
 }
 
 static void tc956x_del_mac_addr(struct tc956xmac_priv *priv, struct mac_device_info *hw,
@@ -795,6 +1037,18 @@ static void tc956x_del_mac_addr(struct tc956xmac_priv *priv, struct mac_device_i
 
 	writel(data, ioaddr + XGMAC_ADDRx_HIGH(index));
 	writel(data, ioaddr + XGMAC_ADDRx_LOW(index));
+
+#ifdef TC956X_SRIOV_PF
+	/*clearing the dma indirect XDCS register
+	 * when the mac address is completely deleted from the sw table
+	 */
+
+	if (tc956x_mac_ind_acc_wr_rd(priv, XGMAC_COM_WRITE, XGMAC_MSEL_DCHSEL, index, (u32 *)&data)) {
+		netdev_err(priv->dev, "Setting XDCS Failed\n");
+		return;
+	}
+#endif
+
 }
 
 static void tc956x_del_sw_mac_helper(struct tc956x_mac_addr *mac_table, int vf)
@@ -822,6 +1076,7 @@ static void tc956x_del_sw_mac_table(struct net_device *dev,
 	u32 mc_filter[2];
 	u32 nr;
 	u32 data1, data2;
+	u32 flag = 0;
 
 	void __iomem *ioaddr = (void __iomem *)dev->base_addr;
 
@@ -830,36 +1085,41 @@ static void tc956x_del_sw_mac_table(struct net_device *dev,
 		if (mac_table->status == TC956X_MAC_STATE_OCCUPIED) {
 			if (ether_addr_equal(mac, mac_table->mac_address)) {
 				tc956x_del_sw_mac_helper(mac_table, vf);
+				flag = 1;
 				break;
 			}
 		}
 	}
-	if (mac_table->counter == 0) {
-		/* deleting the crc from hast table*/
-		if (priv->l2_filtering_mode == 1) {
-			memset(mc_filter, 0, sizeof(mc_filter));
-			nr = (bitrev32(~crc32_le(~0, mac_table->mac_address, 6)) >> 26);
-			/* The most significant bit determines the register
-			 * to use while the other 5 bits determines the bit
-			 * within the selected register
-			 */
-			mc_filter[nr >> 5] |= (1 << (nr & 0x1F));
 
-			data1 = 0;
-			data1 = readl(ioaddr + XGMAC_HASH_TAB_0_31);
+	if (flag == 1) {
+		if (mac_table->counter == 0) {
+			/* deleting the crc from hast table*/
+			if (priv->l2_filtering_mode == 1) {
+				memset(mc_filter, 0, sizeof(mc_filter));
+				nr = (bitrev32(~crc32_le(~0, mac_table->mac_address, 6)) >> 26);
+				/* The most significant bit determines the register
+				 * to use while the other 5 bits determines the bit
+				 * within the selected register
+				 */
+				mc_filter[nr >> 5] |= (1 << (nr & 0x1F));
 
-			data2 = readl(ioaddr + XGMAC_HASH_TAB_32_63);
+				data1 = 0;
+				data1 = readl(ioaddr + XGMAC_HASH_TAB_0_31);
 
-			data1 &= ~mc_filter[0];
-			data2 &= ~mc_filter[1];
+				data2 = readl(ioaddr + XGMAC_HASH_TAB_32_63);
 
-			writel(data1, ioaddr + XGMAC_HASH_TAB_0_31);
-			writel(data2, ioaddr + XGMAC_HASH_TAB_32_63);
+				data1 &= ~mc_filter[0];
+				data2 &= ~mc_filter[1];
+
+				writel(data1, ioaddr + XGMAC_HASH_TAB_0_31);
+				writel(data2, ioaddr + XGMAC_HASH_TAB_32_63);
+			}
+			tc956x_del_mac_addr(priv, hw, i, vf);
+#ifdef TC956X_SRIOV_PF
+		} else {
+			tc956x_del_dma_ch(priv, hw, i, vf);
+#endif
 		}
-		tc956x_del_mac_addr(priv, hw, i, vf);
-
-	} else {
-		tc956x_del_dma_ch(priv, hw, i, vf);
 	}
 }
 
@@ -906,7 +1166,11 @@ static int tc956x_add_actual_mac_table(struct net_device *dev,
 		KPRINT_INFO("Space is not available in MAC_Table\n");
 		KPRINT_INFO("Enabling the promisc mode\n");
 		value = readl(ioaddr + XGMAC_PACKET_FILTER);
+#if defined(TC956X_SRIOV_PF) || defined(TC956X_SRIOV_VF) || defined(TC956X_AUTOMOTIVE_CONFIG) || defined(TC956X_ENABLE_MAC2MAC_BRIDGE) || defined(TC956X_CPE_CONFIG)
+		value |= XGMAC_FILTER_RA;
+#else
 		value |= XGMAC_FILTER_PR;
+#endif
 		writel(value, ioaddr + XGMAC_PACKET_FILTER);
 	}
 	return ret_value;
@@ -925,6 +1189,10 @@ static int tc956x_mac_duplication(struct tc956xmac_priv *priv,
 	     i++, mac_table++) {
 		if (mac_table->status == TC956X_MAC_STATE_OCCUPIED) {
 			if (ether_addr_equal(mac, mac_table->mac_address)) {
+				if (is_unicast_ether_addr(mac)) {
+					KPRINT_DEBUG1("%pM mac is unicast address and it cannot be duplicated\n", mac);
+					return -1;
+				}
 				for (vf_no = 0; vf_no < 4; vf_no++) {
 					if (mac_table->vf[vf_no] == 0) {
 						free_index = vf_no;
@@ -933,15 +1201,31 @@ static int tc956x_mac_duplication(struct tc956xmac_priv *priv,
 						return -1;
 					}
 				}
+#ifdef TC956X_SRIOV_PF
+					/*if vf is not found in vf[],
+					 *than add vf no, in free index
+					 *of vf[]
+					 */
+					KPRINT_DEBUG1(KERN_DEBUG "%d offset %pM mac duplication\n", i, mac);
+					mac_table->vf[free_index] = vf;
+					mac_table->counter++;
+#ifdef TC956X_ENABLE_MAC2MAC_BRIDGE
+					tc956x_set_dma_ch(priv, hw, i, vf, false);
+#else
+					tc956x_set_dma_ch(priv, hw, i, vf);
+#endif
+					ret_value = TC956X_MAC_STATE_MODIFIED;
+					return ret_value;
+#elif defined TC956X_SRIOV_VF
 				/*if vf is not found in vf[],
 				 *than add vf no, in free index
 				 *of vf[]
 				 */
 				mac_table->vf[free_index] = vf;
 				mac_table->counter++;
-				tc956x_set_dma_ch(priv, hw, i, vf);
 				ret_value = TC956X_MAC_STATE_MODIFIED;
 				return ret_value;
+#endif
 			}
 		}
 	}
@@ -974,11 +1258,21 @@ static int tc956x_add_sw_mac_table(struct net_device *dev, const u8 *mac, int vf
 	u32 value = readl(ioaddr + XGMAC_PACKET_FILTER);
 	unsigned int reg_value;
 	int ret_value = 0;
+#if defined(TC956X_SRIOV_PF)
+	u32 value_extended = readl(ioaddr + XGMAC_EXTENDED_REG);
+#endif
 
+#ifndef TC956X_ENABLE_MAC2MAC_BRIDGE
 	value &= ~(XGMAC_FILTER_PR | XGMAC_FILTER_HMC | XGMAC_FILTER_PM
 				| XGMAC_FILTER_RA);
+#endif
 	value |= XGMAC_FILTER_HPF;
 	writel(value, ioaddr + XGMAC_PACKET_FILTER);
+
+#if defined(TC956X_SRIOV_PF)
+	value_extended |= XGMAC_FILTER_DDS;
+	writel(value_extended, ioaddr + XGMAC_EXTENDED_REG);
+#endif
 
 	if (priv->l2_filtering_mode == 1) {
 		value |= XGMAC_FILTER_HMC;
@@ -1002,11 +1296,51 @@ static int tc956x_add_sw_mac_table(struct net_device *dev, const u8 *mac, int vf
 	return ret_value;
 }
 
+#ifdef TC956X_SRIOV_PF
+int tc956x_pf_set_mac_filter(struct net_device *dev,
+				int vf, const u8 *mac)
+{
+
+	if (tc956x_add_sw_mac_table(dev, mac, vf) >= 0)
+		return 0;
+	else
+		return -EPERM;
+}
+
+void tc956x_pf_del_mac_filter(struct net_device *dev,
+	int vf, const u8 *mac)
+{
+	tc956x_del_sw_mac_table(dev, mac, vf);
+}
+
+void tc956x_pf_del_umac_addr(struct tc956xmac_priv *priv,
+				int index, int vf)
+{
+	struct mac_device_info *hw = priv->hw;
+
+	tc956x_del_mac_addr(priv, hw, index, vf);
+	tc956x_del_dma_ch(priv, hw, 0, vf);
+}
+#endif
+
+#ifdef TC956X_SRIOV_PF
+int tc956x_add_mac_addr(struct net_device *dev, const unsigned char *mac)
+#elif defined TC956X_SRIOV_VF
 static int tc956x_add_mac_addr(struct net_device *dev, const unsigned char *mac)
+#endif
 {
 	int ret_value;
+#if defined(TC956X_SRIOV_PF) && defined(TC956X_SRIOV_LOCK)
+	struct tc956xmac_priv *priv = netdev_priv(dev);
+	unsigned long flags;
 
+	spin_lock_irqsave(&priv->spn_lock.mac_filter, flags);
+#endif
 	ret_value = tc956x_add_sw_mac_table(dev, mac, PF_DRIVER);
+
+#if defined(TC956X_SRIOV_PF) && defined(TC956X_SRIOV_LOCK)
+	spin_unlock_irqrestore(&priv->spn_lock.mac_filter, flags);
+#endif
 
 	return ret_value;
 }
@@ -1014,8 +1348,19 @@ static int tc956x_add_mac_addr(struct net_device *dev, const unsigned char *mac)
 static int tc956x_delete_mac_addr(struct net_device *dev,
 	const unsigned char *mac)
 {
+#if defined(TC956X_SRIOV_PF) && defined(TC956X_SRIOV_LOCK)
+	unsigned long flags;
+	struct tc956xmac_priv *priv = netdev_priv(dev);
+
+	spin_lock_irqsave(&priv->spn_lock.mac_filter, flags);
+#endif
 
 	tc956x_del_sw_mac_table(dev, mac, PF_DRIVER);
+
+#if defined(TC956X_SRIOV_PF) && defined(TC956X_SRIOV_LOCK)
+	spin_unlock_irqrestore(&priv->spn_lock.mac_filter, flags);
+#endif
+
 
 	return 0;
 }
@@ -1026,18 +1371,25 @@ static void dwxgmac2_set_filter(struct tc956xmac_priv *priv, struct mac_device_i
 	u32 value = readl(ioaddr + XGMAC_PACKET_FILTER);
 	u32 i;
 
+#ifndef TC956X_ENABLE_MAC2MAC_BRIDGE
 	value &= ~(XGMAC_FILTER_PR | XGMAC_FILTER_HMC | XGMAC_FILTER_PM |
-		   XGMAC_FILTER_RA| BIT(6) | BIT(7));
+		   XGMAC_FILTER_RA);
+#endif
 	value |= XGMAC_FILTER_HPF;
+#ifndef TC956X_SRIOV_VF
 	/* Configuring to Pass all pause frames to application, PHY pause frames will be filtered by FRP */
-	if ((mac0_filter_phy_pause == ENABLE && priv->port_num == RM_PF0_ID) ||
-	   (mac1_filter_phy_pause == ENABLE && priv->port_num == RM_PF1_ID)) {
+	if (priv->plat->filter_phy_pause == ENABLE) {
 		/* setting pcf to 0b10 i.e. pass pause frames of address filter fail to Application */
 		value |= 0x80;
 	}
+#endif
 	writel(value, ioaddr + XGMAC_PACKET_FILTER);
 	if (dev->flags & IFF_PROMISC) {
+#if defined(TC956X_SRIOV_PF) || defined(TC956X_SRIOV_VF) || defined(TC956X_AUTOMOTIVE_CONFIG) || defined(TC956X_ENABLE_MAC2MAC_BRIDGE) || defined(TC956X_CPE_CONFIG)
+		value |= XGMAC_FILTER_RA;
+#else
 		value |= XGMAC_FILTER_PR;
+#endif
 		writel(value, ioaddr + XGMAC_PACKET_FILTER);
 	} else if (dev->flags & IFF_ALLMULTI) {
 		value |= XGMAC_FILTER_PM;
@@ -1160,6 +1512,30 @@ static void tc956x_vlan_addr_reg(struct tc956xmac_priv *priv, struct mac_device_
 	void __iomem *ioaddr = hw->pcsr;
 	unsigned long data = 0;
 
+#if defined(TC956X_SRIOV_PF) | defined(TC956X_SRIOV_VF)
+	data = 0;
+	data |= VLAN;
+	data |= XGMAC_VLAN_EN;
+	data |= XGMAC_VLAN_ETV_DATA;
+	data &= ~XGMAC_VLAN_DMACHE;
+	writel(data, ioaddr + XGMAC_VLAN_TAG_DATA);
+
+	data = 0;
+#ifdef TC956X_SRIOV_PF
+	data = readl(ioaddr + XGMAC_VLAN_TAG_CTRL);
+#endif
+	data &= ~XGMAC_ADDR_OFFSET;
+	data |= (count << XGMAC_ADDR_OFFSET_LPOS);
+	data &= ~XGMAC_VLAN_CT;/*write command*/
+	data |= XGMAC_VLAN_OB;
+
+	writel(data, ioaddr + XGMAC_VLAN_TAG_CTRL);
+
+	do {
+		data = readl(ioaddr + XGMAC_VLAN_TAG_CTRL) & XGMAC_VLAN_OB;
+	} while (data);
+
+#else
 	data = readl(ioaddr + XGMAC_VLAN_TAG_DATA);
 	data |= VLAN;
 	data |= XGMAC_VLAN_EN;
@@ -1180,6 +1556,7 @@ static void tc956x_vlan_addr_reg(struct tc956xmac_priv *priv, struct mac_device_
 		data = readl(ioaddr + XGMAC_VLAN_TAG_CTRL) & XGMAC_VLAN_OB;
 	} while (data);
 
+#endif
 
 }
 
@@ -1440,6 +1817,23 @@ static void dwxgmac2_update_vlan_hash(struct tc956xmac_priv *priv,
 		ret_value = tc956x_add_actual_vlan_table(dev, vid, vf);
 
 }
+
+#ifdef TC956X_SRIOV_PF
+
+void tc956x_pf_set_vlan_filter(struct net_device *dev, u16 vf, u16 vid)
+{
+	struct tc956xmac_priv *priv = netdev_priv(dev);
+
+	dwxgmac2_update_vlan_hash(priv, dev, 0, vid, vf);
+}
+
+void tc956x_pf_del_vlan_filter(struct net_device *dev, u16 vf, u16 vid)
+{
+	struct tc956xmac_priv *priv = netdev_priv(dev);
+
+	tc956x_del_sw_vlan_table(priv, dev, vid, vf);
+}
+#endif
 
 struct dwxgmac3_error_desc {
 	bool valid;
@@ -1732,13 +2126,24 @@ static int dwxgmac3_safety_feat_dump(struct tc956xmac_priv *priv,
 		*desc = dwxgmac3_all_errors[module].desc[offset].desc;
 	return 0;
 }
-
+#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 static int dwxgmac3_rxp_disable(struct tc956xmac_priv *priv, void __iomem *ioaddr)
 {
+	int limit;
 	u32 val = readl(ioaddr + XGMAC_MTL_OPMODE);
 
 	val &= ~XGMAC_FRPE;
 	writel(val, ioaddr + XGMAC_MTL_OPMODE);
+
+	limit = 10000;
+	while (limit--) {
+		if (!(readl(ioaddr + XGMAC_MTL_RXP_CONTROL_STATUS) & XGMAC_RXPI))
+			break;
+		udelay(1);
+	}
+
+	if (limit < 0)
+		return -EBUSY;
 
 	return 0;
 }
@@ -1833,7 +2238,6 @@ dwxgmac3_rxp_get_next_entry(struct tc956xmac_tc_entry *entries,
 		return &entries[min_prio_idx];
 	return NULL;
 }
-#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 
 static int dwxgmac2_rx_parser_write_entry(struct tc956xmac_priv *priv, struct mac_device_info *hw,
 		struct tc956xmac_rx_parser_entry *entry, int entry_pos)
@@ -1883,39 +2287,6 @@ static int dwxgmac2_rx_parser_write_entry(struct tc956xmac_priv *priv, struct ma
 	return 0;
 }
 
-static void dwxgmac2_rx_parser_enable(struct tc956xmac_priv *priv, struct mac_device_info *hw)
-{
-	void __iomem *ioaddr = hw->pcsr;
-	u32 value;
-
-	value = readl(ioaddr + XGMAC_MTL_OPMODE);
-	value |= XGMAC_FRPE;
-	writel(value, ioaddr + XGMAC_MTL_OPMODE);
-}
-
-static int dwxgmac2_rx_parser_disable(struct tc956xmac_priv *priv, struct mac_device_info *hw)
-{
-	void __iomem *ioaddr = hw->pcsr;
-	u32 value;
-	int limit;
-
-	value = readl(ioaddr + XGMAC_MTL_OPMODE);
-	value &= ~XGMAC_FRPE;
-	writel(value, ioaddr + XGMAC_MTL_OPMODE);
-
-	limit = 10000;
-	while (limit--) {
-		if (!(readl(ioaddr + XGMAC_MTL_RXP_CONTROL_STATUS) & XGMAC_RXPI))
-			break;
-		udelay(1);
-	}
-
-	if (limit < 0)
-		return -EBUSY;
-
-	return 0;
-}
-
 static int dwxgmac2_rx_parser_config(struct tc956xmac_priv *priv, struct mac_device_info *hw,
 				     struct tc956xmac_rx_parser_cfg *cfg)
 {
@@ -1925,9 +2296,10 @@ static int dwxgmac2_rx_parser_config(struct tc956xmac_priv *priv, struct mac_dev
 
 	if (cfg->npe <= 0 || cfg->nve <= 0)
 		return -EINVAL;
-
-	value = (cfg->npe - 1) << 16;
-	value |= (cfg->nve - 1) << 0;
+	value = readl(ioaddr + XGMAC_MTL_RXP_CONTROL_STATUS);
+	value &= ~(XGMAC_NPE | XGMAC_NVE);
+	value |= (((cfg->npe - 1) << 16) & XGMAC_NPE);
+	value |= (((cfg->nve - 1) << 0) & XGMAC_NVE);
 	writel(value, ioaddr + XGMAC_MTL_RXP_CONTROL_STATUS);
 
 	for (i = 0; i < cfg->nve; i++) {
@@ -1960,7 +2332,7 @@ static int dwxgmac2_rx_parser_init(struct tc956xmac_priv *priv,
 	writel(value, ioaddr + XGMAC_RX_CONFIG);
 
 	/* Disable RX Parser */
-	ret = dwxgmac2_rx_parser_disable(priv, hw);
+	ret = dwxgmac3_rxp_disable(priv, ioaddr);
 	if (ret) {
 		netdev_err(ndev, "Failed to disable RX Parser\n");
 		return ret;
@@ -1981,7 +2353,7 @@ static int dwxgmac2_rx_parser_init(struct tc956xmac_priv *priv,
 	}
 
 	/* Enable RX Parser */
-	dwxgmac2_rx_parser_enable(priv, hw);
+	dwxgmac3_rxp_enable(priv, ioaddr);
 
 	/* Restore RX to previous state */
 	writel(old_value, ioaddr + XGMAC_RX_CONFIG);
@@ -1989,7 +2361,6 @@ static int dwxgmac2_rx_parser_init(struct tc956xmac_priv *priv,
 	netdev_info(ndev, "Enabling RX Parser\n");
 	return 0;
 }
-#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 static int dwxgmac3_rxp_config(struct tc956xmac_priv *priv, void __iomem *ioaddr,
 			       struct tc956xmac_tc_entry *entries,
 			       unsigned int count)
@@ -2093,6 +2464,7 @@ static int dwxgmac2_get_mac_tx_timestamp(struct tc956xmac_priv *priv,
 	return 0;
 }
 
+#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 static int dwxgmac2_flex_pps_config(struct tc956xmac_priv *priv,
 				    void __iomem *ioaddr, int index,
 				    struct tc956xmac_pps_cfg *cfg, bool enable,
@@ -2273,7 +2645,9 @@ static int dwxgmac2_filter_read(struct tc956xmac_priv *priv, struct mac_device_i
 	if (ret)
 		return ret;
 
-	value = ((filter_no << XGMAC_IDDR_FNUM) | reg) << XGMAC_IDDR_SHIFT;
+	value = readl(ioaddr + XGMAC_L3L4_ADDR_CTRL);
+	value &= ~XGMAC_IDDR;
+	value |= (((filter_no << XGMAC_IDDR_FNUM) | reg) << XGMAC_IDDR_SHIFT) & XGMAC_IDDR;
 	value |= XGMAC_TT | XGMAC_XB;
 	writel(value, ioaddr + XGMAC_L3L4_ADDR_CTRL);
 
@@ -2298,7 +2672,9 @@ static int dwxgmac2_filter_write(struct tc956xmac_priv *priv, struct mac_device_
 
 	writel(data, ioaddr + XGMAC_L3L4_DATA);
 
-	value = ((filter_no << XGMAC_IDDR_FNUM) | reg) << XGMAC_IDDR_SHIFT;
+	value = readl(ioaddr + XGMAC_L3L4_ADDR_CTRL);
+	value &= ~(XGMAC_TT | XGMAC_IDDR);
+	value |= (((filter_no << XGMAC_IDDR_FNUM) | reg) << XGMAC_IDDR_SHIFT) & XGMAC_IDDR;
 	value |= XGMAC_XB;
 	writel(value, ioaddr + XGMAC_L3L4_ADDR_CTRL);
 
@@ -2377,6 +2753,10 @@ static void dwxgmac2_debug(struct tc956xmac_priv *priv, void __iomem *ioaddr,
 	u32 queue;
 
 	for (queue = 0; queue < tx_queues; queue++) {
+#ifdef TC956X_SRIOV_VF
+		if (priv->plat->tx_q_in_use[queue] == 0)
+			continue;
+#endif
 		value = readl(ioaddr + XGMAC_MTL_TXQ_Debug(queue));
 
 		if (value & XGMAC_MTL_DEBUG_TXQSTS)
@@ -2400,6 +2780,10 @@ static void dwxgmac2_debug(struct tc956xmac_priv *priv, void __iomem *ioaddr,
 	}
 
 	for (queue = 0; queue < rx_queues; queue++) {
+#ifdef TC956X_SRIOV_VF
+		if (priv->plat->rx_q_in_use[queue] == 0)
+			continue;
+#endif
 		value = readl(ioaddr + XGMAC_MTL_RXQ_Debug(queue));
 
 		if (value & XGMAC_MTL_DEBUG_RXQSTS_MASK) {
@@ -2530,6 +2914,7 @@ static void dwxgmac2_set_arp_offload(struct tc956xmac_priv *priv,
 		value &= ~XGMAC_CONFIG_ARPEN;
 	writel(value, ioaddr + XGMAC_RX_CONFIG);
 }
+#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 
 #ifdef DEBUG_TSN
 static int dwxgmac3_est_read(struct tc956xmac_priv *priv, void __iomem *ioaddr, u32 reg, u32 *val, bool gcl)
@@ -2537,7 +2922,7 @@ static int dwxgmac3_est_read(struct tc956xmac_priv *priv, void __iomem *ioaddr, 
 	u32 ctrl = 0x0;
 
 #ifdef GCL_PRINT
-	static unsigned int count = 0;
+	static unsigned int count;
 
 	if (count % 8000 == 0) {
 		if (readl(ioaddr + XGMAC_MTL_EST_STATUS) & XGMAC_SWOL)
@@ -2599,7 +2984,7 @@ static int dwxgmac3_est_configure(struct tc956xmac_priv *priv,
 #if defined(TX_LOGGING_TRACE)
 	int j;
 	u64 read_btr = 0, read_ctr = 0;
-	static u32 switch_cnt = 0;
+	static u32 switch_cnt;
 	char *qptr = NULL, *pptr = NULL;
 	int char_buff_size = 100*100;
 
@@ -2615,6 +3000,14 @@ static int dwxgmac3_est_configure(struct tc956xmac_priv *priv,
 		return -ENOMEM;
 	}
 #endif
+
+	if (!cfg->enable) {
+		/* Disable EST */
+		ctrl = readl(ioaddr + XGMAC_MTL_EST_CONTROL);
+		ctrl &= ~XGMAC_EEST;
+		writel(ctrl, ioaddr + XGMAC_MTL_EST_CONTROL);
+		return 0;
+	}
 
 	ret |= dwxgmac3_est_write(priv, ioaddr, XGMAC_BTR_LOW, cfg->btr[0], false);
 	ret |= dwxgmac3_est_write(priv, ioaddr, XGMAC_BTR_HIGH, cfg->btr[1], false);
@@ -2651,8 +3044,8 @@ static int dwxgmac3_est_configure(struct tc956xmac_priv *priv,
 						PACKET_IPG, PACKET_CDT_IPG);
 			for (i = 0; i < cfg->gcl_size; i++) {
 				scnprintf((pptr+(i*11)), char_buff_size - (i*11), ",%010d", (cfg->gcl[i]&0xffffff));
-				for (j = 0; j < 6; j++) {
-					scnprintf((qptr+(i*6*2)+(j*2)), char_buff_size - (i*6*2) + (j*2), ",%d",
+				for (j = 0; j < MTL_MAX_TX_TC; j++) {
+					scnprintf((qptr+(i*5*2)+(j*2)), char_buff_size - (i*5*2) + (j*2), ",%d",
 						((cfg->gcl[i]>>(24+j))&0x1));
 				}
 			}
@@ -2674,10 +3067,7 @@ static int dwxgmac3_est_configure(struct tc956xmac_priv *priv,
 	ctrl = readl(ioaddr + XGMAC_MTL_EST_CONTROL);
 	ctrl &= ~XGMAC_PTOV;
 	ctrl |= ((1000000000 / ptp_rate) * 9) << XGMAC_PTOV_SHIFT;
-	if (cfg->enable)
-		ctrl |= XGMAC_EEST | XGMAC_SSWL;
-	else
-		ctrl &= ~XGMAC_EEST;
+	ctrl |= XGMAC_EEST | XGMAC_SSWL;
 
 	writel(ctrl, ioaddr + XGMAC_MTL_EST_CONTROL);
 
@@ -2723,14 +3113,27 @@ static void dwxgmac3_fpe_configure(struct tc956xmac_priv *priv,
 
 	value = readl(ioaddr + XGMAC_RXQ_CTRL1);
 	value &= ~XGMAC_RQ;
-	value |= (num_rxq - 1) << XGMAC_RQ_SHIFT;
+	value |= ((num_rxq - 1) << XGMAC_RQ_SHIFT) & XGMAC_RQ;
 	writel(value, ioaddr + XGMAC_RXQ_CTRL1);
+
+	value = readl(priv->ioaddr + XGMAC_MTL_FPE_CTRL_STS);
+	value &= ~(XGMAC_MTL_FPE_PEC_MASK | XGMAC_MTL_FPE_AFSZ_MASK);
+	value |= ((enable << XGMAC_MTL_FPE_PEC_SHIFT) & XGMAC_MTL_FPE_PEC_MASK) |
+			(XGMAC_AFSZ_64BYTES & XGMAC_MTL_FPE_AFSZ_MASK);
+	writel(value, priv->ioaddr + XGMAC_MTL_FPE_CTRL_STS);
+
+	value = readl(priv->ioaddr + XGMAC_MTL_FPE_ADVANCE);
+	value &= ~(XGMAC_MTL_FPE_HOLD_ADVANCE_MASK | XGMAC_MTL_FPE_RELEASE_ADVANCE_MASK);
+	value |= ((XGMAC_RADV << XGMAC_MTL_FPE_ADVANCE_SHIFT) & XGMAC_MTL_FPE_RELEASE_ADVANCE_MASK) |
+			(XGMAC_HADV & XGMAC_MTL_FPE_HOLD_ADVANCE_MASK);
+	writel(value, priv->ioaddr + XGMAC_MTL_FPE_ADVANCE);
 
 	value = readl(ioaddr + XGMAC_FPE_CTRL_STS);
 	value |= XGMAC_EFPE;
 	writel(value, ioaddr + XGMAC_FPE_CTRL_STS);
 }
 
+#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 static void dwxgmac3_set_ptp_offload(struct tc956xmac_priv *priv,
 					void __iomem *ioaddr, bool en)
 {
@@ -2792,9 +3195,7 @@ const struct tc956xmac_ops dwxgmac210_ops = {
 	.prog_mtl_tx_algorithms = dwxgmac2_prog_mtl_tx_algorithms,
 	.set_mtl_tx_queue_weight = dwxgmac2_set_mtl_tx_queue_weight,
 	.map_mtl_to_dma = dwxgmac2_map_mtl_to_dma,
-#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 	.config_cbs = dwxgmac2_config_cbs,
-#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 	.dump_regs = dwxgmac2_dump_regs,
 	.host_irq_status = dwxgmac2_host_irq_status,
 	.host_mtl_irq_status = dwxgmac2_host_mtl_irq_status,
@@ -2811,9 +3212,11 @@ const struct tc956xmac_ops dwxgmac210_ops = {
 	.pcs_ctrl_ane = NULL,
 	.pcs_rane = NULL,
 	.pcs_get_adv_lp = NULL,
+#ifndef TC956X_SRIOV_VF
 #ifdef TC956X
 	.xpcs_init = tc956x_xpcs_init,
 	.xpcs_ctrl_ane = tc956x_xpcs_ctrl_ane,
+#endif
 #endif
 	.debug = dwxgmac2_debug,
 	.set_filter = dwxgmac2_set_filter,
@@ -2831,9 +3234,9 @@ const struct tc956xmac_ops dwxgmac210_ops = {
 	.update_vlan_hash = dwxgmac2_update_vlan_hash,
 	.delete_vlan = tc956x_del_sw_vlan_table,
 	.rx_parser_init = dwxgmac2_rx_parser_init,
-#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 	.rxp_config = dwxgmac3_rxp_config,
 	.get_mac_tx_timestamp = dwxgmac2_get_mac_tx_timestamp,
+#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 	.flex_pps_config = dwxgmac2_flex_pps_config,
 	.sarc_configure = dwxgmac2_sarc_configure,
 #endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
@@ -2849,7 +3252,9 @@ const struct tc956xmac_ops dwxgmac210_ops = {
 	.config_l3_filter = dwxgmac2_config_l3_filter,
 	.config_l4_filter = dwxgmac2_config_l4_filter,
 	.set_arp_offload = dwxgmac2_set_arp_offload,
+#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 	.est_configure = dwxgmac3_est_configure,
+#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 	.fpe_configure = dwxgmac3_fpe_configure,
 	.set_ptp_offload = dwxgmac3_set_ptp_offload,
 #endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */

@@ -5,7 +5,7 @@
  *                        HW timestamp & PTP.
  *
  * Copyright (C) 2013  Vayavya Labs Pvt Ltd
- * Copyright (C) 2021 Toshiba Electronic Devices & Storage Corporation
+ * Copyright (C) 2024 Toshiba Electronic Devices & Storage Corporation
  *
  * This file has been derived from the STMicro and Vayavya Linux driver,
  * and developed or modified for TC956X.
@@ -31,13 +31,22 @@
  *
  *  15 Mar 2021 : Base lined
  *  VERSION     : 01-00
+ *
+ *  17 Jan 2024 : 1. Added Support for external timestamp event.
+ *  VERSION     : 04-00
  */
 
 #include <linux/io.h>
 #include <linux/delay.h>
 #include "common.h"
 #include "tc956xmac_ptp.h"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
+#include <linux/ptp_clock_kernel.h>
+#include "tc956xmac.h"
+#include "dwxgmac2.h"
+#endif
 
+#ifdef TC956X_SRIOV_PF
 static u32 tc956xmac_get_ptp_subperiod(struct tc956xmac_priv *priv, void __iomem *ioaddr, u32 ptp_clock);
 static u32 tc956xmac_get_ptp_period(struct tc956xmac_priv *priv, void __iomem *ioaddr, u32 ptp_clock);
 
@@ -59,8 +68,6 @@ static void config_sub_second_increment(struct tc956xmac_priv *priv,
 	u64 temp_quot;
 	u32 temp_rem;
 #endif
-
-	/*KPRINT_INFO("--> %s\n", __func__);*/
 
 	ns = tc956xmac_get_ptp_period(priv, ioaddr, ptp_clock);
 	subns = tc956xmac_get_ptp_subperiod(priv, ioaddr, ptp_clock);
@@ -153,7 +160,6 @@ static int config_addend(struct tc956xmac_priv *priv, void __iomem *ioaddr, u32 
 	return 0;
 }
 
-#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 static int adjust_systime(struct tc956xmac_priv *priv, void __iomem *ioaddr,
 				u32 sec, u32 nsec, int add_sub, int gmac4)
 {
@@ -196,7 +202,7 @@ static int adjust_systime(struct tc956xmac_priv *priv, void __iomem *ioaddr,
 
 	return 0;
 }
-
+#endif
 static void get_systime(struct tc956xmac_priv *priv, void __iomem *ioaddr, u64 *systime)
 {
 
@@ -224,8 +230,7 @@ static void get_systime(struct tc956xmac_priv *priv, void __iomem *ioaddr, u64 *
 		*systime = ns;
 
 }
-#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
-
+#ifdef TC956X_SRIOV_PF
 static u32 tc956xmac_get_ptp_period(struct tc956xmac_priv *priv, void __iomem *ioaddr, u32 ptp_clock)
 {
 	u32 value = readl(ioaddr + PTP_TCR);
@@ -233,7 +238,6 @@ static u32 tc956xmac_get_ptp_period(struct tc956xmac_priv *priv, void __iomem *i
 #ifndef CONFIG_ARCH_DMA_ADDR_T_64BIT
 	u32 remainder;
 #endif
-	/*KPRINT_INFO( "--> %s\n", __func__);*/
 
 	/* For GMAC3.x, 4.x versions, convert the ptp_clock to nano second
 	 *	formula = (1/ptp_clock) * 1000000000
@@ -254,7 +258,6 @@ static u32 tc956xmac_get_ptp_period(struct tc956xmac_priv *priv, void __iomem *i
 		data = (1000000000ULL / 250000000);
 #endif
 
-	/*KPRINT_INFO("<-- %s\n", __func__);*/
 	return (u32)data;
 }
 
@@ -265,7 +268,6 @@ static u32 tc956xmac_get_ptp_subperiod(struct tc956xmac_priv *priv, void __iomem
 #ifndef CONFIG_ARCH_DMA_ADDR_T_64BIT
 	u32 remainder;
 #endif
-	/*KPRINT_INFO( "--> %s\n", __func__);*/
 
 	/* For GMAC3.x, 4.x versions, convert the ptp_clock to nano second
 	 *	formula = (1/ptp_clock) * 1000000000
@@ -285,17 +287,83 @@ static u32 tc956xmac_get_ptp_subperiod(struct tc956xmac_priv *priv, void __iomem
 		data = (1000000000ULL * 1000ULL / 250000000);
 #endif
 
-	/*KPRINT_INFO( "<-- %s\n", __func__);*/
 	return  data - tc956xmac_get_ptp_period(priv, ioaddr, ptp_clock) * 1000;
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
+/*Added Support for external timestamp event */
+static void get_ptptime(void __iomem *ptpaddr, u64 *ptp_time)
+{
+	u64 ns;
+
+	ns = readl(ptpaddr + PTP_ATNR);
+	ns += readl(ptpaddr + PTP_ATSR) * NSEC_PER_SEC;
+
+	*ptp_time = ns;
+}
+
+static void timestamp_interrupt(struct tc956xmac_priv *priv, void __iomem *ioaddr)
+{
+	u32 num_snapshot, ts_status, tsync_int;
+	struct ptp_clock_event event;
+	unsigned long flags;
+	u64 ptp_time;
+	int i;
+	u32 aux_ctrl = 0;
+
+	tsync_int = readl(priv->ioaddr + XGMAC_INT_STATUS) & XGMAC_TSIS;
+
+	if (!tsync_int)
+		return;
+
+	/* Read timestamp status to clear interrupt from either external
+	 * timestamp or start/end of PPS.
+	 */
+	ts_status = readl(priv->ioaddr + XGMAC_TIMESTAMP_STATUS);
+	aux_ctrl = (readl(priv->ioaddr + XGMAC_MAC_AUX_CTRL)) & 0xF0;
+	if (!aux_ctrl)
+		return;
+
+	num_snapshot = (ts_status & MAC_TS_ATSNS_MASK) >>
+		       MAC_TS_ATSNS_SHIFT;
+
+	for (i = 0; i < num_snapshot; i++) {
+		spin_lock_irqsave(&priv->ptp_lock, flags);
+		get_ptptime(priv->ptpaddr, &ptp_time);
+		spin_unlock_irqrestore(&priv->ptp_lock, flags);
+		event.type = PTP_CLOCK_EXTTS;
+		event.index = 0;
+		event.timestamp = ptp_time;
+		ptp_clock_event(priv->ptp_clock, &event);
+	}
+}
+#endif
 
 const struct tc956xmac_hwtimestamp tc956xmac_ptp = {
 	.config_hw_tstamping = config_hw_tstamping,
 	.init_systime = init_systime,
 	.config_sub_second_increment = config_sub_second_increment,
 	.config_addend = config_addend,
-#ifdef TC956X_UNSUPPORTED_UNTESTED_FEATURE
 	.adjust_systime = adjust_systime,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
+/*Added Support for external timestamp event */
+	.get_ptptime = get_ptptime,
+	.timestamp_interrupt = timestamp_interrupt,
+#endif
 	.get_systime = get_systime,
-#endif /* TC956X_UNSUPPORTED_UNTESTED_FEATURE */
 };
+#else
+const struct tc956xmac_hwtimestamp tc956xmac_ptp = {
+	.config_hw_tstamping = NULL,
+	.init_systime = NULL,
+	.config_sub_second_increment = NULL,
+	.config_addend = NULL,
+	.adjust_systime = NULL,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 13, 0)
+	.get_ptptime = NULL,
+	.timestamp_interrupt = NULL,
+#endif
+	.get_systime = get_systime,
+};
+#endif
+
