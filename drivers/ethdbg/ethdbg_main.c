@@ -160,6 +160,31 @@ static void unregister_interface_phy(struct ethdbg_interface *iface)
 	iface->device->phy_registered = false;
 }
 
+static void register_interface_res(struct ethdbg_interface *iface)
+{
+	/* PHY is not valid at NETDEV_REGISTER, attach it now */
+	register_interface_phy(iface);
+
+	/*
+	 * DMA descriptor rings are allocated by stmmac_open(), which
+	 * completes before NETDEV_UP is delivered. Register the VA-minidump
+	 * panic notifier now so rings are captured on panic.
+	 */
+	ethdbg_stmmac_va_md_register(iface->device,
+				     iface->interface_name);
+}
+
+static void unregister_interface_res(struct ethdbg_interface *iface)
+{
+	/*
+	 * Unregister the VA-minidump panic notifier when the last interface
+	 * goes down. If other interfaces are still active it remains
+	 * registered to cover their descriptor rings.
+	 */
+	ethdbg_stmmac_va_md_unregister(iface->device,
+				       iface->interface_name);
+}
+
 static void free_map_regions(struct ethdbg_device *dev)
 {
 	struct ethdbg_map *map, *tmp;
@@ -269,8 +294,10 @@ static int ethdbg_netdev_event(struct notifier_block *nb,
 		register_interface_device(iface, net_dev);
 		break;
 	case NETDEV_UP:
-		/* phydev is not valid at NETDEV_REGISTER.So, register PHY devices after PHY attach */
-		register_interface_phy(iface);
+		register_interface_res(iface);
+		break;
+	case NETDEV_DOWN:
+		unregister_interface_res(iface);
 		break;
 	case NETDEV_UNREGISTER:
 		netdev_info(net_dev, "Unregistering ethdbg device\n");
