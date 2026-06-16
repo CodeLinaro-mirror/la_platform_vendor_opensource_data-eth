@@ -21,6 +21,12 @@
 
 #define ETHDBG_VA_MD_NAME	"eth_mini"
 
+/* Defined in ethdbg_ioss.c */
+void ethdbg_ipa_capture_rx_queue(struct stmmac_priv *priv,
+				  const char *ifname, unsigned int q);
+void ethdbg_ipa_capture_tx_queue(struct stmmac_priv *priv,
+				  const char *ifname, unsigned int q);
+
 void ethdbg_stmmac_minidump_register(struct ethdbg_device *dev,
 				     const char *interface_name)
 {
@@ -104,11 +110,117 @@ void ethdbg_stmmac_minidump_unregister(struct ethdbg_device *dev,
 }
 
 /*
- * VA-minidump panic notifier for SW DMA descriptor rings.
+ * ethdbg_sw_capture_rx_queue - Capture one SW-managed RX descriptor queue
+ * @priv:  stmmac private data
+ * @iface: ethdbg interface, used for region naming
+ * @q:     RX queue index
+ *
+ * Registers the SW-path RX descriptor ring for queue @q with VA-minidump.
+ * Region is named "<ifname>:rx<q>des". Skipped silently if the descriptor
+ * base address is NULL.
+ */
+static void ethdbg_sw_capture_rx_queue(struct stmmac_priv *priv,
+				       struct ethdbg_interface *iface,
+				       unsigned int q)
+{
+	struct va_md_entry entry;
+	int ret;
+
+	if (priv->extend_desc) {
+		entry.vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_erx;
+		entry.size  = priv->dma_conf.dma_rx_size *
+			      sizeof(struct dma_extended_desc);
+	} else {
+		entry.vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_rx;
+		entry.size  = priv->dma_conf.dma_rx_size * sizeof(struct dma_desc);
+	}
+
+	if (!entry.vaddr || !entry.size)
+		return;
+
+	scnprintf(entry.owner, sizeof(entry.owner), "%s-rx%u",
+			  iface->interface_name, q);
+
+	ret = qcom_va_md_add_region(&entry);
+	if (ret)
+		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
+		       entry.owner, ret);
+}
+
+/*
+ * ethdbg_sw_capture_tx_queue - Capture one SW-managed TX descriptor queue
+ * @priv:  stmmac private data
+ * @iface: ethdbg interface, used for region naming
+ * @q:     TX queue index
+ *
+ * Registers the SW-path TX descriptor ring for queue @q with VA-minidump.
+ * Region is named "<ifname>:tx<q>des". Skipped silently if the descriptor
+ * base address is NULL.
+ */
+static void ethdbg_sw_capture_tx_queue(struct stmmac_priv *priv,
+				       struct ethdbg_interface *iface,
+				       unsigned int q)
+{
+	struct stmmac_tx_queue *tx_q = &priv->dma_conf.tx_queue[q];
+	struct va_md_entry entry;
+	int ret;
+
+	if (priv->extend_desc) {
+		entry.vaddr = (unsigned long)tx_q->dma_etx;
+		entry.size  = priv->dma_conf.dma_tx_size *
+			      sizeof(struct dma_extended_desc);
+	} else if (tx_q->tbs & STMMAC_TBS_AVAIL) {
+		entry.vaddr = (unsigned long)tx_q->dma_entx;
+		entry.size  = priv->dma_conf.dma_tx_size * sizeof(struct dma_edesc);
+	} else {
+		entry.vaddr = (unsigned long)tx_q->dma_tx;
+		entry.size  = priv->dma_conf.dma_tx_size * sizeof(struct dma_desc);
+	}
+
+	if (!entry.vaddr || !entry.size)
+		return;
+
+	scnprintf(entry.owner, sizeof(entry.owner), "%s-tx%u",
+			  iface->interface_name, q);
+
+	ret = qcom_va_md_add_region(&entry);
+	if (ret)
+		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
+		       entry.owner, ret);
+}
+
+static void ethdbg_capture_rx_rings(struct stmmac_priv *priv,
+				     struct ethdbg_interface *iface)
+{
+	unsigned int q;
+
+	for (q = 0; q < priv->plat->rx_queues_to_use; q++) {
+		if (priv->plat->rx_queues_cfg[q].api_managed)
+			ethdbg_ipa_capture_rx_queue(priv, iface->interface_name, q);
+		else
+			ethdbg_sw_capture_rx_queue(priv, iface, q);
+	}
+}
+
+static void ethdbg_capture_tx_rings(struct stmmac_priv *priv,
+				     struct ethdbg_interface *iface)
+{
+	unsigned int q;
+
+	for (q = 0; q < priv->plat->tx_queues_to_use; q++) {
+		if (priv->plat->tx_queues_cfg[q].api_managed)
+			ethdbg_ipa_capture_tx_queue(priv, iface->interface_name, q);
+		else
+			ethdbg_sw_capture_tx_queue(priv, iface, q);
+	}
+}
+
+/*
+ * VA-minidump panic notifier for all DMA descriptor rings.
  *
  * Called by the VA-minidump framework at panic time. Walks all active ethdbg
- * interfaces and adds each SW-managed (!api_managed) RX and TX descriptor
- * ring via qcom_va_md_add_region().
+ * interfaces and captures every RX and TX descriptor ring, covering both
+ * SW-managed (!api_managed) and IPA/IOSS-managed (api_managed) queues.
  */
 static int ethdbg_va_md_notify(struct notifier_block *nb, unsigned long event,
 			       void *ptr)
@@ -118,9 +230,6 @@ static int ethdbg_va_md_notify(struct notifier_block *nb, unsigned long event,
 	list_for_each_entry(iface, &ethdbg_interfaces, list) {
 		struct ethdbg_device *dev = iface->device;
 		struct stmmac_priv *priv;
-		struct va_md_entry entry;
-		unsigned int q;
-		int ret;
 
 		if (!dev || !dev->net_dev)
 			continue;
@@ -129,63 +238,8 @@ static int ethdbg_va_md_notify(struct notifier_block *nb, unsigned long event,
 		if (!priv)
 			continue;
 
-		/* RX descriptor rings */
-		for (q = 0; q < priv->plat->rx_queues_to_use; q++) {
-			if (priv->plat->rx_queues_cfg[q].api_managed)
-				continue;
-
-			if (priv->extend_desc) {
-				entry.vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_erx;
-				entry.size = priv->dma_conf.dma_rx_size *
-					     sizeof(struct dma_extended_desc);
-			} else {
-				entry.vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_rx;
-				entry.size = priv->dma_conf.dma_rx_size *
-					     sizeof(struct dma_desc);
-			}
-
-			if (!entry.vaddr || !entry.size)
-				continue;
-
-			scnprintf(entry.owner, sizeof(entry.owner), "%s-rx%u",
-				  iface->interface_name, q);
-			ret = qcom_va_md_add_region(&entry);
-			if (ret)
-				pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
-				       entry.owner, ret);
-		}
-
-		/* TX descriptor rings */
-		for (q = 0; q < priv->plat->tx_queues_to_use; q++) {
-			struct stmmac_tx_queue *tx_q = &priv->dma_conf.tx_queue[q];
-
-			if (priv->plat->tx_queues_cfg[q].api_managed)
-				continue;
-
-			if (priv->extend_desc) {
-				entry.vaddr = (unsigned long)tx_q->dma_etx;
-				entry.size = priv->dma_conf.dma_tx_size *
-					     sizeof(struct dma_extended_desc);
-			} else if (tx_q->tbs & STMMAC_TBS_AVAIL) {
-				entry.vaddr = (unsigned long)tx_q->dma_entx;
-				entry.size = priv->dma_conf.dma_tx_size *
-					     sizeof(struct dma_edesc);
-			} else {
-				entry.vaddr = (unsigned long)tx_q->dma_tx;
-				entry.size = priv->dma_conf.dma_tx_size *
-					     sizeof(struct dma_desc);
-			}
-
-			if (!entry.vaddr || !entry.size)
-				continue;
-
-			scnprintf(entry.owner, sizeof(entry.owner), "%s-tx%u",
-				  iface->interface_name, q);
-			ret = qcom_va_md_add_region(&entry);
-			if (ret)
-				pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
-				       entry.owner, ret);
-		}
+		ethdbg_capture_rx_rings(priv, iface);
+		ethdbg_capture_tx_rings(priv, iface);
 	}
 
 	return NOTIFY_DONE;

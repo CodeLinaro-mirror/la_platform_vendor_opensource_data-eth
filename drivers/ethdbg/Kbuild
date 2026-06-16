@@ -4,5 +4,7 @@ ethdbg-y += ethdbg_uio.o
 ethdbg-y += ethdbg_dump.o
 ethdbg-$(CONFIG_QCOM_MINIDUMP) += ethdbg_minidump.o
 ethdbg-$(CONFIG_QCOM_MINIDUMP) += ethdbg_stmmac.o
+ethdbg-$(CONFIG_QCOM_MINIDUMP) += ethdbg_ioss.o
 
 ccflags-y += -I$(KERNEL_SRC)/drivers/net/ethernet/stmicro/stmmac
+ccflags-y += -I$(src)/../ioss/include/
