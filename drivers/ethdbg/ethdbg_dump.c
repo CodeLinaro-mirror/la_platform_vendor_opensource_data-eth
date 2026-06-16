@@ -96,7 +96,7 @@ void ethdbg_dump_device(struct ethdbg_device *dev)
 		regs_skipped += dump_data->blocks[i].num_skipped;
 	}
 
-	pr_emerg("ETHDBG: [%s] ethdbg_device=0x%px blocks=%u captured regs=%u skipped "
+	pr_info("ETHDBG: [%s] ethdbg_device=0x%px blocks=%u captured regs=%u skipped "
 		 "regs=%u\n", dev->net_dev->name, dev, dump_data->num_blocks,
 		 regs_captured, regs_skipped);
 }
