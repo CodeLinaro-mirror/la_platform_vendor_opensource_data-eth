@@ -21,6 +21,7 @@
 #include "emac_ipa_intf.h"
 #include "dwmac-qcom-ethqos.h"
 #include "common.h"
+#include <soc/qcom/minidump.h>
 
 void *ipc_stmmac_log_ctxt;
 struct qos_struct qos_tables;
@@ -28,6 +29,113 @@ struct qos_struct qos_tables;
 struct stmmac_ioss_device {
 	struct ioss_device *idev;
 	struct stmmac_priv *_priv;
+};
+
+struct stmmac_ioss_device *pstmmac_dev[ETH_MAX_NICS];
+
+static u32 stmmac_ioss_get_ring_size(struct stmmac_ioss_device *stmmac_dev, int queue,
+				     enum ioss_channel_dir dir, u32 default_size)
+{
+	struct ioss_device *idev = stmmac_dev->idev;
+	struct ioss_interface *iface;
+	struct ioss_channel *ch;
+	const char *dir_str = (dir == IOSS_CH_DIR_RX) ? "rx" : "tx";
+
+	if (!idev) {
+		ioss_dev_err(NULL, "%s queue %d: idev not found, falling back to ring_size=%u\n",
+			     dir_str, queue, default_size);
+		return default_size;
+	}
+
+	iface = &idev->interface;
+
+	ioss_for_each_channel(ch, iface) {
+		if (ch->direction == dir && ch->id == queue && ch->allocated) {
+			ioss_dev_dbg(idev, "%s queue %d: ioss ring_size=%u (default=%u)\n",
+				     dir_str, queue, ch->config.ring_size, default_size);
+			return ch->config.ring_size;
+		}
+	}
+
+	return default_size;
+}
+
+static int qcom_stmmac_ioss_va_md_notifier(struct notifier_block *nb, unsigned long event,
+					   void *ptr)
+{
+	int i, queue, ret;
+	u32 tx_ring_size;
+	u32 rx_ring_size;
+	u32 rx_count, tx_count;
+	struct va_md_entry entry;
+	struct stmmac_ioss_device *stmmac_dev = NULL;
+	struct stmmac_priv *priv = NULL;
+
+	for (i = 0; i < ETH_MAX_NICS; i++) {
+		if (!pstmmac_dev[i])
+			continue;
+
+		stmmac_dev = pstmmac_dev[i];
+		priv = stmmac_dev->_priv;
+
+		rx_count = priv->plat->rx_queues_to_use;
+		tx_count = priv->plat->tx_queues_to_use;
+
+		for (queue = 0; queue < rx_count; queue++) {
+			if (!priv->plat->rx_queues_cfg[queue].skip_sw)
+				continue;
+
+			rx_ring_size = stmmac_ioss_get_ring_size(stmmac_dev, queue,
+								 IOSS_CH_DIR_RX, priv->dma_rx_size);
+
+			if (priv->extend_desc) {
+				entry.vaddr = (unsigned long)priv->rx_queue[queue].dma_erx;
+				entry.size = rx_ring_size * sizeof(struct dma_extended_desc);
+			} else {
+				entry.vaddr = (unsigned long)priv->rx_queue[queue].dma_rx;
+				entry.size = rx_ring_size * sizeof(struct dma_desc);
+			}
+
+			scnprintf(entry.owner, sizeof(entry.owner), "emac%d_rx%ddes",
+				  priv->plat->port_num, queue);
+			ret = qcom_va_md_add_region(&entry);
+			if (ret)
+				ioss_dev_err(NULL, "Failed to register %s in minidump ret: %d\n",
+					     entry.owner, ret);
+		}
+
+		for (queue = 0; queue < tx_count; queue++) {
+			if (!priv->plat->tx_queues_cfg[queue].skip_sw)
+				continue;
+
+			tx_ring_size = stmmac_ioss_get_ring_size(stmmac_dev, queue,
+								 IOSS_CH_DIR_TX, priv->dma_tx_size);
+
+			if (priv->extend_desc) {
+				entry.vaddr = (unsigned long)priv->tx_queue[queue].dma_etx;
+				entry.size = tx_ring_size * sizeof(struct dma_extended_desc);
+			} else if (priv->tx_queue[queue].tbs & STMMAC_TBS_AVAIL) {
+				entry.vaddr = (unsigned long)priv->tx_queue[queue].dma_entx;
+				entry.size = tx_ring_size * sizeof(struct dma_edesc);
+			} else {
+				entry.vaddr = (unsigned long)priv->tx_queue[queue].dma_tx;
+				entry.size = tx_ring_size * sizeof(struct dma_desc);
+			}
+
+			scnprintf(entry.owner, sizeof(entry.owner), "emac%d_tx%ddes",
+				  priv->plat->port_num, queue);
+			ret = qcom_va_md_add_region(&entry);
+			if (ret)
+				ioss_dev_err(NULL, "Failed to register %s in minidump ret: %d\n",
+					     entry.owner, ret);
+		}
+	}
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block qcom_va_md_dma_notif_blk = {
+	.notifier_call = qcom_stmmac_ioss_va_md_notifier,
+	.priority = INT_MAX,
 };
 
 static void qos_adjust_txq_cbs_bw(struct list_head *qos_tx, u16 available_bw)
@@ -117,6 +225,7 @@ static void stmmac_ioss_free_buf(struct net_device *ndev, void *buf, size_t size
 static int stmmac_ioss_open_device(struct ioss_device *idev)
 {
 	struct stmmac_ioss_device *stmmac_dev;
+	int i, ret;
 
 	ioss_dev_dbg(idev, "Enter");
 
@@ -129,14 +238,52 @@ static int stmmac_ioss_open_device(struct ioss_device *idev)
 
 	idev->private = stmmac_dev;
 
+	for (i = 0; i < ETH_MAX_NICS; i++) {
+		if (!pstmmac_dev[i]) {
+			pstmmac_dev[i] = stmmac_dev;
+			break;
+		}
+	}
+
+	if (qcom_va_md_enabled()) {
+		ret = qcom_va_md_register("emac-ioss", &qcom_va_md_dma_notif_blk);
+		if (ret && ret != -EEXIST)
+			ioss_dev_err(idev, "Failed to register emac-ioss to VA-Minidump, err: %d",
+				     ret);
+	}
+
 	return 0;
 }
 
 static int stmmac_ioss_close_device(struct ioss_device *idev)
 {
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
+	bool last_nic = true;
+	int i, ret;
 
 	ioss_dev_dbg(idev, "Enter");
+
+	if (qcom_va_md_enabled()) {
+		for (i = 0; i < ETH_MAX_NICS; i++) {
+			if (pstmmac_dev[i] && pstmmac_dev[i] != stmmac_dev) {
+				last_nic = false;
+				break;
+			}
+		}
+		if (last_nic) {
+			ret = qcom_va_md_unregister("emac-ioss", &qcom_va_md_dma_notif_blk);
+			if (ret)
+				ioss_dev_err(idev, "Failed to unregister from VA-Minidump, err: %d",
+					     ret);
+		}
+	}
+
+	for (i = 0; i < ETH_MAX_NICS; i++) {
+		if (pstmmac_dev[i] == stmmac_dev) {
+			pstmmac_dev[i] = NULL;
+			break;
+		}
+	}
 
 	kfree_sensitive(stmmac_dev);
 
