@@ -843,9 +843,9 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	return 0;
 
 err_reg_netdev:
+err_kthread:
 	netif_napi_del(&priv->channel.rx_napi);
 	netif_napi_del(&priv->channel.tx_napi);
-err_kthread:
 err_reg:
 	destroy_workqueue(ethqos->wq);
 err_smmu:
