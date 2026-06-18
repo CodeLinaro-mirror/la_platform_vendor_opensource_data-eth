@@ -15,12 +15,13 @@
 #   eth-qos add dev <ifname> hid <handle> queue <qno> ch <chno> ftype <tx_pcp> [params]
 #     tx_pcp:  pcpno <0-7>                               (required)
 #
-#   Filter delete: eth-qos delete dev <ifname> hid <handle>
+#   Filter delete: eth-qos del dev <ifname> hid <handle>
 #
 #   CBS (tx): eth-qos add dev <ifname> hid <handle> config <cbs> idleslope <val> sendslope <val> hicredit <val> locredit <val> queue <qno> ch <chno> TC <id> offload <1|0>
 #   CBS (tx) delete: eth-qos del dev <ifname> hid <handle>
 #
 #   eth-qos show_qos dev <ifname>
+#   eth-qos dump_reg dev <ifname>
 #   eth-qos clear dev <ifname>
 #
 # Sysfs (as provided by eth_qos.c):
@@ -46,12 +47,13 @@ Usage:
 
   eth-qos add dev <ifname> hid <handle> queue <qno> ch <chno> ftype tx_pcp pcpno <0-7>
 
-  eth-qos delete dev <ifname> hid <handle>
+  eth-qos del dev <ifname> hid <handle>
 
   CBS (tx): eth-qos add dev <ifname> hid <handle> config <cbs> idleslope <val> sendslope <val> hicredit <val> locredit <val> queue <qno> ch <chno> TC <id> offload <1|0>
   CBS (tx) delete: eth-qos del dev <ifname> hid <handle>
 
   eth-qos show_qos dev <ifname>
+  eth-qos dump_reg dev <ifname>
   eth-qos clear dev <ifname>
 
 Examples:
@@ -59,10 +61,11 @@ Examples:
   eth-qos add dev eth0 hid 11 queue 1 ch 1 ftype tx_pcp pcpno 3
   eth-qos add dev eth0 hid 12 queue 2 ch 2 offload 1 ftype vlan vlanid 100
   eth-qos add dev eth0 hid 13 queue 1 ch 3 offload 0 ftype l3l4 sip 192.168.1.10
-  eth-qos delete dev eth0 hid 12
+  eth-qos del dev eth0 hid 12
   eth-qos add dev eth0 hid 20 config cbs idleslope 100000 sendslope -900000 hicredit 1234 locredit -5678 queue 0 ch 2 TC 1 offload 1
   eth-qos del dev eth0 hid 20
   eth-qos show_qos dev eth0
+  eth-qos dump_reg dev eth0
   eth-qos clear dev eth0
 EOF
 }
@@ -82,9 +85,31 @@ check_sysfs() {
 is_uint() { [[ "$1" =~ ^[0-9]+$ ]]; }
 is_port() { is_uint "$1" && (( $1 >= 1 && $1 <= 65535 )); }
 is_pcp()  { is_uint "$1" && (( $1 >= 0 && $1 <= 7 )); }
+is_vlan() { is_uint "$1" && (( $1 >= 1 && $1 <= 4094 )); }
 is_int() { [[ "$1" =~ ^-?[0-9]+$ ]]; }
-is_num() { [[ "$1" =~ ^0[xX][0-9a-fA-F]+$ || "$1" =~ ^[0-9]+$ ]]; }
 is_offload() { [[ "$1" == "0" || "$1" == "1" ]]; }
+
+is_ipv4() {
+  local ip="$1"
+  local -a octets
+  local octet
+
+  [[ "$ip" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || return 1
+  IFS='.' read -r -a octets <<< "$ip"
+  [[ ${#octets[@]} -eq 4 ]] || return 1
+
+  for octet in "${octets[@]}"; do
+    is_uint "$octet" && (( octet >= 0 && octet <= 255 )) || return 1
+  done
+}
+
+is_ipv6() {
+  local ip="$1"
+  local h='[0-9A-Fa-f]{1,4}'
+  local regex="^(((${h}:){7}${h})|((${h}:){1,7}:)|((${h}:){1,6}:${h})|((${h}:){1,5}(:${h}){1,2})|((${h}:){1,4}(:${h}){1,3})|((${h}:){1,3}(:${h}){1,4})|((${h}:){1,2}(:${h}){1,5})|(${h}:((:${h}){1,6}))|(:((:${h}){1,7}|:)))$"
+
+  [[ "$ip" =~ $regex ]]
+}
 
 add_cmd() {
   local dev="" hid="" ftype="" qno="" chno="" offload=""
@@ -185,7 +210,7 @@ add_cmd() {
       is_uint "$qno" || die "queue must be an integer"
       is_uint "$chno" || die "ch must be an integer"
       is_offload "$offload" || die "offload must be 1 or 0"
-      is_uint "$vlanid" || die "vlanid must be an integer"
+      is_vlan "$vlanid" || die "vlanid must be 1..4094"
       echo "hid $hid queue $qno ch $chno offload $offload vlanid $vlanid" > "$params/vlan"
       echo "added vlan filter: dev=$dev hid=$hid queue=$qno ch=$chno offload=$offload vlanid=$vlanid"
       ;;
@@ -199,8 +224,12 @@ add_cmd() {
       if [[ -z "$sport" && -z "$dport" && -z "$proto" && -z "$sip" && -z "$dip" && -z "$sipv6" && -z "$dipv6" ]]; then
         die "l3l4 requires at least one of sport/dport/proto/sip/dip/sipv6/dipv6"
       fi
-      [[ -z "$sport" || "$(is_port "$sport"; echo $?)" -eq 0 ]] || die "invalid sport"
-      [[ -z "$dport" || "$(is_port "$dport"; echo $?)" -eq 0 ]] || die "invalid dport"
+      [[ -z "$sport" ]] || is_port "$sport" || die "invalid sport"
+      [[ -z "$dport" ]] || is_port "$dport" || die "invalid dport"
+      [[ -z "$sip" ]] || is_ipv4 "$sip" || die "invalid sip"
+      [[ -z "$dip" ]] || is_ipv4 "$dip" || die "invalid dip"
+      [[ -z "$sipv6" ]] || is_ipv6 "$sipv6" || die "invalid sipv6"
+      [[ -z "$dipv6" ]] || is_ipv6 "$dipv6" || die "invalid dipv6"
       local payload="hid $hid queue $qno ch $chno offload $offload"
       [[ -n "$sport"  ]] && payload+=" sport $sport"
       [[ -n "$dport"  ]] && payload+=" dport $dport"
@@ -216,6 +245,20 @@ add_cmd() {
       die "unsupported ftype '$ftype' (expected pcp|tx_pcp|vlan|l3l4)"
       ;;
   esac
+}
+
+dump_reg_cmd() {
+  local dev=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      dev) dev="${2:-}"; shift 2 ;;
+      help|-h|--help) usage; exit 0 ;;
+      *) die "unknown parameter: $1" ;;
+    esac
+  done
+
+  req dev "$dev"
+  /usr/libexec/eth-debug qos "$dev" regs
 }
 
 show_qos_cmd() {
@@ -283,9 +326,10 @@ main() {
   [[ $# -ge 1 ]] || { usage; exit 1; }
   case "$1" in
     add) shift; add_cmd "$@";;
-    delete|del) shift; delete_cmd "$@";;
+    del) shift; delete_cmd "$@";;
     clear) shift; clear_cmd "$@";;
     show_qos) shift; show_qos_cmd "$@";;
+    dump_reg) shift; dump_reg_cmd "$@";;
     help|-h|--help) usage;;
     *) usage; exit 1;;
   esac
