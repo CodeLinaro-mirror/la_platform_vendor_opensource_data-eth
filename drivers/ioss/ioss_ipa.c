@@ -24,6 +24,7 @@ static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type
 		[IOSS_TRAFFIC_BE] = IPA_ETH_PIPE_BEST_EFFORT,
 		[IOSS_TRAFFIC_BE_TAGGED] = IPA_ETH_PIPE_BEST_EFFORT_VLAN,
 		[IOSS_TRAFFIC_LL] = IPA_ETH_PIPE_LOW_LATENCY,
+		[IOSS_TRAFFIC_QOS] = IPA_ETH_PIPE_TRAFFIC_TYPE_QOS,
 	};
 
 	return ipa_map[ioss_type];
@@ -35,6 +36,7 @@ static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa
 		[IPA_ETH_PIPE_BEST_EFFORT] = IOSS_TRAFFIC_BE,
 		[IPA_ETH_PIPE_LOW_LATENCY] = IOSS_TRAFFIC_LL,
 		[IPA_ETH_PIPE_BEST_EFFORT_VLAN] = IOSS_TRAFFIC_BE_TAGGED,
+		[IPA_ETH_PIPE_TRAFFIC_TYPE_QOS] = IOSS_TRAFFIC_QOS,
 	};
 
 	return ioss_map[ipa_type];
@@ -388,12 +390,14 @@ static int ioss_ipa_validate_one_channel(struct ioss_interface *iface, struct ip
 		ioss_dev_log(idev, "Selected channel '%s' for %s '%s' traffic",
 			ch->name, ioss_ch_dir_name(dir), ioss_traffic_name(traffic));
 
-		list_move(&ch->node, &iface->valid_channels);
+		/* Preserve the IPA DMA config order in valid_channels. */
+		list_move_tail(&ch->node, &iface->valid_channels);
 
 		ret = ioss_ipa_validate_one_channel(iface, ch_list + 1, num_channels - 1);
 		if (!ret)
 			ch_priv->ipa_ch_config = ch_list; /* for debug purposes */
 		else
+			/* Undo in LIFO order */
 			list_move(&ch->node, &iface->invalid_channels);
 
 		return ret;
@@ -445,7 +449,8 @@ void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
 {
 	struct ioss_channel *ch, *tmp_ch;
 
-	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
+	/* Walk valid_channels in reverse and move each to the head */
+	list_for_each_entry_safe_reverse(ch, tmp_ch, &iface->valid_channels, node) {
 		ioss_dev_log(ioss_iface_dev(iface), "Ch : %d, id : %d, dir : %d, traffic : %d",
 			     ch->channel_num, ch->id, ch->direction, ch->traffic_type);
 		list_move(&ch->node, &iface->invalid_channels);
