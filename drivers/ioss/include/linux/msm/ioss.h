@@ -397,6 +397,10 @@ struct ioss_device {
 		u64 system_resume;
 	} pm_stats;
 
+	u32 rx_api_managed_mask;
+	u32 tx_api_managed_mask;
+	struct kobject *api_managed_kobj;
+
 	struct mutex refresh_lock;
 };
 
@@ -744,5 +748,17 @@ void ioss_plat_unregister_driver(struct ioss_driver *drv);
 int ioss_ipa_xmit(struct ioss_channel *ch, struct sk_buff *skb);
 
 int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch, u32 tc_bmap);
+/**
+ * ioss_set_api_managed_mask - update the api_managed/rx or /tx sysfs bitmask
+ * @idev: ioss device whose mask should be updated
+ * @dir:  IOSS_CH_DIR_RX to update the rx subnode, IOSS_CH_DIR_TX for tx
+ * @mask: new bitmask value (bit N set = channel N is API-managed)
+ *
+ * Stores @mask in idev->rx_api_managed_mask or idev->tx_api_managed_mask
+ * depending on @dir. Called by glue drivers from their request_channel
+ * and release_channel callbacks.
+ */
+void ioss_set_api_managed_mask(struct ioss_device *idev,
+				enum ioss_channel_dir dir, u32 mask);
 
 #endif /* _IOSS_H_ */
