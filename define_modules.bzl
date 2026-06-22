@@ -154,6 +154,45 @@ def define_modules(target, variant):
     )
     mod_list.append("{}-defconfig_aqc_ioss".format(kernel_build_variant))
 
+    ddk_module(
+        name = "{}-defconfig_qca_nss_phy".format(kernel_build_variant),
+        out = "qca81xx-phy.ko",
+        srcs = [
+            "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx.c",
+            "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx_macsec.c",
+        ],
+        kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
+        deps = [
+            ":qca_nss_phy_headers",
+            "//msm-kernel:all_headers",
+        ],
+        copts = [
+            "-Wno-error",
+            "-Werror",
+            "-Wall",
+            "-Wmissing-prototypes",
+        ],
+    )
+    mod_list.append("{}-defconfig_qca_nss_phy".format(kernel_build_variant))
+
+    ddk_module(
+        name = "{}-defconfig_ethdbg".format(kernel_build_variant),
+        out = "ethdbg.ko",
+        srcs = [
+            "drivers/ethdbg/ethdbg_uio.c",
+            "drivers/ethdbg/ethdbg_main.c",
+            "drivers/ethdbg/ethdbg.h",
+        ],
+        kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
+        deps = [
+            "//msm-kernel:all_headers",
+        ],
+        copts = [
+            "-Wno-error",
+        ],
+    )
+    mod_list.append("{}-defconfig_ethdbg".format(kernel_build_variant))
+
     copy_to_dist_dir(
         name = "{}-defconfig_dataeth_dist".format(kernel_build_variant),
         data = mod_list,
