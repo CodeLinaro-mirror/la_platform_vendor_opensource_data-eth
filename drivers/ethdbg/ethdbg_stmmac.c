@@ -9,15 +9,23 @@
  *   - struct stmmac_priv         region: <ifname>-priv
  *   - struct platform_device     region: <ifname>-dev
  *
+ * Also provides indirect register read helpers for QoS VLAN and L3/L4
+ * filters, which require stmmac-private register definitions.
  */
 
+#include <linux/iopoll.h>
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
 #include <linux/platform_device.h>
-#include <soc/qcom/minidump.h>
 
 #include "stmmac.h"
+#include "dwxgmac2.h"
+#include "stmmac_vlan.h"
 #include "ethdbg.h"
+
+#ifdef CONFIG_QCOM_MINIDUMP
+
+#include <soc/qcom/minidump.h>
 
 #define ETHDBG_VA_MD_NAME	"eth_mini"
 
@@ -309,4 +317,91 @@ void ethdbg_stmmac_va_md_unregister(struct ethdbg_device *dev,
 	if (ret)
 		pr_err("ethdbg: [%s] failed to unregister VA-minidump notifier, err: %d\n",
 		       interface_name, ret);
+}
+
+#endif /* CONFIG_QCOM_MINIDUMP */
+
+/* Timing parameters for indirect register polls */
+#define ETHDBG_VLAN_POLL_INTERVAL_US	1000U
+#define ETHDBG_VLAN_POLL_TIMEOUT_US	500000U
+#define ETHDBG_L3L4_POLL_INTERVAL_US	100U
+#define ETHDBG_L3L4_POLL_TIMEOUT_US	10000U
+
+/* Sentinel written into reg_list when an indirect read times out */
+#define ETHDBG_INDIRECT_TIMEOUT_VAL	0xDEADBEEFU
+
+/*
+ * ethdbg_read_vlan_indirect - read one VLAN filter entry.
+ *
+ * Sequence (mirrors stmmac_vlan.c::vlan_write_filter with CT=1 for read):
+ *   1. Clear OFS, CT, and OB in VLAN_TAG, then write (index<<OFS)|OB|CT.
+ *   2. Poll until OB clears (hardware done), bounded by timeout.
+ *   3. Read result from VLAN_TAG_DATA.
+ *
+ * Returns the filter data, or ETHDBG_INDIRECT_TIMEOUT_VAL on timeout.
+ */
+u32 ethdbg_read_vlan_indirect(void __iomem *base, u32 index)
+{
+	u32 val;
+	int ret;
+
+	val  = readl(base + VLAN_TAG);
+	val &= ~(VLAN_TAG_CTRL_OFS_MASK | VLAN_TAG_CTRL_CT | VLAN_TAG_CTRL_OB);
+	val |= (index << VLAN_TAG_CTRL_OFS_SHIFT) |
+	       VLAN_TAG_CTRL_OB | VLAN_TAG_CTRL_CT;
+	writel(val, base + VLAN_TAG);
+
+	ret = readl_poll_timeout(base + VLAN_TAG, val,
+				 !(val & VLAN_TAG_CTRL_OB),
+				 ETHDBG_VLAN_POLL_INTERVAL_US,
+				 ETHDBG_VLAN_POLL_TIMEOUT_US);
+	if (ret) {
+		pr_warn_ratelimited("ethdbg: VLAN filter %u read timeout\n", index);
+		return ETHDBG_INDIRECT_TIMEOUT_VAL;
+	}
+
+	return readl(base + VLAN_TAG_DATA);
+}
+
+/*
+ * ethdbg_read_l3l4_indirect - read one L3/L4 filter register.
+ *
+ * Sequence (mirrors dwxgmac2_core.c::dwxgmac2_filter_read):
+ *   1. Poll until XB clears (no previous operation in flight).
+ *   2. Write (filter_no, reg_id, TT=read, XB=start) to L3L4_ADDR_CTRL.
+ *   3. Poll until XB clears again (read complete).
+ *   4. Read result from L3L4_DATA.
+ *
+ * Returns the register data, or ETHDBG_INDIRECT_TIMEOUT_VAL on timeout.
+ */
+u32 ethdbg_read_l3l4_indirect(void __iomem *base, u32 filter_no, u32 reg_id)
+{
+	u32 val;
+	int ret;
+
+	ret = readl_poll_timeout(base + XGMAC_L3L4_ADDR_CTRL, val,
+				 !(val & XGMAC_XB),
+				 ETHDBG_L3L4_POLL_INTERVAL_US,
+				 ETHDBG_L3L4_POLL_TIMEOUT_US);
+	if (ret) {
+		pr_warn_ratelimited("ethdbg: L3L4 filter %u reg %u pre-poll timeout\n",
+				    filter_no, reg_id);
+		return ETHDBG_INDIRECT_TIMEOUT_VAL;
+	}
+
+	val  = ((filter_no << XGMAC_IDDR_FNUM) | reg_id) << XGMAC_IDDR_SHIFT;
+	val |= XGMAC_TT | XGMAC_XB;
+	writel(val, base + XGMAC_L3L4_ADDR_CTRL);
+
+	ret = readl_poll_timeout(base + XGMAC_L3L4_ADDR_CTRL, val,
+				 !(val & XGMAC_XB),
+				 ETHDBG_L3L4_POLL_INTERVAL_US,
+				 ETHDBG_L3L4_POLL_TIMEOUT_US);
+	if (ret) {
+		pr_warn_ratelimited("ethdbg: L3L4 filter %u reg %u post-poll timeout\n",
+				    filter_no, reg_id);
+		return ETHDBG_INDIRECT_TIMEOUT_VAL;
+	}
+
+	return readl(base + XGMAC_L3L4_DATA);
 }
