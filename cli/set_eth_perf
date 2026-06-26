@@ -50,11 +50,22 @@ disable_pcf() {
 	fi
 }
 
+# Map all traffic to TX queues 0-4 via mqprio
+set_mqprio() {
+	local interface="$1"
+
+	tc qdisc add dev "$interface" root mqprio \
+		num_tc 1 \
+		map 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 \
+		queues 5@0 \
+		hw 0
+}
+
 # Validate the driver
 if [ /sys/class/net/"$1"/device/driver -ef /sys/bus/platform/drivers/qcom-ethqos ]; then
 	# Validate the interface value
 	if [ "$1" = "eth0" ] || [ "$1" = "eth1" ] || [ "$1" = "eth2" ]; then
-
+		set_mqprio "$1"
 		disable_pcf "$1"
 		set_rps_cpus "$1"
 		set_napi_threaded "$1"
