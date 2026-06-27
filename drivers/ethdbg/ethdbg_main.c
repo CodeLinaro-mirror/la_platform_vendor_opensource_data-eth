@@ -25,7 +25,7 @@ MODULE_PARM_DESC(interface_name, "Network interface name");
 
 static struct notifier_block ethdbg_netdev_notifier;
 
-static void parse_memory_regions(const struct device_node *np,
+static void parse_memory_regions(struct device_node *np,
 				  struct list_head *map_list)
 {
 	struct resource res;
@@ -164,25 +164,11 @@ static void register_interface_res(struct ethdbg_interface *iface)
 {
 	/* PHY is not valid at NETDEV_REGISTER, attach it now */
 	register_interface_phy(iface);
-
-	/*
-	 * DMA descriptor rings are allocated by stmmac_open(), which
-	 * completes before NETDEV_UP is delivered. Register the VA-minidump
-	 * panic notifier now so rings are captured on panic.
-	 */
-	ethdbg_stmmac_va_md_register(iface->device,
-				     iface->interface_name);
 }
 
 static void unregister_interface_res(struct ethdbg_interface *iface)
 {
-	/*
-	 * Unregister the VA-minidump panic notifier when the last interface
-	 * goes down. If other interfaces are still active it remains
-	 * registered to cover their descriptor rings.
-	 */
-	ethdbg_stmmac_va_md_unregister(iface->device,
-				       iface->interface_name);
+	unregister_interface_phy(iface);
 }
 
 static void free_map_regions(struct ethdbg_device *dev)
@@ -224,7 +210,7 @@ static int register_interface_device(struct ethdbg_interface *iface,
 	parse_maps(parent_dev, &dev->map_regions);
 
 	/* Register for dump capture */
-	ret = ethdbg_dump_register(dev, iface->interface_name);
+	ret = ethdbg_dump_register(iface);
 	if (ret) {
 		netdev_err(net_dev, "Failed to register dump capture: %d\n", ret);
 		goto err_free_maps;
@@ -390,6 +376,13 @@ static int __init ethdbg_init(void)
 		return ret;
 	}
 
+	/* Register capture ops once for the module lifetime */
+	ethdbg_stmmac_init();
+	ethdbg_ioss_init();
+
+	/* Register VA-minidump notifier once for the module lifetime */
+	ethdbg_va_minidump_init();
+
 	return 0;
 }
 module_init(ethdbg_init);
@@ -398,6 +391,10 @@ module_init(ethdbg_init);
 static void __exit ethdbg_exit(void)
 {
 	struct ethdbg_interface *iface, *tmp;
+
+	ethdbg_va_minidump_deinit();
+	ethdbg_stmmac_exit();
+	ethdbg_ioss_exit();
 
 	unregister_netdevice_notifier(&ethdbg_netdev_notifier);
 

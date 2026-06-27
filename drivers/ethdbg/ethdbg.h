@@ -10,7 +10,7 @@
 #include <linux/if.h>
 #include <linux/types.h>
 
-extern struct list_head ethdbg_interfaces;
+#define ETHDBG_MD_NAME_LEN	13	/* MAX_NAME_LENGTH + 1 */
 
 /**
  * struct ethdbg_reg_entry - Captured register data
@@ -57,8 +57,7 @@ struct ethdbg_map {
  * @num_captured: Number of registers actually captured
  * @num_skipped: Number of registers skipped due to out-of-bounds access
  * @map: Pointer to the original ethdbg_map structure, NULL for PHY blocks
- * @minidump_registered: (CONFIG_QCOM_MINIDUMP only) True when reg_list is
- *                       registered with minidump
+ * @minidump_registered: True when reg_list is registered with minidump
  *
  * Represents a single hardware block (STMMAC, PCS, RGMII,
  * or SERDES) for panic register capture. During panic,
@@ -76,9 +75,7 @@ struct ethdbg_hw_block {
 	unsigned int num_skipped;
 	struct ethdbg_map *map;
 	struct ethdbg_reg_entry *reg_list;
-#ifdef CONFIG_QCOM_MINIDUMP
 	bool minidump_registered;
-#endif
 };
 
 /**
@@ -148,6 +145,8 @@ struct ethdbg_interface {
 	struct ethdbg_device *device;
 };
 
+extern struct list_head ethdbg_interfaces;
+
 
 int ethdbg_uio_add(struct ethdbg_interface *iface);
 void ethdbg_uio_del(struct ethdbg_interface *iface);
@@ -156,7 +155,7 @@ void ethdbg_uio_del_phy(struct ethdbg_interface *iface);
 int ethdbg_uio_add_qos(struct ethdbg_interface *iface);
 void ethdbg_uio_del_qos(struct ethdbg_interface *iface);
 
-int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name);
+int ethdbg_dump_register(struct ethdbg_interface *iface);
 int ethdbg_dump_register_phy(struct ethdbg_interface *iface);
 void ethdbg_dump_unregister(struct ethdbg_interface *iface);
 int ethdbg_dump_register_qos(struct ethdbg_device *dev, const char *interface_name);
@@ -172,40 +171,36 @@ u32 ethdbg_read_vlan_indirect(void __iomem *base, u32 index);
 u32 ethdbg_read_l3l4_indirect(void __iomem *base, u32 filter_no, u32 reg_id);
 
 
-#ifdef CONFIG_QCOM_MINIDUMP
+int ethdbg_minidump_register(struct ethdbg_interface *iface);
+int ethdbg_minidump_unregister(struct ethdbg_interface *iface);
 int ethdbg_minidump_add_region(const char *name, uintptr_t vaddr, size_t size);
 int ethdbg_minidump_remove_region(const char *name, uintptr_t vaddr, size_t size);
-void ethdbg_minidump_register(struct ethdbg_device *dev,
-			      const char *interface_name);
-void ethdbg_minidump_unregister(struct ethdbg_device *dev,
-				const char *interface_name);
-void ethdbg_stmmac_minidump_register(struct ethdbg_device *dev,
-				     const char *interface_name);
-void ethdbg_stmmac_minidump_unregister(struct ethdbg_device *dev,
-				       const char *interface_name);
-void ethdbg_stmmac_va_md_register(struct ethdbg_device *dev,
-				   const char *interface_name);
-void ethdbg_stmmac_va_md_unregister(struct ethdbg_device *dev,
-				      const char *interface_name);
-#else
-static inline int ethdbg_minidump_add_region(const char *name,
-					     uintptr_t vaddr,
-					     size_t size) { return 0; }
-static inline int ethdbg_minidump_remove_region(const char *name,
-						uintptr_t vaddr,
-						size_t size) { return 0; }
-static inline void ethdbg_minidump_register(struct ethdbg_device *dev,
-					const char *interface_name) {}
-static inline void ethdbg_minidump_unregister(struct ethdbg_device *dev,
-					  const char *interface_name) {}
-static inline void ethdbg_stmmac_minidump_register(struct ethdbg_device *dev,
-					   const char *interface_name) {}
-static inline void ethdbg_stmmac_minidump_unregister(struct ethdbg_device *dev,
-					     const char *interface_name) {}
-static inline void ethdbg_stmmac_va_md_register(struct ethdbg_device *dev,
-						 const char *interface_name) {}
-static inline void ethdbg_stmmac_va_md_unregister(struct ethdbg_device *dev,
-						    const char *interface_name) {}
-#endif /* CONFIG_QCOM_MINIDUMP */
+void ethdbg_va_minidump_init(void);
+void ethdbg_va_minidump_deinit(void);
+int ethdbg_va_md_add_region(const char *owner, unsigned long vaddr, unsigned int size);
+
+/**
+ * struct ethdbg_capture_ops - Per-peripheral VA-minidump capture callbacks
+ * @capture_rx_queue: Capture one RX descriptor queue at panic time
+ * @capture_tx_queue: Capture one TX descriptor queue at panic time
+ *
+ * Peripheral modules (ethdbg_stmmac.c, ethdbg_ioss.c) register these ops
+ * with ethdbg_minidump.c. At panic time the VA-minidump notifier in
+ * ethdbg_minidump.c iterates all registered ops and invokes each callback.
+ */
+struct ethdbg_capture_ops {
+	void (*capture_rx_queue)(struct net_device *ndev,
+				 const char *ifname, unsigned int q);
+	void (*capture_tx_queue)(struct net_device *ndev,
+				 const char *ifname, unsigned int q);
+};
+
+void ethdbg_register_capture_ops(const struct ethdbg_capture_ops *ops);
+void ethdbg_unregister_capture_ops(const struct ethdbg_capture_ops *ops);
+
+void ethdbg_stmmac_init(void);
+void ethdbg_stmmac_exit(void);
+void ethdbg_ioss_init(void);
+void ethdbg_ioss_exit(void);
 
 #endif /* _ETHDBG_H_ */

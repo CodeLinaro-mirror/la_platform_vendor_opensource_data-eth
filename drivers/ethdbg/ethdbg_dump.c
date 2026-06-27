@@ -174,7 +174,7 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 
 		if (reg_desc->start_offset >= map->size || reg_desc->end_offset >= map->size)
 			pr_warn("[%s][%s] Register range [0x%x-0x%x] outside mapped region "
-				"(size: 0x%llx)\n", interface_name, map->name,
+				"(size: 0x%lx)\n", interface_name, map->name,
 				reg_desc->start_offset, reg_desc->end_offset, map->size);
 	}
 
@@ -223,10 +223,13 @@ static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 	return hw_block_idx;
 }
 
-int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name)
+int ethdbg_dump_register(struct ethdbg_interface *iface)
 {
+	struct ethdbg_device *dev = iface->device;
+	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data;
 	int block_count;
+	int ret;
 
 	memset(&dev->dump_data, 0, sizeof(dev->dump_data));
 	dump_data = &dev->dump_data;
@@ -242,8 +245,11 @@ int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name)
 		return -ENOMEM;
 
 	dump_data->num_blocks = ethdbg_setup_dump_blocks(dev, interface_name);
-	ethdbg_minidump_register(dev, interface_name);
-	ethdbg_stmmac_minidump_register(dev, interface_name);
+
+	ret = ethdbg_minidump_register(iface);
+	if (ret)
+		pr_warn("ethdbg: [%s] minidump registration incomplete, ret=%d\n",
+			interface_name, ret);
 	return 0;
 }
 
@@ -252,14 +258,17 @@ void ethdbg_dump_unregister(struct ethdbg_interface *iface)
 	struct ethdbg_device *dev = iface->device;
 	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data;
+	int ret;
 	int i;
 
 	dump_data = &dev->dump_data;
 	if (!dump_data->blocks)
 		return;
 
-	ethdbg_stmmac_minidump_unregister(dev, interface_name);
-	ethdbg_minidump_unregister(dev, interface_name);
+	ret = ethdbg_minidump_unregister(iface);
+	if (ret)
+		pr_warn("ethdbg: [%s] minidump unregistration incomplete, ret=%d\n",
+			interface_name, ret);
 
 	for (i = 0; i < dump_data->num_blocks; i++) {
 		if (!dump_data->blocks[i].is_phy)
@@ -418,7 +427,10 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 	}
 	dump_data->num_blocks++;
 
-	ethdbg_minidump_register(dev, interface_name);
+	ret = ethdbg_minidump_register(iface);
+	if (ret)
+		pr_warn("ethdbg: [%s] minidump registration incomplete, ret=%d\n",
+			interface_name, ret);
 	return 0;
 }
 

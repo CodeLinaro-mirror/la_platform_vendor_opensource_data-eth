@@ -23,25 +23,89 @@
 #include "stmmac_vlan.h"
 #include "ethdbg.h"
 
-#ifdef CONFIG_QCOM_MINIDUMP
-
-#include <soc/qcom/minidump.h>
-
-#define ETHDBG_VA_MD_NAME	"eth_mini"
-
-/* Defined in ethdbg_ioss.c */
-void ethdbg_ipa_capture_rx_queue(struct stmmac_priv *priv,
-				  const char *ifname, unsigned int q);
-void ethdbg_ipa_capture_tx_queue(struct stmmac_priv *priv,
-				  const char *ifname, unsigned int q);
-
-void ethdbg_stmmac_minidump_register(struct ethdbg_device *dev,
-				     const char *interface_name)
+static void ethdbg_stmmac_capture_rx_queue(struct net_device *ndev,
+					   const char *ifname, unsigned int q)
 {
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	unsigned long vaddr;
+	unsigned int size;
+	char owner[ETHDBG_MD_NAME_LEN];
+	int ret;
+
+	if (!netif_running(ndev))
+		return;
+
+	if (priv->plat->rx_queues_cfg[q].api_managed)
+		return;
+
+	if (priv->extend_desc) {
+		vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_erx;
+		size  = priv->dma_conf.dma_rx_size * sizeof(struct dma_extended_desc);
+	} else {
+		vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_rx;
+		size  = priv->dma_conf.dma_rx_size * sizeof(struct dma_desc);
+	}
+
+	if (!vaddr || !size)
+		return;
+
+	scnprintf(owner, sizeof(owner), "%s-rx%u", ifname, q);
+
+	ret = ethdbg_va_md_add_region(owner, vaddr, size);
+	if (ret)
+		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n", owner, ret);
+}
+
+static void ethdbg_stmmac_capture_tx_queue(struct net_device *ndev,
+					   const char *ifname, unsigned int q)
+{
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct stmmac_tx_queue *tx_q = &priv->dma_conf.tx_queue[q];
+	unsigned long vaddr;
+	unsigned int size;
+	char owner[ETHDBG_MD_NAME_LEN];
+	int ret;
+
+	if (!netif_running(ndev))
+		return;
+
+	if (priv->plat->tx_queues_cfg[q].api_managed)
+		return;
+
+	if (priv->extend_desc) {
+		vaddr = (unsigned long)tx_q->dma_etx;
+		size  = priv->dma_conf.dma_tx_size * sizeof(struct dma_extended_desc);
+	} else if (tx_q->tbs & STMMAC_TBS_AVAIL) {
+		vaddr = (unsigned long)tx_q->dma_entx;
+		size  = priv->dma_conf.dma_tx_size * sizeof(struct dma_edesc);
+	} else {
+		vaddr = (unsigned long)tx_q->dma_tx;
+		size  = priv->dma_conf.dma_tx_size * sizeof(struct dma_desc);
+	}
+
+	if (!vaddr || !size)
+		return;
+
+	scnprintf(owner, sizeof(owner), "%s-tx%u", ifname, q);
+
+	ret = ethdbg_va_md_add_region(owner, vaddr, size);
+	if (ret)
+		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n", owner, ret);
+}
+
+static const struct ethdbg_capture_ops ethdbg_stmmac_capture_ops = {
+	.capture_rx_queue = ethdbg_stmmac_capture_rx_queue,
+	.capture_tx_queue = ethdbg_stmmac_capture_tx_queue,
+};
+
+void ethdbg_stmmac_register(struct ethdbg_interface *iface)
+{
+	struct ethdbg_device *dev = iface->device;
+	const char *interface_name = iface->interface_name;
 	struct net_device *net_dev;
 	struct stmmac_priv *priv;
 	struct device *parent_dev;
-	char md_name[MAX_NAME_LENGTH + 1];
+	char md_name[ETHDBG_MD_NAME_LEN];
 	int ret;
 
 	if (!dev || !dev->net_dev)
@@ -75,13 +139,24 @@ void ethdbg_stmmac_minidump_register(struct ethdbg_device *dev,
 	}
 }
 
-void ethdbg_stmmac_minidump_unregister(struct ethdbg_device *dev,
-				       const char *interface_name)
+void ethdbg_stmmac_init(void)
 {
+	ethdbg_register_capture_ops(&ethdbg_stmmac_capture_ops);
+}
+
+void ethdbg_stmmac_exit(void)
+{
+	ethdbg_unregister_capture_ops(&ethdbg_stmmac_capture_ops);
+}
+
+void ethdbg_stmmac_unregister(struct ethdbg_interface *iface)
+{
+	struct ethdbg_device *dev = iface->device;
+	const char *interface_name = iface->interface_name;
 	struct net_device *net_dev;
 	struct stmmac_priv *priv;
 	struct device *parent_dev;
-	char md_name[MAX_NAME_LENGTH + 1];
+	char md_name[ETHDBG_MD_NAME_LEN];
 	int ret;
 
 	if (!dev || !dev->net_dev)
@@ -116,210 +191,6 @@ void ethdbg_stmmac_minidump_unregister(struct ethdbg_device *dev,
 		pr_info("ethdbg: [%s] unregistered minidump region '%s'\n",
 			interface_name, md_name);
 }
-
-/*
- * ethdbg_sw_capture_rx_queue - Capture one SW-managed RX descriptor queue
- * @priv:  stmmac private data
- * @iface: ethdbg interface, used for region naming
- * @q:     RX queue index
- *
- * Registers the SW-path RX descriptor ring for queue @q with VA-minidump.
- * Region is named "<ifname>:rx<q>des". Skipped silently if the descriptor
- * base address is NULL.
- */
-static void ethdbg_sw_capture_rx_queue(struct stmmac_priv *priv,
-				       struct ethdbg_interface *iface,
-				       unsigned int q)
-{
-	struct va_md_entry entry;
-	int ret;
-
-	if (priv->extend_desc) {
-		entry.vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_erx;
-		entry.size  = priv->dma_conf.dma_rx_size *
-			      sizeof(struct dma_extended_desc);
-	} else {
-		entry.vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_rx;
-		entry.size  = priv->dma_conf.dma_rx_size * sizeof(struct dma_desc);
-	}
-
-	if (!entry.vaddr || !entry.size)
-		return;
-
-	scnprintf(entry.owner, sizeof(entry.owner), "%s-rx%u",
-			  iface->interface_name, q);
-
-	ret = qcom_va_md_add_region(&entry);
-	if (ret)
-		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
-		       entry.owner, ret);
-}
-
-/*
- * ethdbg_sw_capture_tx_queue - Capture one SW-managed TX descriptor queue
- * @priv:  stmmac private data
- * @iface: ethdbg interface, used for region naming
- * @q:     TX queue index
- *
- * Registers the SW-path TX descriptor ring for queue @q with VA-minidump.
- * Region is named "<ifname>:tx<q>des". Skipped silently if the descriptor
- * base address is NULL.
- */
-static void ethdbg_sw_capture_tx_queue(struct stmmac_priv *priv,
-				       struct ethdbg_interface *iface,
-				       unsigned int q)
-{
-	struct stmmac_tx_queue *tx_q = &priv->dma_conf.tx_queue[q];
-	struct va_md_entry entry;
-	int ret;
-
-	if (priv->extend_desc) {
-		entry.vaddr = (unsigned long)tx_q->dma_etx;
-		entry.size  = priv->dma_conf.dma_tx_size *
-			      sizeof(struct dma_extended_desc);
-	} else if (tx_q->tbs & STMMAC_TBS_AVAIL) {
-		entry.vaddr = (unsigned long)tx_q->dma_entx;
-		entry.size  = priv->dma_conf.dma_tx_size * sizeof(struct dma_edesc);
-	} else {
-		entry.vaddr = (unsigned long)tx_q->dma_tx;
-		entry.size  = priv->dma_conf.dma_tx_size * sizeof(struct dma_desc);
-	}
-
-	if (!entry.vaddr || !entry.size)
-		return;
-
-	scnprintf(entry.owner, sizeof(entry.owner), "%s-tx%u",
-			  iface->interface_name, q);
-
-	ret = qcom_va_md_add_region(&entry);
-	if (ret)
-		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
-		       entry.owner, ret);
-}
-
-static void ethdbg_capture_rx_rings(struct stmmac_priv *priv,
-				     struct ethdbg_interface *iface)
-{
-	unsigned int q;
-
-	for (q = 0; q < priv->plat->rx_queues_to_use; q++) {
-		if (priv->plat->rx_queues_cfg[q].api_managed)
-			ethdbg_ipa_capture_rx_queue(priv, iface->interface_name, q);
-		else
-			ethdbg_sw_capture_rx_queue(priv, iface, q);
-	}
-}
-
-static void ethdbg_capture_tx_rings(struct stmmac_priv *priv,
-				     struct ethdbg_interface *iface)
-{
-	unsigned int q;
-
-	for (q = 0; q < priv->plat->tx_queues_to_use; q++) {
-		if (priv->plat->tx_queues_cfg[q].api_managed)
-			ethdbg_ipa_capture_tx_queue(priv, iface->interface_name, q);
-		else
-			ethdbg_sw_capture_tx_queue(priv, iface, q);
-	}
-}
-
-/*
- * VA-minidump panic notifier for all DMA descriptor rings.
- *
- * Called by the VA-minidump framework at panic time. Walks all active ethdbg
- * interfaces and captures every RX and TX descriptor ring, covering both
- * SW-managed (!api_managed) and IPA/IOSS-managed (api_managed) queues.
- */
-static int ethdbg_va_md_notify(struct notifier_block *nb, unsigned long event,
-			       void *ptr)
-{
-	struct ethdbg_interface *iface;
-
-	list_for_each_entry(iface, &ethdbg_interfaces, list) {
-		struct ethdbg_device *dev = iface->device;
-		struct stmmac_priv *priv;
-
-		if (!dev || !dev->net_dev)
-			continue;
-
-		priv = netdev_priv(dev->net_dev);
-		if (!priv)
-			continue;
-
-		ethdbg_capture_rx_rings(priv, iface);
-		ethdbg_capture_tx_rings(priv, iface);
-	}
-
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block ethdbg_va_md_nb = {
-	.notifier_call = ethdbg_va_md_notify,
-	.priority = INT_MAX,
-};
-
-/**
- * ethdbg_stmmac_va_md_register - Register VA-minidump notifier for DMA rings
- * @dev: ethdbg device (unused, notifier covers all active interfaces)
- * @interface_name: network interface name (used only for log messages)
- *
- * Registers the ethdbg VA-minidump panic notifier on the first NETDEV_UP.
- * Subsequent calls from additional interfaces return -EEXIST from
- * qcom_va_md_register(), which is silently ignored — the single shared
- * notifier already covers all interfaces in ethdbg_interfaces.
- */
-void ethdbg_stmmac_va_md_register(struct ethdbg_device *dev,
-				   const char *interface_name)
-{
-	int ret;
-
-	if (!qcom_va_md_enabled())
-		return;
-
-	ret = qcom_va_md_register(ETHDBG_VA_MD_NAME, &ethdbg_va_md_nb);
-	if (ret && ret != -EEXIST)
-		pr_err("ethdbg: [%s] failed to register VA-minidump notifier, err: %d\n",
-		       interface_name, ret);
-}
-
-/**
- * ethdbg_stmmac_va_md_unregister - Unregister VA-minidump notifier for DMA rings
- * @dev: ethdbg device (unused)
- * @interface_name: network interface name (used only for log messages)
- *
- * Unregisters the ethdbg VA-minidump panic notifier on the last NETDEV_DOWN.
- * If other interfaces are still active the notifier is left registered so
- * their descriptor rings remain covered.
- */
-void ethdbg_stmmac_va_md_unregister(struct ethdbg_device *dev,
-				      const char *interface_name)
-{
-	struct ethdbg_interface *iface;
-	bool last_iface = true;
-	int ret;
-
-	if (!qcom_va_md_enabled())
-		return;
-
-	/* Check whether any other interface still has an active device */
-	list_for_each_entry(iface, &ethdbg_interfaces, list) {
-		if (iface->device && iface->device != dev &&
-		    strcmp(iface->interface_name, interface_name) != 0) {
-			last_iface = false;
-			break;
-		}
-	}
-
-	if (!last_iface)
-		return;
-
-	ret = qcom_va_md_unregister(ETHDBG_VA_MD_NAME, &ethdbg_va_md_nb);
-	if (ret)
-		pr_err("ethdbg: [%s] failed to unregister VA-minidump notifier, err: %d\n",
-		       interface_name, ret);
-}
-
-#endif /* CONFIG_QCOM_MINIDUMP */
 
 /* Timing parameters for indirect register polls */
 #define ETHDBG_VLAN_POLL_INTERVAL_US	1000U
