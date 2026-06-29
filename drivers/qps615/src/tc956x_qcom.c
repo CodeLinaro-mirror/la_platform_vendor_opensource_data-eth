@@ -52,7 +52,7 @@ static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
 	}
 
 	if(qpriv->phy_rst_gpio_som)
-		gpiod_set_value(qpriv->phy_rst_gpio_som, 1);
+		gpiod_set_value_cansleep(qpriv->phy_rst_gpio_som, 1);
 	else if(qpriv->phy_rst_gpio) {
 		ret = tc956x_deassert_phy_reset(priv);
 		if (ret) {
@@ -74,7 +74,7 @@ static int tc956x_phy_power_off(struct tc956xmac_priv *priv)
 	struct tc956x_qcom_priv *qpriv = to_priv(priv);
 
 	if(qpriv->phy_rst_gpio_som)
-		gpiod_set_value(qpriv->phy_rst_gpio_som, 0);
+		gpiod_set_value_cansleep(qpriv->phy_rst_gpio_som, 0);
 	else if(qpriv->phy_rst_gpio) {
 		ret = tc956x_assert_phy_reset(priv);
 		if (ret) {
@@ -182,7 +182,7 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 	}
 
 	if(qpriv->phy_rst_gpio_som)
-		gpiod_set_value(qpriv->phy_rst_gpio_som, 0);
+		gpiod_set_value_cansleep(qpriv->phy_rst_gpio_som, 0);
 	else if(qpriv->phy_rst_gpio) {
 		ret = tc956x_assert_phy_reset(priv);
 		if (ret) {
