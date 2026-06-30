@@ -2984,6 +2984,18 @@ static void tc956xmac_release_ptp(struct tc956xmac_priv *priv)
 {
 	if (priv->plat->clk_ptp_ref)
 		clk_disable_unprepare(priv->plat->clk_ptp_ref);
+
+	/*
+	 * During system suspend, unregistering PTP emits uevents and can trigger
+ 	 * NETLINK wakeups that abort suspend. Keep the PTP clock registered
+ 	 * across suspend/resume and only unregister on real interface close.
+ 	 */
+	if (priv->tc956x_port_pm_suspend) {
+		NMSGPR_INFO(priv->device, "%s: skip ptp_clock_unregister during suspend path",
+				    __func__);
+		return;
+	}
+
 	tc956xmac_ptp_unregister(priv);
 }
 #ifndef TC956X_SRIOV_VF
@@ -8050,7 +8062,7 @@ static int tc956xmac_release(struct net_device *dev)
 	/* Disable the MAC Rx/Tx */
 	tc956xmac_mac_set(priv, priv->ioaddr, false);
 #endif
-	if (priv->link_down_rst == false)
+	if (priv->link_down_rst && !priv->tc956x_port_pm_suspend)
 		netif_carrier_off(dev);
 	NMSGPR_INFO(priv->device, "PHY Link : DOWN\n");
 
