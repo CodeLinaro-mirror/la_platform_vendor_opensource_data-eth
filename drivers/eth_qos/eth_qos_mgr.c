@@ -609,6 +609,22 @@ static void eth_qos_mgr_revert_default_rx_mapping(struct net_device *ndev, u32 q
 	stmmac_api_queue_dma_map(ndev, queue, queue);
 }
 
+static int eth_qos_mgr_clear_tx_ipa_tc_bmap(struct net_device *ndev, u32 ch)
+{
+	struct ioss_interface *iface;
+	struct ioss_device *idev;
+
+	iface = ioss_netdev_to_iface(ndev);
+	if (!iface)
+		return -ENODEV;
+
+	idev = ioss_iface_dev(iface);
+	if (!idev)
+		return -ENODEV;
+
+	return ioss_ipa_set_tc_bmap(idev, false, ch, 0);
+}
+
 static void eth_qos_mgr_set_tx_q_ch_status(struct eth_qos_mgr_ctx *ctx, u32 queue, u32 ch,
 					      enum eth_qos_filter_type type,
 					      bool hw_path)
@@ -804,19 +820,35 @@ static int eth_qos_mgr_clear_tx_hw(struct eth_qos_mgr_ctx *ctx)
 {
 	u32 i;
 	int ret;
+	int fail_ret = 0;
 
 	/* Queue 0 is not AVB capable */
 	for (i = 1; i < ctx->max_tx_queues; i++) {
 		ret = stmmac_api_config_cbs(ctx->ndev, false, 0, 0, 0, 0, i);
 		if (ret) {
 			eth_qos_log_err(NULL, "failed to config CBS for index %u: ret=%d", i, ret);
-			return ret;
+			fail_ret = ret;
+		}
+
+		if (ctx->tx.cbs_table[i].used && ctx->tx.cbs_table[i].hw_path) {
+			ret = eth_qos_mgr_clear_tx_ipa_tc_bmap(ctx->ndev,
+							       ctx->tx.cbs_table[i].ch);
+			if (ret) {
+				eth_qos_log_err(NULL,
+						"failed to clear IOSS TC bitmap for CBS index %u ch=%u: ret=%d",
+						i, ctx->tx.cbs_table[i].ch, ret);
+				fail_ret = ret;
+			} else {
+				eth_qos_log_cfg(NULL,
+						"eth_qos_mgr: cleared IOSS TC bitmap for CBS index=%u tc=%u ch=%u",
+						i, ctx->tx.cbs_table[i].tc, ctx->tx.cbs_table[i].ch);
+			}
 		}
 	}
 
 	eth_qos_mgr_clear_tx_ctx(ctx);
 
-	return 0;
+	return fail_ret;
 }
 
 /* Debug/dump formatting helpers. */
@@ -1433,6 +1465,31 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32
 				    queue);
 	if (ret)
 		goto err_free_entry;
+	eth_qos_log_cfg(NULL,
+			"eth_qos_mgr: configured CBS hid=%u queue=%u ch=%u tc=%u idle=%d send=%d hi=%d lo=%d",
+			hid, queue, ch, tc, idleslope, sendslope, hicredit, locredit);
+
+	if (hw_path) {
+		iface = ioss_netdev_to_iface(ndev);
+		if (!iface) {
+			ret = -ENODEV;
+			goto err_clear_cbs;
+		}
+
+		idev = ioss_iface_dev(iface);
+		if (!idev) {
+			ret = -ENODEV;
+			goto err_clear_cbs;
+		}
+
+		ret = ioss_ipa_set_tc_bmap(idev, false, ch, BIT(tc));
+		if (ret)
+			goto err_clear_cbs;
+		eth_qos_log_cfg(NULL,
+				"eth_qos_mgr: configured IOSS TC bitmap hid=%u tc=%u ch=%u",
+				hid, tc, ch);
+	}
+
 
 	/* Persist the CBS configuration so it can be dumped/replayed later. */
 	ctx->tx.cbs_table[queue].used = true;
@@ -1451,9 +1508,13 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32
 	entry->hw_path = hw_path;
 	entry->u.cbs.hw_path = hw_path;
 	eth_qos_mgr_set_tx_q_ch_status(ctx, queue, ch, entry->type, hw_path);
+	eth_qos_log_cfg(NULL, "eth_qos_mgr: added CBS hid=%u queue=%u ch=%u tc=%u path=%s",
+			hid, queue, ch, tc, hw_path ? "hw" : "sw");
 	ret = 0;
 	goto out_unlock;
 
+err_clear_cbs:
+	stmmac_api_config_cbs(ndev, false, 0, 0, 0, 0, queue);
 err_free_entry:
 	list_del(&entry->list);
 	kfree(entry);
@@ -1555,6 +1616,13 @@ int eth_qos_mgr_del(struct net_device *ndev, u32 hid)
 		ret = stmmac_api_config_cbs(ndev, false, 0, 0, 0, 0, entry->queue);
 		eth_qos_log_cfg(NULL, "eth_qos_mgr: deleting CBS filter with hid=%u on queue=%u ch=%u ret=%d\n",
 			    entry->hid, entry->queue, entry->ch, ret);
+		if (!ret && entry->u.cbs.hw_path) {
+			ret = eth_qos_mgr_clear_tx_ipa_tc_bmap(ndev, entry->ch);
+			if (!ret)
+				eth_qos_log_cfg(NULL,
+						"eth_qos_mgr: cleared IOSS TC bitmap hid=%u tc=%u ch=%u",
+						entry->hid, entry->tc, entry->ch);
+		}
 		if (!ret)
 			memset(&ctx->tx.cbs_table[entry->queue], 0,
 			       sizeof(ctx->tx.cbs_table[entry->queue]));
