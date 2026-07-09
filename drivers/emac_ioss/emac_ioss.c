@@ -632,6 +632,9 @@ static int stmmac_ioss_channel_status(struct ioss_channel *ch, struct ioss_chann
 	ops->get_ethtool_stats(idev->net_dev, &stats, data);
 	rtnl_unlock();
 
+	status->interrupt_modc = ch->event.mod_count_max;
+	status->interrupt_modt = (u64)ch->event.mod_usecs_max * 1000ULL;
+
 	if (ch->direction == IOSS_CH_DIR_RX) {
 		status->ring_size = priv->xstats.rxq_stats[ch->id].rxch_desc_ring_len;
 		status->head_ptr = priv->xstats.rxq_stats[ch->id].rxch_desc_list_laddr;
