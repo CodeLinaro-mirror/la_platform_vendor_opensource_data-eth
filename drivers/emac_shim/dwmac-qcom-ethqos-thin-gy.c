@@ -686,6 +686,7 @@ static unsigned int dwmac_qcom_get_plat_tx_coal_frames(struct sk_buff *skb)
 
 static const struct of_device_id qcom_ethqos_match[] = {
 	{ .compatible = "qcom,stmmac-ethqos-emac1-gy", },
+	{ .compatible = "qcom,stmmac-ethqos-emac-gy", },
 	{ }
 };
 
@@ -789,7 +790,8 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv->del_filter = qcom_ethqos_del_filter;
 	priv->is_gy_en = true;
 
-	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1-gy")) {
+	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1-gy") ||
+		of_device_is_compatible(np, "qcom,stmmac-ethqos-emac-gy")) {
 		if (!pm_runtime_enabled(&ethqos->pdev->dev)) {
 			ret_domain = devm_pm_runtime_enable(&ethqos->pdev->dev);
 			if (ret_domain)
@@ -928,6 +930,14 @@ static int qcom_ethqos_suspend(struct device *dev)
 		ethqos->suspended = true;
 		priv->emac_state = EMAC_INIT_ST;
 		send_with_retry(vlan);
+		/* Stop poll thread before sock_cleanup to prevent concurrent
+		 * send_with_retry() calls on a socket being torn down, which
+		 * can cause use-after-free on conn_socket (poll thread holds a
+		 * stale pointer after sock_release frees the socket object).
+		 */
+		client_sk.poll_active = 0;
+		kthread_cancel_work_sync(&client_sk.poll_work);
+		kthread_flush_work(&client_sk.poll_work);
 		qcom_ethqos_client_sock_cleanup();
 	}
 
@@ -956,8 +966,12 @@ static int qcom_ethqos_resume(struct device *dev)
 		return 0;
 	}
 
-	if (ethqos->suspended)
+	if (ethqos->suspended) {
 		qcom_ethqos_client_connect(client_sk.ethqos);
+		/* Restart poll thread stopped during suspend */
+		client_sk.poll_active = 1;
+		kthread_queue_work(&client_sk.poll_worker, &client_sk.poll_work);
+	}
 
 	ETHQOSDBG("<--Resume Exit\n");
 	return ret;
