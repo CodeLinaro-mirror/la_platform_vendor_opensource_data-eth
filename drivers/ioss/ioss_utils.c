@@ -55,6 +55,8 @@ EXPORT_SYMBOL(ioss_qos_get_ipclog_buf);
 #define IOSS_IPCLOG_NAME IOSS_SUBSYS
 #define IOSS_IPCLOG_PRIO_NAME (IOSS_SUBSYS "_prio")
 #define IOSS_QOS_IPCLOG_NAME IOSS_QOS_SUBSYS
+/* Set bit[16] to enable minidump */
+#define MINIDUMP_MASK 0x10000
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
 int ioss_log_init(void)
@@ -70,7 +72,7 @@ int ioss_log_init(void)
 	}
 
 	ioss_ipclog_buf_norm =
-		ipc_log_context_create(log_pages, IOSS_IPCLOG_NAME, 0);
+		ipc_log_context_create(log_pages, IOSS_IPCLOG_NAME, MINIDUMP_MASK);
 	if (!ioss_ipclog_buf_norm) {
 		pr_err("IOSS: Failed to create IPC log context\n");
 

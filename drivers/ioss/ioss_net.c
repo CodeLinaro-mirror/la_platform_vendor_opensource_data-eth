@@ -596,6 +596,13 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 	int rc;
 	struct ioss_device *idev = ioss_iface_dev(iface);
 
+	if (iface->state == IOSS_IF_ST_ERROR) {
+		iface->state = IOSS_IF_ST_OFFLINE;
+		ioss_dev_dbg(idev,
+			"Interface %s state changed to %s",
+			idev->net_dev->name, if_st_s(iface));
+	}
+
 	if (iface->state != IOSS_IF_ST_OFFLINE) {
 		ioss_dev_dbg(idev,
 			"Interface %s state is %s; required is %s",
@@ -751,7 +758,6 @@ static void ioss_refresh_work(struct work_struct *work)
 	if (!net_dev)
 		return;
 
-	ioss_dev_dbg(idev, "Refreshing interface %s", idev->net_dev->name);
 
 	do {
 		iface->link_speed = __fetch_ethtool_link_speed(net_dev);
@@ -759,8 +765,11 @@ static void ioss_refresh_work(struct work_struct *work)
 			break;
 	} while (--retry > 0);
 
+	ioss_dev_dbg(idev, "Refreshing interface %s with link speed %u", idev->net_dev->name, iface->link_speed);
+
 	if (netif_running(net_dev) && netif_carrier_ok(net_dev)
-	    && !(dev->offline) && !idev->unbinding)
+		&& !(dev->offline) && !idev->unbinding
+		&& iface->link_speed != 0 && iface->link_speed != (u32)SPEED_UNKNOWN)
 		ioss_iface_set_online(iface);
 	else
 		ioss_iface_set_offline(iface);
