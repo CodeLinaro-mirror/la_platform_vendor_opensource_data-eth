@@ -45,7 +45,7 @@ static int ioss_probe(struct platform_device *pdev)
 	struct device_node *np = dev->of_node;
 	unsigned int wq_flags = WQ_UNBOUND | WQ_MEM_RECLAIM;
 
-	dev_dbg(dev, "Probing IOSS root device\n");
+	ioss_log_cfg(dev, "Probing IOSS root device");
 
 	ioss = kzalloc(sizeof(*ioss), GFP_KERNEL);
 	if (!ioss)
