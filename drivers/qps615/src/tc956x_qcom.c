@@ -52,7 +52,7 @@ static int tc956x_phy_power_on(struct tc956xmac_priv *priv)
 	}
 
 	if(qpriv->phy_rst_gpio_som)
-		gpiod_set_value(qpriv->phy_rst_gpio_som, 1);
+		gpiod_set_value_cansleep(qpriv->phy_rst_gpio_som, 1);
 	else if(qpriv->phy_rst_gpio) {
 		ret = tc956x_deassert_phy_reset(priv);
 		if (ret) {
@@ -74,12 +74,12 @@ static int tc956x_phy_power_off(struct tc956xmac_priv *priv)
 	struct tc956x_qcom_priv *qpriv = to_priv(priv);
 
 	if(qpriv->phy_rst_gpio_som)
-		gpiod_set_value(qpriv->phy_rst_gpio_som, 0);
+		gpiod_set_value_cansleep(qpriv->phy_rst_gpio_som, 0);
 	else if(qpriv->phy_rst_gpio) {
 		ret = tc956x_assert_phy_reset(priv);
 		if (ret) {
 			dev_err(priv->device, "Failed to assert QPS615 GPIO%02d\n", qpriv->phy_rst_gpio);
-				return ret;
+			return ret;
 		}
 	}
 
@@ -100,19 +100,19 @@ static int tc956x_platform_of_parse(struct device *dev,
 {
 	qpriv->has_always_on_supplies = of_property_read_bool(dev->of_node, "qcom,always-on-supply");
 
-		if (of_property_read_u32(dev->of_node,"qcom,phy-rst-gpio", &qpriv->phy_rst_gpio)) {
+	if (of_property_read_u32(dev->of_node,"qcom,phy-rst-gpio", &qpriv->phy_rst_gpio)) {
 		if (of_property_read_u32(dev->of_node, "qcom,phy-rst-gpio-id", &qpriv->phy_rst_gpio)) {
-		qpriv->phy_rst_gpio_som = devm_gpiod_get(dev, "phy-rst-som", GPIOD_OUT_LOW);
-		if (IS_ERR(qpriv->phy_rst_gpio_som)) {
+			qpriv->phy_rst_gpio_som = devm_gpiod_get(dev, "phy-rst-som", GPIOD_OUT_LOW);
+			if (IS_ERR(qpriv->phy_rst_gpio_som)) {
 				dev_err(dev, "Failed to get PHY reset GPIO\n");
-			return -EINVAL;
+				return -EINVAL;
+			}
 		}
-	}
 	}
 
 	if (of_property_read_u32(dev->of_node, "qcom,phy-rst-delay-us", &qpriv->phy_rst_delay_us)) {
 		dev_err(dev, "Failed to get PHY reset delay time\n");
-			return -EINVAL;
+		return -EINVAL;
 	}
 
 	//qpriv->wol_irq = of_irq_get_byname(dev->of_node, "wol_irq");
@@ -182,7 +182,7 @@ int tc956x_platform_probe(struct tc956xmac_priv *priv,
 	}
 
 	if(qpriv->phy_rst_gpio_som)
-		gpiod_set_value(qpriv->phy_rst_gpio_som, 0);
+		gpiod_set_value_cansleep(qpriv->phy_rst_gpio_som, 0);
 	else if(qpriv->phy_rst_gpio) {
 		ret = tc956x_assert_phy_reset(priv);
 		if (ret) {
