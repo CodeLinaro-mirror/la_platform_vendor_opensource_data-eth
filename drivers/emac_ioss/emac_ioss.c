@@ -2832,6 +2832,9 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						rx_hdl->hdl_committed = is_filter_applied(priv, SRC_IP, &rx_hdl->src.arr[i]);
 				}
 				else {
+					if (!rx_hdl->src.arr[i].proto && !rx_hdl->src.arr[i].port_num)
+						continue;
+
 					scnprintf(row, ROW_BUFFER, "    %s%s- [%s/%u]\n",
 						TC_SKIP_PREFIX(rx_node, hw_rxch),
 						QOS_ROW_PREFIX(priv, SRC_PORT, &rx_hdl->src.arr[i]),
@@ -2867,6 +2870,9 @@ static ssize_t stmmac_show_qos(struct ioss_device *idev, char* buf, struct list_
 						rx_hdl->hdl_committed = is_filter_applied(priv, DEST_IP, &rx_hdl->dst.arr[i]);
 				}
 				else {
+					if (!rx_hdl->dst.arr[i].proto && !rx_hdl->dst.arr[i].port_num)
+						continue;
+
 					scnprintf(row, ROW_BUFFER, "    %s%s- [%s/%u]\n",
 						TC_SKIP_PREFIX(rx_node, hw_rxch),
 						QOS_ROW_PREFIX(priv, DEST_PORT, &rx_hdl->dst.arr[i]),
