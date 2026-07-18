@@ -6,8 +6,6 @@ M ?= $(shell pwd)
 
 KERNEL_SRC ?= /lib/modules/$(shell uname -r)/build
 
-ccflags-y += $(EXTRA_CFLAGS)
-
 ioss-y := \
 	ioss_main.o \
 	ioss_bus.o \
