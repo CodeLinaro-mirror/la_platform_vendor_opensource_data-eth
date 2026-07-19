@@ -161,6 +161,7 @@ static const char * const traffic_type_map[IOSS_TRAFFIC_TYPE_MAX] = {
 	[IOSS_TRAFFIC_BE] = "best-effort",
 	[IOSS_TRAFFIC_BE_TAGGED] = "best-effort-tagged",
 	[IOSS_TRAFFIC_LL] = "low-latency",
+	[IOSS_TRAFFIC_QOS] = "qos",
 };
 
 const char *ioss_traffic_name(enum ioss_traffic_type t)

@@ -152,6 +152,7 @@ enum ioss_traffic_type {
 	IOSS_TRAFFIC_BE, /* 0 = Best Effort */
 	IOSS_TRAFFIC_BE_TAGGED, /* Best Effort VLAN tagged */
 	IOSS_TRAFFIC_LL, /* Low Latency */
+	IOSS_TRAFFIC_QOS, /* QoS */
 	IOSS_TRAFFIC_TYPE_MAX
 };
 
