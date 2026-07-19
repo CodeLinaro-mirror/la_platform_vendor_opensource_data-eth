@@ -99,7 +99,10 @@ struct ethdbg_dump_data {
  * @map_regions: List head for memory regions to expose via UIO
  * @uio_info: UIO device for hardware MMIO (read/write path)
  * @dump_uio_info: UIO device for dump buffers
- * @dump_data: Capture dump data
+ * @dump_data: Capture dump data (MMIO blocks + PHY blocks)
+ * @phy_uio_info: UIO device for PHY dump buffers
+ * @qos_dump_data: Capture dump data for QoS blocks
+ * @qos_uio_info: UIO device for QoS dump buffers
  *
  * Created when a network device is detected and contains all
  * information needed to expose hardware registers via UIO.
@@ -120,6 +123,10 @@ struct ethdbg_device {
 
 	/* Dump structure for data capture */
 	struct ethdbg_dump_data dump_data;
+
+	/* QoS dump structure and UIO device */
+	struct ethdbg_dump_data qos_dump_data;
+	struct uio_info qos_uio_info;
 
 	/* Guard against double PHY registration */
 	bool phy_registered;
@@ -146,15 +153,24 @@ int ethdbg_uio_add(struct ethdbg_interface *iface);
 void ethdbg_uio_del(struct ethdbg_interface *iface);
 int ethdbg_uio_add_phy(struct ethdbg_interface *iface);
 void ethdbg_uio_del_phy(struct ethdbg_interface *iface);
+int ethdbg_uio_add_qos(struct ethdbg_interface *iface);
+void ethdbg_uio_del_qos(struct ethdbg_interface *iface);
 
 int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name);
 int ethdbg_dump_register_phy(struct ethdbg_interface *iface);
 void ethdbg_dump_unregister(struct ethdbg_interface *iface);
+int ethdbg_dump_register_qos(struct ethdbg_device *dev, const char *interface_name);
+void ethdbg_dump_unregister_qos(struct ethdbg_device *dev);
 
 int ethdbg_panic_init(void);
 void ethdbg_panic_deinit(void);
 void ethdbg_dump_device(struct ethdbg_device *dev);
 void ethdbg_dump_device_phy(struct ethdbg_device *dev);
+void ethdbg_dump_device_qos(struct ethdbg_device *dev, bool panic_mode);
+
+u32 ethdbg_read_vlan_indirect(void __iomem *base, u32 index);
+u32 ethdbg_read_l3l4_indirect(void __iomem *base, u32 filter_no, u32 reg_id);
+
 
 #ifdef CONFIG_QCOM_MINIDUMP
 int ethdbg_minidump_add_region(const char *name, uintptr_t vaddr, size_t size);

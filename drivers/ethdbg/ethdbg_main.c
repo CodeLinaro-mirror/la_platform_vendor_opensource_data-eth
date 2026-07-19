@@ -230,13 +230,29 @@ static int register_interface_device(struct ethdbg_interface *iface,
 		goto err_free_maps;
 	}
 
+	/* Register QoS dump capture */
+	ret = ethdbg_dump_register_qos(dev, iface->interface_name);
+	if (ret) {
+		netdev_err(net_dev, "Failed to register QoS dump capture: %d\n", ret);
+		goto err_dump_unregister;
+	}
+
 	/* Register UIO device and dump UIO device */
 	ret = ethdbg_uio_add(iface);
 	if (ret)
-		goto err_dump_unregister;
+		goto err_qos_dump_unregister;
+
+	/* Register QoS UIO device */
+	ret = ethdbg_uio_add_qos(iface);
+	if (ret)
+		goto err_uio_del;
 
 	return 0;
 
+err_uio_del:
+	ethdbg_uio_del(iface);
+err_qos_dump_unregister:
+	ethdbg_dump_unregister_qos(dev);
 err_dump_unregister:
 	ethdbg_dump_unregister(iface);
 err_free_maps:
@@ -257,8 +273,10 @@ static void unregister_interface(struct ethdbg_interface *iface)
 	dev = iface->device;
 	if (dev) {
 		unregister_interface_phy(iface);
-		ethdbg_dump_unregister(iface);
+		ethdbg_uio_del_qos(iface);
 		ethdbg_uio_del(iface);
+		ethdbg_dump_unregister_qos(dev);
+		ethdbg_dump_unregister(iface);
 		free_map_regions(dev);
 		if (dev->net_dev)
 			dev_put(dev->net_dev);

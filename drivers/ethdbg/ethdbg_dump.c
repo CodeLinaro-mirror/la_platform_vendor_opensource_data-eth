@@ -10,7 +10,6 @@
 #include <linux/phy.h>
 #include "ethdbg.h"
 #include "ethdbg_regs.h"
-
 #define REG_SIZE 4
 
 /* Module param to enable capture_phy */
@@ -74,6 +73,8 @@ static void ethdbg_capture_hw_block(struct ethdbg_hw_block *block,
 	const struct ethdbg_hw_desc *hw_desc;
 
 	hw_desc = ethdbg_find_hw_desc(block->map->name);
+	if (!hw_desc)
+		return;
 	ethdbg_capture_regs(block, hw_desc, interface_name);
 }
 
@@ -108,6 +109,7 @@ static int ethdbg_panic_notifier(struct notifier_block *nb,
 
 	list_for_each_entry(iface, &ethdbg_interfaces, list) {
 		ethdbg_dump_device(iface->device);
+		ethdbg_dump_device_qos(iface->device, true);
 		/* PHY capture during panic is disabled by default;
 		 * MDIO accesses may sleep or take locks that are unsafe in panic context.
 		 */
@@ -186,7 +188,9 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 	hw_block->base = ioremap(map->base_addr, map->size);
 	if (!hw_block->base) {
 		pr_err("[%s][%s] Failed to ioremap\n", interface_name, map->name);
-		goto err_free_reg_list;
+		kfree(hw_block->reg_list);
+		hw_block->reg_list = NULL;
+		return -ENXIO;
 	}
 
 	hw_block->num_registers = num_registers;
@@ -195,11 +199,6 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 	hw_block->map = map;
 
 	return 0;
-
-err_free_reg_list:
-	kfree(hw_block->reg_list);
-	hw_block->reg_list = NULL;
-	return -ENOMEM;
 }
 
 static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
@@ -302,6 +301,23 @@ static void ethdbg_populate_c22_offsets(struct ethdbg_hw_block *block,
 		     reg++, entry_idx++)
 			block->reg_list[entry_idx].offset = reg;
 	}
+}
+
+/*
+ * ethdbg_populate_indirect_offsets - pre-populate reg_list[].offset for a
+ * QoS indirect block at registration time.
+ *
+ * Each reg_desc entry has start_offset == end_offset == ETHDBG_IND_OFFSET(idx, reg_id).
+ * We copy every encoded offset straight into reg_list[], one entry per descriptor
+ * row, mirroring how ethdbg_populate_c22_offsets() works for PHY blocks.
+ */
+static void ethdbg_populate_indirect_offsets(struct ethdbg_hw_block *block,
+					     const struct ethdbg_hw_desc *desc)
+{
+	unsigned int i;
+
+	for (i = 0; i < desc->num_reg_desc && i < block->num_registers; i++)
+		block->reg_list[i].offset = desc->reg_desc[i].start_offset;
 }
 
 static int ethdbg_alloc_phy_block(struct ethdbg_hw_block *block,
@@ -446,4 +462,207 @@ int ethdbg_panic_init(void)
 void ethdbg_panic_deinit(void)
 {
 	atomic_notifier_chain_unregister(&panic_notifier_list, &ethdbg_panic_nb);
+}
+
+/*
+ * ethdbg_alloc_indirect_block - allocate and initialise a QoS indirect
+ * hw_block.  Mirrors ethdbg_alloc_phy_block() for PHY blocks.
+ *
+ * @block:      pre-zeroed hw_block slot to initialise
+ * @desc:       hw_desc for this indirect block (qos-vlan or qos-l3l4)
+ * @base:       ioremap base shared with the direct block (stmmaceth)
+ */
+static int ethdbg_alloc_indirect_block(struct ethdbg_hw_block *block,
+				       const struct ethdbg_hw_desc *desc,
+				       void __iomem *base)
+{
+	unsigned int num_regs = desc->num_reg_desc; /* one entry per descriptor row */
+
+	block->reg_list = kzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)),
+				  GFP_KERNEL);
+	if (!block->reg_list)
+		return -ENOMEM;
+
+	block->num_registers = num_regs;
+	block->base          = base;   /* borrowed — do NOT iounmap this block */
+	block->map           = NULL;   /* no ethdbg_map; base is shared */
+	block->name          = desc->name;
+
+	/* Pre-populate offsets at registration time; values filled at capture time */
+	ethdbg_populate_indirect_offsets(block, desc);
+
+	return 0;
+}
+
+/*
+ * ethdbg_dump_register_qos - Allocate and initialise all QoS capture blocks:
+ *   blocks[0] = direct  (MMIO, existing path)
+ *   blocks[1] = VLAN indirect
+ *   blocks[2] = L3/L4 indirect
+ */
+int ethdbg_dump_register_qos(struct ethdbg_device *dev, const char *interface_name)
+{
+	const struct ethdbg_hw_desc *direct_desc, *vlan_desc, *l3l4_desc;
+	struct ethdbg_dump_data *qos_data = &dev->qos_dump_data;
+	struct ethdbg_map *map, *stmmac_map = NULL;
+	void __iomem *shared_base;
+	int ret;
+
+	memset(qos_data, 0, sizeof(*qos_data));
+
+	/* Find the stmmaceth map — all QoS registers share that base address */
+	list_for_each_entry(map, &dev->map_regions, list) {
+		if (map->name && strcmp(map->name, "stmmaceth") == 0) {
+			stmmac_map = map;
+			break;
+		}
+	}
+	if (!stmmac_map) {
+		pr_warn("ethdbg: [%s] stmmaceth map not found, skipping QoS dump\n",
+			interface_name);
+		return 0;
+	}
+
+	direct_desc = ethdbg_find_hw_desc("qos-stmmac");
+	vlan_desc   = ethdbg_find_hw_desc("qos-vlan");
+	l3l4_desc   = ethdbg_find_hw_desc("qos-l3l4");
+	if (!direct_desc || !vlan_desc || !l3l4_desc) {
+		pr_warn("ethdbg: [%s] QoS hw_desc missing, skipping QoS dump\n",
+			interface_name);
+		return 0;
+	}
+
+	/* 3 slots: direct + vlan + l3l4 */
+	qos_data->blocks = kzalloc(3 * sizeof(struct ethdbg_hw_block), GFP_KERNEL);
+	if (!qos_data->blocks)
+		return -ENOMEM;
+
+	/* blocks[0]: direct MMIO — uses ethdbg_init_hw_block (ioremap inside) */
+	ret = ethdbg_init_hw_block(&qos_data->blocks[0], stmmac_map,
+				   direct_desc, interface_name);
+	if (ret)
+		goto err_free_blocks;
+
+	/*
+	 * Borrow the ioremap base from blocks[0] for the indirect blocks.
+	 * Both indirect blocks share the same MMIO window; they must not
+	 * iounmap it — that is handled by blocks[0] in unregister.
+	 */
+	shared_base = qos_data->blocks[0].base;
+
+	/* blocks[1]: VLAN indirect */
+	ret = ethdbg_alloc_indirect_block(&qos_data->blocks[1], vlan_desc,
+					  shared_base);
+	if (ret)
+		goto err_free_direct;
+
+	/* blocks[2]: L3/L4 indirect */
+	ret = ethdbg_alloc_indirect_block(&qos_data->blocks[2], l3l4_desc,
+					  shared_base);
+	if (ret)
+		goto err_free_vlan;
+
+	qos_data->num_blocks = 3;
+	return 0;
+
+err_free_vlan:
+	kfree(qos_data->blocks[1].reg_list);
+	qos_data->blocks[1].reg_list = NULL;
+	qos_data->blocks[1].base = NULL;
+err_free_direct:
+	iounmap(qos_data->blocks[0].base);
+	qos_data->blocks[0].base = NULL;
+	kfree(qos_data->blocks[0].reg_list);
+	qos_data->blocks[0].reg_list = NULL;
+err_free_blocks:
+	kfree(qos_data->blocks);
+	qos_data->blocks = NULL;
+	return ret;
+}
+
+/*
+ * ethdbg_dump_unregister_qos - Release resources allocated by
+ * ethdbg_dump_register_qos().
+ *
+ * blocks[0] owns the ioremap; blocks[1] and blocks[2] borrow it.
+ * Only iounmap blocks[0].base.
+ */
+void ethdbg_dump_unregister_qos(struct ethdbg_device *dev)
+{
+	struct ethdbg_dump_data *qos_data = &dev->qos_dump_data;
+	int i;
+
+	if (!qos_data->blocks)
+		return;
+
+	for (i = 0; i < qos_data->num_blocks; i++) {
+		/* Only the direct block (index 0) owns the ioremap base */
+		if (i == 0 && qos_data->blocks[0].base)
+			iounmap(qos_data->blocks[0].base);
+		qos_data->blocks[i].base = NULL;
+		kfree(qos_data->blocks[i].reg_list);
+		qos_data->blocks[i].reg_list = NULL;
+	}
+
+	kfree(qos_data->blocks);
+	qos_data->blocks = NULL;
+	qos_data->num_blocks = 0;
+}
+
+/*
+ * ethdbg_dump_device_qos - Capture QoS registers.
+ *
+ *   blocks[0]: direct MMIO   — always captured (safe in any context)
+ *   blocks[1]: VLAN indirect  — skipped when panic_mode=true (requires clocks)
+ *   blocks[2]: L3/L4 indirect — skipped when panic_mode=true (requires clocks)
+ */
+void ethdbg_dump_device_qos(struct ethdbg_device *dev, bool panic_mode)
+{
+	struct ethdbg_dump_data *qos_data = &dev->qos_dump_data;
+	const struct ethdbg_hw_desc *hw_desc;
+	struct ethdbg_hw_block *block;
+	unsigned int i;
+
+	if (!qos_data->blocks || qos_data->num_blocks < 1)
+		return;
+
+	/* blocks[0]: direct MMIO */
+	block   = &qos_data->blocks[0];
+	hw_desc = ethdbg_find_hw_desc("qos-stmmac");
+	if (hw_desc && block->reg_list && block->base)
+		ethdbg_capture_regs(block, hw_desc, dev->net_dev->name);
+
+	if (panic_mode)
+		return;
+
+	if (qos_data->num_blocks < 3)
+		return;
+
+	/* blocks[1]: VLAN indirect */
+	block = &qos_data->blocks[1];
+	if (block->reg_list) {
+		block->num_captured = 0;
+		for (i = 0; i < block->num_registers; i++) {
+			u32 idx = ETHDBG_IND_IDX(block->reg_list[i].offset);
+
+			block->reg_list[i].value =
+				ethdbg_read_vlan_indirect(block->base, idx);
+			block->num_captured++;
+		}
+	}
+
+	/* blocks[2]: L3/L4 indirect */
+	block = &qos_data->blocks[2];
+	if (block->reg_list) {
+		block->num_captured = 0;
+		for (i = 0; i < block->num_registers; i++) {
+			u32 encoded = block->reg_list[i].offset;
+			u32 idx     = ETHDBG_IND_IDX(encoded);
+			u32 reg_id  = ETHDBG_IND_REG(encoded);
+
+			block->reg_list[i].value =
+				ethdbg_read_l3l4_indirect(block->base, idx, reg_id);
+			block->num_captured++;
+		}
+	}
 }
