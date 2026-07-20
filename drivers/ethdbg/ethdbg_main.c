@@ -30,26 +30,27 @@ static void parse_memory_regions(const struct device_node *np,
 {
 	struct resource res;
 	struct ethdbg_map *map;
+	unsigned int start_index = list_count_nodes(map_list);
 	int i = 0;
 
 	while (of_address_to_resource(np, i, &res) == 0) {
 		map = kzalloc(sizeof(*map), GFP_KERNEL);
 		if (!map) {
-			pr_err("Failed to allocate memory for region %d, skipping\n", i);
+			pr_err("Failed to allocate memory for region %d, skipping\n", start_index + i);
 			i++;
 			continue;
 		}
 
 		map->base_addr = res.start;
 		map->size = resource_size(&res);
+		map->index = start_index + i;
 
 		/* Get the corresponding reg-name */
 		of_property_read_string_index(np, "reg-names", i, &map->name);
 
 		list_add_tail(&map->list, map_list);
 
-		pr_info("Region %d: %s - Base: 0x%llx, Size: 0x%llx\n",
-			i, map->name,
+		pr_info("Region %u: %s - Base: 0x%llx, Size: 0x%llx\n", map->index, map->name,
 			(unsigned long long)res.start,
 			(unsigned long long)resource_size(&res));
 		i++;
@@ -128,6 +129,72 @@ static struct ethdbg_interface *add_interface(const char *iface_name)
 	return iface;
 }
 
+static int register_interface_phy(struct ethdbg_interface *iface)
+{
+	int ret;
+
+	if (!iface->device)
+		return -ENODEV;
+
+	if (iface->device->phy_registered)
+		return 0;
+
+	ret = ethdbg_dump_register_phy(iface);
+	if (ret)
+		return ret;
+
+	ret = ethdbg_uio_add_phy(iface);
+	if (ret)
+		return ret;
+
+	iface->device->phy_registered = true;
+	return 0;
+}
+
+static void unregister_interface_phy(struct ethdbg_interface *iface)
+{
+	if (!iface->device || !iface->device->phy_registered)
+		return;
+
+	ethdbg_uio_del_phy(iface);
+	iface->device->phy_registered = false;
+}
+
+static void register_interface_res(struct ethdbg_interface *iface)
+{
+	/* PHY is not valid at NETDEV_REGISTER, attach it now */
+	register_interface_phy(iface);
+
+	/*
+	 * DMA descriptor rings are allocated by stmmac_open(), which
+	 * completes before NETDEV_UP is delivered. Register the VA-minidump
+	 * panic notifier now so rings are captured on panic.
+	 */
+	ethdbg_stmmac_va_md_register(iface->device,
+				     iface->interface_name);
+}
+
+static void unregister_interface_res(struct ethdbg_interface *iface)
+{
+	/*
+	 * Unregister the VA-minidump panic notifier when the last interface
+	 * goes down. If other interfaces are still active it remains
+	 * registered to cover their descriptor rings.
+	 */
+	ethdbg_stmmac_va_md_unregister(iface->device,
+				       iface->interface_name);
+}
+
+static void free_map_regions(struct ethdbg_device *dev)
+{
+	struct ethdbg_map *map, *tmp;
+
+	list_for_each_entry_safe(map, tmp, &dev->map_regions, list) {
+		list_del(&map->list);
+		kfree(map);
+	}
+}
+
 static int register_interface_device(struct ethdbg_interface *iface,
 				      struct net_device *net_dev)
 {
@@ -156,20 +223,31 @@ static int register_interface_device(struct ethdbg_interface *iface,
 	/* Parse device tree and populate memory map regions */
 	parse_maps(parent_dev, &dev->map_regions);
 
-	/* Register UIO device */
+	/* Register for dump capture */
+	ret = ethdbg_dump_register(dev, iface->interface_name);
+	if (ret) {
+		netdev_err(net_dev, "Failed to register dump capture: %d\n", ret);
+		goto err_free_maps;
+	}
+
+	/* Register UIO device and dump UIO device */
 	ret = ethdbg_uio_add(iface);
 	if (ret)
-		return ret;
-
-	/* Register for panic capture */
-	ret = ethdbg_panic_register(dev, iface->interface_name);
-	if (ret)
-		pr_err("Failed to register panic capture: %d\n", ret);
+		goto err_dump_unregister;
 
 	return 0;
+
+err_dump_unregister:
+	ethdbg_dump_unregister(iface);
+err_free_maps:
+	free_map_regions(dev);
+	dev_put(net_dev);
+	kfree(dev);
+	iface->device = NULL;
+	return ret;
 }
 
-static void unregister_interface_device(struct ethdbg_interface *iface)
+static void unregister_interface(struct ethdbg_interface *iface)
 {
 	struct ethdbg_device *dev;
 
@@ -178,9 +256,10 @@ static void unregister_interface_device(struct ethdbg_interface *iface)
 
 	dev = iface->device;
 	if (dev) {
-		ethdbg_panic_unregister(dev);
+		unregister_interface_phy(iface);
+		ethdbg_dump_unregister(iface);
 		ethdbg_uio_del(iface);
-
+		free_map_regions(dev);
 		if (dev->net_dev)
 			dev_put(dev->net_dev);
 		kfree(dev);
@@ -214,9 +293,15 @@ static int ethdbg_netdev_event(struct notifier_block *nb,
 		netdev_info(net_dev, "Registering ethdbg device\n");
 		register_interface_device(iface, net_dev);
 		break;
+	case NETDEV_UP:
+		register_interface_res(iface);
+		break;
+	case NETDEV_DOWN:
+		unregister_interface_res(iface);
+		break;
 	case NETDEV_UNREGISTER:
 		netdev_info(net_dev, "Unregistering ethdbg device\n");
-		unregister_interface_device(iface);
+		unregister_interface(iface);
 		break;
 	default:
 		break;

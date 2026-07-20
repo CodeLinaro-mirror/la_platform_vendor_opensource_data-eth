@@ -14,6 +14,7 @@ typedef int (*of_parser_t)(struct ioss_device *idev, struct device_node *np);
 #define KEY_TRAFFIC_TYPE "qcom,ioss-traffic-type"
 #define KEY_IPA_CONFIGS "qcom,compatible-ipa-configs"
 #define IOSS_MIN_RING_SIZE	4
+#define IOSS_MAX_RING_SIZE	16384
 
 static int ioss_of_parse_traffic_type(struct ioss_device *idev,
 		struct device_node *np, struct ioss_channel *ch)
@@ -137,6 +138,30 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 	ch->tcm_desc_en = of_property_read_bool(np, "qcom,tcm_desc_en");
 	ch->tcm_buf_en = of_property_read_bool(np, "qcom,tcm_buf_en");
 
+	if (ch->tcm_desc_en || ch->tcm_buf_en) {
+		u32 tcm_ring_size[2];
+
+		key = "qcom,tcm-ring-size";
+		if (of_property_read_u32_array(np, key, tcm_ring_size, ARRAY_SIZE(tcm_ring_size))) {
+			ioss_dev_err(idev, "Failed to parse mandatory key %s", key);
+			goto err;
+		}
+		ch->tcm_ring_size_min = tcm_ring_size[0];
+		ch->tcm_ring_size_max = tcm_ring_size[1];
+
+		if (ch->tcm_ring_size_min < IOSS_MIN_RING_SIZE) {
+			ioss_dev_err(idev, "Invalid %s: min %u is less than 4",
+				     key, ch->tcm_ring_size_min);
+			goto err;
+		}
+
+		if (ch->tcm_ring_size_max > IOSS_MAX_RING_SIZE) {
+			ioss_dev_err(idev, "Invalid %s: max %u exceeds 16384",
+				     key, ch->tcm_ring_size_max);
+			goto err;
+		}
+	}
+
 	if (ioss_of_parse_traffic_type(idev, np, ch))
 		goto err;
 
@@ -152,6 +177,7 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 
 	ch->default_config.desc_alctr = &ioss_default_alctr;
 	ch->default_config.buff_alctr = &ioss_default_alctr;
+	ioss_net_apply_channel_config(ch);
 
 	list_add_tail(&ch->node, &iface->invalid_channels);
 
@@ -226,7 +252,8 @@ err:
 		}
 	}
 
-	kvfree_sensitive(iface->ioss_priv,ksize(iface->ioss_priv));
+	kvfree_sensitive(iface->ioss_priv, ksize(iface->ioss_priv));
+	iface->ioss_priv = NULL;
 
 	return -EINVAL;
 }

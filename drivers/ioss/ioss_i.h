@@ -19,10 +19,6 @@
 
 #include "include/linux/msm/ioss.h"
 
-#if IS_ENABLED(CONFIG_QCOM_LLCC)
-#define LLCC_ENABLE
-#endif
-
 #define DEFAULT_IPA_CONFIG "default"
 #define DEFAULT_IOSS_TRAFFIC_TYPE IOSS_TRAFFIC_BE
 
@@ -53,16 +49,11 @@ extern struct ioss_mem_allocator ioss_default_alctr;
 extern unsigned long ioss_ver;
 extern unsigned long ioss_api_ver;
 
-#ifdef LLCC_ENABLE
 extern struct ioss_mem_allocator ioss_tcm_desc_alctr;
 extern struct ioss_mem_allocator ioss_tcm_buf_alctr;
 
 int ioss_tcm_mem_init(void);
 void ioss_tcm_mem_deinit(void);
-#else
-static inline int ioss_tcm_mem_init(void) { return 0; }
-static inline void ioss_tcm_mem_deinit(void) {}
-#endif
 
 int ioss_pci_start(struct ioss *ioss);
 void ioss_pci_stop(struct ioss *ioss);
@@ -118,6 +109,7 @@ void ioss_bus_unregister_iface(struct ioss_interface *iface);
 int ioss_net_watch_device(struct ioss_device *idev);
 int ioss_net_unwatch_device(struct ioss_device *idev);
 int ioss_net_link_device(struct ioss_device *idev);
+void ioss_net_apply_channel_config(struct ioss_channel *ch);
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
 int ioss_log_init(void);
@@ -150,13 +142,5 @@ void ioss_sysfs_remove_idev(struct ioss_device* idev);
 int ioss_sysfs_add_channel(struct ioss_channel* ch);
 void ioss_sysfs_remove_channel(struct ioss_channel* ch);
 
-int ioss_qos_reconfigure(struct ioss_device *idev);
-int ioss_qos_enable(struct ioss_device *idev);
-void ioss_qos_clear_cache(struct ioss_device *idev);
-void ioss_qos_refresh(struct ioss_device *idev);
-void ioss_qos_remove_channels(struct ioss_interface *iface);
-void ioss_qos_init(struct ioss_device *idev);
-int ioss_qos_add_idev(struct ioss_device *idev);
-void ioss_qos_remove_idev(struct ioss_device *idev);
 
 #endif /* _IOSS_I_H_ */

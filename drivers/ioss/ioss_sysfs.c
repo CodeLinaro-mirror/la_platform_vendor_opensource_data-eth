@@ -628,6 +628,206 @@ static ssize_t sysfs_read_ch_stat(struct device *dev, struct device_attribute *a
 }
 DEVICE_ATTR(ch_stat, 0644, sysfs_read_ch_stat, NULL);
 
+static struct ioss_channel *ioss_sysfs_get_channel(struct device *dev,
+						    struct ioss_device **idev_out)
+{
+	char *dir, *ch_name;
+	struct ioss_channel *ch = NULL, *ch_tmp;
+	struct device *parent = kobj_to_dev(dev->kobj.parent->parent);
+	struct net_device *netdev;
+	struct ioss_device *idev;
+	struct ioss_interface *iface;
+	int id = 0;
+
+	ch_name = kstrdup(kobject_name(&dev->kobj), GFP_KERNEL);
+	if (!ch_name)
+		return ERR_PTR(-ENOMEM);
+
+	dir = strsep(&ch_name, "-");
+
+	netdev = to_net_dev(parent);
+	if (!netdev) {
+		pr_err("netdev is NULL\n");
+		kfree(dir);
+		return ERR_PTR(-EINVAL);
+	}
+
+	iface = ioss_netdev_to_iface(netdev);
+	if (!iface) {
+		kfree(dir);
+		return ERR_PTR(-EINVAL);
+	}
+
+	idev = ioss_iface_dev(iface);
+	if (!idev) {
+		kfree(dir);
+		return ERR_PTR(-EINVAL);
+	}
+
+	if (idev_out)
+		*idev_out = idev;
+
+	if (ch_name)
+		sscanf(ch_name, "%d", &id);
+
+	ioss_for_each_channel(ch_tmp, iface) {
+		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
+		if (!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id) {
+			ch = ch_tmp;
+			break;
+		}
+	}
+
+	kfree(dir);
+
+	if (!ch) {
+		ioss_dev_err(idev, "Failed to get channel");
+		return ERR_PTR(-EFAULT);
+	}
+
+	return ch;
+}
+
+static ssize_t tcm_buf_en_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, NULL);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", ch->tcm_buf_en ? 1 : 0);
+}
+
+static ssize_t tcm_buf_en_store(struct device *dev, struct device_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct ioss_device *idev;
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, &idev);
+	bool new_value;
+	int ret;
+
+	ret = kstrtobool(buf, &new_value);
+	if (ret)
+		return ret;
+
+	ch->tcm_buf_en = new_value;
+	ch->pending_user_cfg = true;
+	ioss_dev_cfg(idev, "Updated %s-%d tcm_buf_en to %d",
+		     ioss_ch_dir_s(ch), ch->id, new_value ? 1 : 0);
+
+	return count;
+}
+DEVICE_ATTR_RW(tcm_buf_en);
+
+static ssize_t tcm_desc_en_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, NULL);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", ch->tcm_desc_en ? 1 : 0);
+}
+
+static ssize_t tcm_desc_en_store(struct device *dev, struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct ioss_device *idev;
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, &idev);
+	bool new_value;
+	int ret;
+
+	ret = kstrtobool(buf, &new_value);
+	if (ret)
+		return ret;
+
+	ch->tcm_desc_en = new_value;
+	ch->pending_user_cfg = true;
+	ioss_dev_cfg(idev, "Updated %s-%d tcm_desc_en to %d",
+		     ioss_ch_dir_s(ch), ch->id, new_value ? 1 : 0);
+
+	return count;
+}
+DEVICE_ATTR_RW(tcm_desc_en);
+
+static ssize_t default_ring_size_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, NULL);
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n", ch->default_config.ring_size);
+}
+
+static ssize_t default_ring_size_store(struct device *dev, struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	struct ioss_device *idev;
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, &idev);
+	u32 val;
+	int ret;
+
+	ret = kstrtou32(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	ch->default_config.ring_size = val;
+	ch->pending_user_cfg = true;
+	ioss_dev_cfg(idev, "Updated %s-%d default_ring_size to %u",
+		     ioss_ch_dir_s(ch), ch->id, val);
+
+	return count;
+}
+DEVICE_ATTR_RW(default_ring_size);
+
+static ssize_t tcm_ring_size_min_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, NULL);
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n", ch->tcm_ring_size_min);
+}
+
+static ssize_t tcm_ring_size_min_store(struct device *dev, struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	struct ioss_device *idev;
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, &idev);
+	u32 val;
+	int ret;
+
+	ret = kstrtou32(buf, 0, &val);
+	if (ret)
+		return ret;
+
+	ch->tcm_ring_size_min = val;
+	ch->pending_user_cfg = true;
+	ioss_dev_cfg(idev, "Updated %s-%d tcm_ring_size_min to %u",
+		     ioss_ch_dir_s(ch), ch->id, val);
+
+	return count;
+}
+DEVICE_ATTR_RW(tcm_ring_size_min);
+
+static ssize_t tcm_ring_size_max_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, NULL);
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n", ch->tcm_ring_size_max);
+}
+
+static ssize_t tcm_ring_size_max_store(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct ioss_device *idev;
+	struct ioss_channel *ch = ioss_sysfs_get_channel(dev, &idev);
+	u32 new_ring_size;
+	int ret;
+
+	ret = kstrtou32(buf, 0, &new_ring_size);
+	if (ret)
+		return ret;
+
+	ch->tcm_ring_size_max = new_ring_size;
+	ch->pending_user_cfg = true;
+	ioss_dev_cfg(idev, "Updated %s-%d tcm_ring_size_max to %u",
+		     ioss_ch_dir_s(ch), ch->id, new_ring_size);
+
+	return count;
+}
+DEVICE_ATTR_RW(tcm_ring_size_max);
+
 int ioss_sysfs_add_idev(struct ioss_device *idev)
 {
 	int ret;
@@ -710,6 +910,36 @@ int ioss_sysfs_add_channel(struct ioss_channel *ch)
 	ret = sysfs_create_file(ch->kobj, &dev_attr_ch_stat.attr);
 	if (ret) {
 		ioss_dev_err(idev, "Failed to create stat sysfs file for %s", dir_name);
+		goto err_sysfs;
+	}
+
+	ret = sysfs_create_file(ch->kobj, &dev_attr_tcm_ring_size_max.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create tcm_ring_size_max sysfs file for %s", dir_name);
+		goto err_sysfs;
+	}
+
+	ret = sysfs_create_file(ch->kobj, &dev_attr_tcm_buf_en.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create tcm_buf_en sysfs file for %s", dir_name);
+		goto err_sysfs;
+	}
+
+	ret = sysfs_create_file(ch->kobj, &dev_attr_tcm_desc_en.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create tcm_desc_en sysfs file for %s", dir_name);
+		goto err_sysfs;
+	}
+
+	ret = sysfs_create_file(ch->kobj, &dev_attr_default_ring_size.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create default_ring_size sysfs file for %s", dir_name);
+		goto err_sysfs;
+	}
+
+	ret = sysfs_create_file(ch->kobj, &dev_attr_tcm_ring_size_min.attr);
+	if (ret) {
+		ioss_dev_err(idev, "Failed to create tcm_ring_size_min sysfs file for %s", dir_name);
 		goto err_sysfs;
 	}
 

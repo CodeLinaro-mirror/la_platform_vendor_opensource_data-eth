@@ -23,7 +23,6 @@ static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type
 	static const enum ipa_eth_pipe_traffic_type ipa_map[IOSS_TRAFFIC_TYPE_MAX] = {
 		[IOSS_TRAFFIC_BE] = IPA_ETH_PIPE_BEST_EFFORT,
 		[IOSS_TRAFFIC_BE_TAGGED] = IPA_ETH_PIPE_BEST_EFFORT_VLAN,
-		[IOSS_TRAFFIC_QOS]	=	IPA_ETH_PIPE_TRAFFIC_TYPE_QOS,
 		[IOSS_TRAFFIC_LL] = IPA_ETH_PIPE_LOW_LATENCY,
 	};
 
@@ -36,7 +35,6 @@ static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa
 		[IPA_ETH_PIPE_BEST_EFFORT] = IOSS_TRAFFIC_BE,
 		[IPA_ETH_PIPE_LOW_LATENCY] = IOSS_TRAFFIC_LL,
 		[IPA_ETH_PIPE_BEST_EFFORT_VLAN] = IOSS_TRAFFIC_BE_TAGGED,
-		[IPA_ETH_PIPE_TRAFFIC_TYPE_QOS]	=	IOSS_TRAFFIC_QOS,
 	};
 
 	return ioss_map[ipa_type];
@@ -89,7 +87,6 @@ static int ioss_ipa_fill_pipe_info(struct ioss_channel *ch,
 
 	pi->dir = to_ipa_dir(ch->direction);
 	pi->traffic_type = to_ipa_traffic_type(ch->traffic_type);
-	pi->tc_bmap = ch->tc_mapping;
 
 	desc_mem = list_first_entry_or_null(
 			&ch->desc_mem, typeof(*desc_mem), node);
@@ -360,11 +357,6 @@ static bool validate_channel(struct ioss_channel *ch,
 	if (ch->direction != dir)
 		return false;
 
-	if (traffic == IOSS_TRAFFIC_QOS) {
-		ch->traffic_type = IOSS_TRAFFIC_QOS;
-		return true;
-	}
-
 	if (ch->traffic_type != traffic)
 		return false;
 
@@ -444,8 +436,6 @@ int ioss_ipa_validate_channels(struct ioss_interface *iface)
 	ioss_ipa_invalidate_channels(iface);
 
 	required_channels = ipa_config->num_dma_channel;
-	if (!strcmp(ipa_config->config, "qos"))
-		required_channels = 2;
 
 	return ioss_ipa_validate_one_channel(
 			iface, ipa_config->dma_config, required_channels);
@@ -456,8 +446,78 @@ void ioss_ipa_invalidate_channels(struct ioss_interface *iface)
 	struct ioss_channel *ch, *tmp_ch;
 
 	list_for_each_entry_safe(ch, tmp_ch, &iface->valid_channels, node) {
-		ioss_dev_log(ioss_iface_dev(iface), "Ch : %d, id : %d, dir : %d, traffic : %d, tc_mapping : %d",
-			     ch->channel_num, ch->id, ch->direction, ch->traffic_type, ch->tc_mapping);
+		ioss_dev_log(ioss_iface_dev(iface), "Ch : %d, id : %d, dir : %d, traffic : %d",
+			     ch->channel_num, ch->id, ch->direction, ch->traffic_type);
 		list_move(&ch->node, &iface->invalid_channels);
 	}
 }
+
+#if IPA_ETH_API_VER >= 9
+int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 tc_bmap)
+{
+	struct ioss_interface *iface;
+	struct ioss_channel *ch;
+	struct ioss_ch_priv *cp;
+	enum ioss_channel_dir dir;
+	int ret = 0;
+
+	if (!idev)
+		return -EINVAL;
+
+	iface = &idev->interface;
+	dir = is_rx ? IOSS_CH_DIR_RX : IOSS_CH_DIR_TX;
+
+	mutex_lock(&idev->refresh_lock);
+
+	ioss_for_each_channel(ch, iface) {
+		if (ch->direction != dir || ch->channel_num != ch_num)
+			continue;
+
+		cp = ch->ioss_priv;
+		if (!cp) {
+			ioss_dev_err(idev, "missing private data for ch %d", ch_num);
+			ret = -EINVAL;
+			goto out_unlock;
+		}
+
+		cp->ipa_pi.tc_bmap = tc_bmap;
+
+		if (iface->state != IOSS_IF_ST_ONLINE) {
+			ioss_dev_log(idev, "cached tc mapping dir=%d ch=%d bmap=0x%x while IPA is not connected",
+				     dir, ch_num, tc_bmap);
+			ret = 0;
+			goto out_unlock;
+		}
+
+		ret = ipa_eth_qos_update_tc_mapping(&cp->ipa_pi);
+		if (ret) {
+			ioss_dev_err(idev, "failed to update tc mapping dir=%d ch=%d bmap=0x%x ret=%d",
+				     dir, ch_num, tc_bmap, ret);
+			goto out_unlock;
+		}
+
+		ioss_dev_log(idev, "updated tc mapping dir=%d ch=%d bmap=0x%x",
+			     dir, ch_num, tc_bmap);
+		goto out_unlock;
+	}
+
+	ioss_dev_err(idev, "failed to find qos channel dir=%d ch=%d", dir, ch_num);
+	ret = -ENODEV;
+
+out_unlock:
+	mutex_unlock(&idev->refresh_lock);
+	return ret;
+}
+#else
+int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 tc_bmap)
+{
+	if (!idev)
+		return -EINVAL;
+
+	ioss_dev_err(idev, "tc mapping is unsupported for IPA_ETH_API_VER=%d",
+		     IPA_ETH_API_VER);
+
+	return -EOPNOTSUPP;
+}
+#endif
+EXPORT_SYMBOL_GPL(ioss_ipa_set_tc_bmap);
