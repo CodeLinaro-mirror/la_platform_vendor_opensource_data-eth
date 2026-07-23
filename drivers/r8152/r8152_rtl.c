@@ -25214,9 +25214,11 @@ static int rtl8152_set_pauseparam(struct net_device *netdev, struct ethtool_paus
 
 	old = ret;
 	new1 = (old & ~(ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM)) | mii_advertise_flowctrl(cap);
-	if (old != new1)
+	if (old != new1) {
 		ret = r8152_mdio_write(tp, MII_ADVERTISE, new1);
-
+		if (ret >= 0)
+			ret = rtl_nway_restart(tp);
+	}
 	if (new1 & (ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM))
 		tp->ups_info.flow_control = true;
 	else

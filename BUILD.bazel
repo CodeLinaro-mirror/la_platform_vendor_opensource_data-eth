@@ -59,3 +59,13 @@ ddk_headers(
     ],
 )
 
+ddk_headers(
+    name = "qca_nss_phy_headers",
+    hdrs = [
+        "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx.h",
+        "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx_macsec.h",
+    ],
+    includes = [
+        "drivers/qca-nss-phy/linux_std/qca81xx",
+    ],
+)
