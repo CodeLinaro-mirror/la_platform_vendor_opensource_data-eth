@@ -178,12 +178,14 @@ static int stmmac_ioss_xmit(struct sk_buff *skb, struct stmmac_api_channel *api_
 #endif
 
 #if STMMAC_API_VER >= 2
-static void stmmac_ioss_xmit_done(struct sk_buff *skb, int status, bool ready)
+static void stmmac_ioss_xmit_done(struct ioss_channel *ch, struct sk_buff *skb, int status,
+			          bool ready)
 {
 	stmmac_api_xmit_done(skb, status, ready);
 }
 #else
-static void stmmac_ioss_xmit_done(struct sk_buff *skb, int status, bool ready)
+static void stmmac_ioss_xmit_done(struct ioss_channel *ch, struct sk_buff *skb, int status,
+			          bool ready)
 {
 	pr_err_ratelimited("stmmac_ioss: xmit_done requires STMMAC_API_VER >= 2 (cur=%d)\n",
 			   STMMAC_API_VER);
@@ -338,12 +340,12 @@ static int stmmac_ioss_disable_event(struct ioss_channel *ch)
 }
 
 #if STMMAC_API_VER >= 2
-static int stmmac_ioss_receive_skb(struct sk_buff *skb)
+static int stmmac_ioss_receive_skb(struct ioss_channel *ch, struct sk_buff *skb)
 {
 	return stmmac_api_receive_skb(skb);
 }
 #else
-static int stmmac_ioss_receive_skb(struct sk_buff *skb)
+static int stmmac_ioss_receive_skb(struct ioss_channel *ch, struct sk_buff *skb)
 {
 	pr_err_ratelimited("stmmac_ioss: receive_skb requires STMMAC_API_VER >= 2 (cur=%d)\n",
 			   STMMAC_API_VER);
