@@ -85,6 +85,7 @@ struct eth_qos_cbs_entry {
 	bool used;
 	bool hw_path;
 	u32 tc;
+	u32 etc;
 	u32 queue;
 	u32 ch;
 	int idleslope;
@@ -98,6 +99,7 @@ struct eth_qos_hid_entry {
 	u32 hid;
 	u32 queue;
 	u32 tc;
+	u32 etc;
 	u32 ch;
 	bool hw_path;
 	enum eth_qos_filter_type type;
@@ -324,6 +326,54 @@ static struct eth_qos_mgr_ctx *eth_qos_mgr_get_existing_ctx_locked(struct net_de
 	return ctx;
 }
 
+#if STMMAC_API_VER >= 3
+static int eth_qos_mgr_set_q2tc_map(struct net_device *ndev, u32 queue, u32 etc)
+{
+	return stmmac_api_set_q2tc_map(ndev, queue, etc);
+}
+
+static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send_slope,
+				  int idle_slope, int high_credit, int low_credit,
+				  u32 queue, u32 etc)
+{
+	return stmmac_api_config_cbs(ndev, enable, send_slope, idle_slope,
+				     high_credit, low_credit, queue, etc);
+}
+#else
+static int eth_qos_mgr_set_q2tc_map(struct net_device *ndev, u32 queue, u32 etc)
+{
+	eth_qos_log_err(&ndev->dev,
+			"Q2TC map requires STMMAC_API_VER >= 3 (cur=%d)", STMMAC_API_VER);
+	return -EOPNOTSUPP;
+}
+
+static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send_slope,
+				  int idle_slope, int high_credit, int low_credit,
+				  u32 queue, u32 etc)
+{
+	if (etc)
+		eth_qos_log_err(&ndev->dev,
+				"CBS ETC mapping requires STMMAC_API_VER >= 3 (cur=%d); queue=%u etc=%u ignored",
+				STMMAC_API_VER, queue, etc);
+	return stmmac_api_config_cbs(ndev, enable, send_slope, idle_slope,
+				     high_credit, low_credit, queue);
+}
+#endif
+
+/* Queue 0 is not AVB capable and has no Q2TC mapping to program. */
+static void eth_qos_mgr_reset_tx_q2tc_map(struct eth_qos_mgr_ctx *ctx)
+{
+	int ret;
+	u32 i;
+
+	for (i = 1; i < ctx->max_tx_queues; i++) {
+		ret = eth_qos_mgr_set_q2tc_map(ctx->ndev, i, 0);
+		if (ret)
+			eth_qos_log_err(&ctx->ndev->dev,
+					"failed to reset Q2TC map for queue %u to TC0: ret=%d", i, ret);
+	}
+}
+
 static struct eth_qos_mgr_ctx *eth_qos_mgr_get_or_create_ctx_locked(struct net_device *ndev)
 {
 	struct stmmac_api_hw_caps caps;
@@ -369,6 +419,7 @@ static struct eth_qos_mgr_ctx *eth_qos_mgr_get_or_create_ctx_locked(struct net_d
 	ctx->rx.max_vlan_filters = caps.vlan_filters;
 	mutex_init(&ctx->lock);
 	eth_qos_mgr_init_q_ch_status_table(ctx);
+	eth_qos_mgr_reset_tx_q2tc_map(ctx);
 	list_add_tail(&ctx->list, &eth_qos_mgr_list);
 	mutex_lock(&ctx->lock);
 	mutex_unlock(&eth_qos_mgr_list_lock);
@@ -609,6 +660,11 @@ static void eth_qos_mgr_revert_default_rx_mapping(struct net_device *ndev, u32 q
 	stmmac_api_queue_dma_map(ndev, queue, queue);
 }
 
+static void eth_qos_mgr_revert_default_tx_mapping(struct net_device *ndev, u32 queue)
+{
+	eth_qos_mgr_set_q2tc_map(ndev, queue, 0);
+}
+
 static int eth_qos_mgr_clear_tx_ipa_tc_bmap(struct net_device *ndev, u32 ch)
 {
 	struct ioss_interface *iface;
@@ -829,7 +885,9 @@ static int eth_qos_mgr_clear_tx_hw(struct eth_qos_mgr_ctx *ctx)
 
 	/* Queue 0 is not AVB capable */
 	for (i = 1; i < ctx->max_tx_queues; i++) {
-		ret = stmmac_api_config_cbs(ctx->ndev, false, 0, 0, 0, 0, i);
+		if (!ctx->tx.cbs_table[i].used)
+			continue;
+		ret = eth_qos_mgr_config_cbs(ctx->ndev, false, 0, 0, 0, 0, i, ctx->tx.cbs_table[i].etc);
 		if (ret) {
 			eth_qos_log_err(&ctx->ndev->dev, "failed to config CBS for index %u: ret=%d", i, ret);
 			fail_ret = ret;
@@ -896,17 +954,17 @@ static ssize_t eth_qos_mgr_dump_hid_table(struct eth_qos_mgr_ctx *ctx, char *buf
 
 	len += scnprintf(buf + len, buf_sz - len,
 			 "hid_table:\n"
-			 "hid\ttype\ttc\tqueue\tch\tdetails\n");
+			 "hid\ttype\tapp_tc\thw_tc\tqueue\tch\tdetails\n");
 
 	list_for_each_entry(entry, &ctx->hid_table, list) {
 		if (len >= buf_sz)
 			break;
 
 		len += scnprintf(buf + len, buf_sz - len,
-				 "%u\t%s\t%u\t%u\t%u\t",
+				 "%u\t%s\t%u\t%u\t%u\t%u\t",
 				 entry->hid,
 				 eth_qos_mgr_filter_type_str(entry->type),
-				 entry->tc, entry->queue, entry->ch);
+				 entry->tc, entry->etc, entry->queue, entry->ch);
 
 		switch (entry->type) {
 		case ETH_QOS_FILTER_PCP:
@@ -1042,7 +1100,9 @@ static ssize_t eth_qos_mgr_dump_tx_tables(struct eth_qos_mgr_ctx *ctx, char *buf
 
 	len += scnprintf(buf + len, buf_sz - len,
 			 "tx_cbs_table:\n"
-			 "queue\tused\thw\ttc\tch\tidleslope\tsendslope\thicredit\tlocredit\n");
+			 "%-8s%-8s%-8s%-8s%-8s%-8s%-12s%-12s%-12s%-12s\n",
+			 "queue", "used", "hw", "app_tc", "hw_tc", "ch",
+			 "idleslope", "sendslope", "hicredit", "locredit");
 	for (i = 0; i < ctx->max_tx_queues && len < buf_sz; i++) {
 		struct eth_qos_cbs_entry *entry = &ctx->tx.cbs_table[i];
 
@@ -1050,8 +1110,8 @@ static ssize_t eth_qos_mgr_dump_tx_tables(struct eth_qos_mgr_ctx *ctx, char *buf
 			continue;
 
 		len += scnprintf(buf + len, buf_sz - len,
-				 "%u\t%u\t%u\t%u\t%u\t%d\t%d\t%d\t%d\n",
-				 i, entry->used, entry->hw_path, entry->tc,
+				 "%-8u%-8u%-8u%-8u%-8u%-8u%-12d%-12d%-12d%-12d\n",
+				 i, entry->used, entry->hw_path, entry->tc, entry->etc,
 				 entry->ch, entry->idleslope, entry->sendslope,
 				 entry->hicredit, entry->locredit);
 	}
@@ -1439,7 +1499,7 @@ out_unlock:
 	return ret;
 }
 
-int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32 ch,
+int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 etc, u32 queue, u32 ch,
 			bool hw_path, int sendslope, int idleslope,
 			int hicredit, int locredit)
 {
@@ -1472,8 +1532,8 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32
 	 * Program the stmmac CBS shaper first; when the flow uses the hardware
 	 * path, also mirror the traffic-class mapping into IOSS.
 	 */
-	ret = stmmac_api_config_cbs(ndev, true, sendslope, idleslope, hicredit, locredit,
-				    queue);
+	ret = eth_qos_mgr_config_cbs(ndev, true, sendslope, idleslope, hicredit, locredit,
+				    queue, etc);
 	if (ret)
 		goto err_free_entry;
 	eth_qos_log_cfg(&ndev->dev,
@@ -1506,6 +1566,7 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32
 	ctx->tx.cbs_table[queue].used = true;
 	ctx->tx.cbs_table[queue].hw_path = hw_path;
 	ctx->tx.cbs_table[queue].tc = tc;
+	ctx->tx.cbs_table[queue].etc = etc;
 	ctx->tx.cbs_table[queue].queue = queue;
 	ctx->tx.cbs_table[queue].ch = ch;
 	ctx->tx.cbs_table[queue].idleslope = idleslope;
@@ -1515,17 +1576,21 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32
 
 	entry->queue = queue;
 	entry->tc = tc;
+	entry->etc = etc;
 	entry->ch = ch;
 	entry->hw_path = hw_path;
 	entry->u.cbs.hw_path = hw_path;
 	eth_qos_mgr_set_tx_q_ch_status(ctx, queue, ch, entry->type, hw_path);
+
 	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: added CBS hid=%u queue=%u ch=%u tc=%u path=%s",
 			hid, queue, ch, tc, hw_path ? "hw" : "sw");
+
 	ret = 0;
 	goto out_unlock;
 
 err_clear_cbs:
-	stmmac_api_config_cbs(ndev, false, 0, 0, 0, 0, queue);
+	if (!eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, queue, etc))
+		eth_qos_mgr_revert_default_tx_mapping(ndev, queue);
 err_free_entry:
 	list_del(&entry->list);
 	kfree(entry);
@@ -1624,7 +1689,7 @@ int eth_qos_mgr_del(struct net_device *ndev, u32 hid)
 		break;
 	case ETH_QOS_FILTER_CBS:
 		/* Reset the shaper programming, then clear the cached CBS profile. */
-		ret = stmmac_api_config_cbs(ndev, false, 0, 0, 0, 0, entry->queue);
+		ret = eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, entry->queue, entry->etc);
 		eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: deleting CBS filter with hid=%u on queue=%u ch=%u ret=%d\n",
 			    entry->hid, entry->queue, entry->ch, ret);
 		if (!ret && entry->u.cbs.hw_path) {

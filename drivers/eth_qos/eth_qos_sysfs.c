@@ -37,6 +37,8 @@
 #include "eth_qos_mgr.h"
 #include "eth_qos_bus.h"
 
+#define MAX_EMAC_TC 8
+
 /*
  * ndev_from_qos_dev - Recover net_device from a DEVICE_ATTR callback.
  *
@@ -462,9 +464,12 @@ out:
 }
 
 /* store_tx_bw: accepts
- *   TC <id> offload <1|0> queue <qno> ch <chno> config <cbs>
+ *   TC <id> ETC <id> offload <1|0> queue <qno> ch <chno> config <cbs>
  *   idleslope <val> sendslope <val> hicredit <val> locredit <val>
  * Notes:
+ * - TC is the logical QOS_MGR traffic class;
+ * - ETC is the EMAC hardware TC index (Q2TCMAP value) supplied by the
+ *   caller and passed through without modification.
  * - path=hw programs HW CBS via eth_qos_mgr.
  * - path=sw stores SW-path CBS bookkeeping only.
  */
@@ -473,7 +478,7 @@ static ssize_t store_tx_bw(struct device *dev, struct device_attribute *attr,
 {
 	struct net_device *ndev = ndev_from_qos_dev(dev, 2);
 	char *buf, *cur, *tok, *last_key = NULL;
-	int hid = -1, tc = -1, queue = -1, ch = -1;
+	int hid = -1, tc = -1, etc = -1, queue = -1, ch = -1;
 	int ret = -EINVAL;
 	char *config = NULL;
 	bool have_path = false, hw_path = false;
@@ -506,6 +511,9 @@ static ssize_t store_tx_bw(struct device *dev, struct device_attribute *attr,
 		} else if (!strcmp(last_key, "TC")) {
 			if (kstrtoint(tok, 10, &tc))
 				tc = -1;
+		} else if (!strcmp(last_key, "ETC")) {
+			if (kstrtoint(tok, 10, &etc))
+				etc = -1;
 		} else if (!strcmp(last_key, "offload")) {
 			if (!strcmp(tok, "1")) {
 				hw_path = true;
@@ -539,14 +547,15 @@ static ssize_t store_tx_bw(struct device *dev, struct device_attribute *attr,
 		last_key = NULL;
 	}
 
-	if (hid < 0 || tc < 0 || queue < 0 || ch < 0 || !have_path || !config ||
-	    !have_idleslope || !have_sendslope || !have_hicredit || !have_locredit) {
+	if (hid < 0 || tc < 0 || etc < 0 || etc >= MAX_EMAC_TC || queue < 0 || ch < 0 ||
+	    !have_path || !config || !have_idleslope || !have_sendslope ||
+	    !have_hicredit || !have_locredit) {
 		eth_qos_log_err(NULL, "tx_bw: missing/invalid params. input='%s'", buf);
 		goto out;
 	}
 
-	eth_qos_log_cfg(NULL, "tx_bw: TC=%d path=%s queue=%d ch=%d config=%s idle=%d send=%d hi=%d lo=%d",
-		 tc, hw_path ? "hw" : "sw", queue, ch, config,
+	eth_qos_log_cfg(NULL, "tx_bw: TC=%d ETC=%d path=%s queue=%d ch=%d config=%s idle=%d send=%d hi=%d lo=%d",
+		 tc, etc, hw_path ? "hw" : "sw", queue, ch, config,
 		 idleslope, sendslope, hicredit, locredit);
 
 	if (strcmp(config, "cbs")) {
@@ -555,7 +564,7 @@ static ssize_t store_tx_bw(struct device *dev, struct device_attribute *attr,
 		goto out;
 	}
 
-	ret = eth_qos_mgr_add_cbs(ndev, hid, tc, queue, ch, hw_path,
+	ret = eth_qos_mgr_add_cbs(ndev, hid, tc, etc, queue, ch, hw_path,
 				  sendslope, idleslope,
 				  hicredit, locredit);
 	if (!ret)
