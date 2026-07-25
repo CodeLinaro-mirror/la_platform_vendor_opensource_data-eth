@@ -14,7 +14,23 @@ bool disable_ipa_tx;
 #else
 bool disable_ipa_tx = true;
 #endif
-module_param(disable_ipa_tx, bool, 0644);
+
+static int ioss_ipa_set_disable_tx(const char *val, const struct kernel_param *kp)
+{
+	if (ioss_bus_ipa_connected()) {
+		pr_err("ioss: cannot change disable_ipa_tx while IPA is connected\n");
+		return -EBUSY;
+	}
+
+	return param_set_bool(val, kp);
+}
+
+static const struct kernel_param_ops ioss_disable_ipa_tx_ops = {
+	.set = ioss_ipa_set_disable_tx,
+	.get = param_get_bool,
+};
+
+module_param_cb(disable_ipa_tx, &ioss_disable_ipa_tx_ops, &disable_ipa_tx, 0644);
 MODULE_PARM_DESC(disable_ipa_tx, "Disable IPA OFFLOAD TX feature globally");
 
 #define to_ipa_dir(ioss_dir) \

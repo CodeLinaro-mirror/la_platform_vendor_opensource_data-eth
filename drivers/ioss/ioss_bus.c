@@ -594,6 +594,19 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	return idev;
 }
 
+bool ioss_bus_ipa_connected(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
+		if (ioss_devices[i] &&
+		    ioss_devices[i]->interface.state == IOSS_IF_ST_ONLINE)
+			return true;
+	}
+
+	return false;
+}
+
 void ioss_bus_free_idev(struct ioss_device *idev)
 {
 	int i;

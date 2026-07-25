@@ -104,6 +104,7 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss,
 void ioss_bus_free_idev(struct ioss_device *idev);
 int ioss_bus_register_idev(struct ioss_device *idev);
 void ioss_bus_unregister_idev(struct ioss_device *idev);
+bool ioss_bus_ipa_connected(void);
 
 int ioss_bus_register_iface(struct ioss_interface *iface,
 		struct net_device *net_dev);
