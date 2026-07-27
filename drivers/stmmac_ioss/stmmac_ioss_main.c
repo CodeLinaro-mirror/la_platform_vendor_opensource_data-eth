@@ -162,7 +162,7 @@ static void stmmac_ioss_remove_channel_mem(struct ioss_channel *ch,
 	ioss_channel_del_desc_mem(ch, stmmac_ch->ring_base);
 }
 
-#if IOSS_API_VER >= 11
+#if IOSS_API_VER >= 11 && STMMAC_API_VER >= 2
 static int stmmac_ioss_xmit(struct sk_buff *skb, struct stmmac_api_channel *api_ch)
 {
 	return ioss_ipa_xmit((struct ioss_channel *)api_ch->priv, skb);
@@ -222,7 +222,7 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 		goto err_request_channel;
 	}
 
-#if IOSS_API_VER >= 11
+#if IOSS_API_VER >= 11 && STMMAC_API_VER >= 2
 	stmmac_ch->priv = ch;
 	if (ch->direction == IOSS_CH_DIR_TX && !ch->iface->ipa_tx_disabled) {
 		stmmac_ch->xmit = stmmac_ioss_xmit;
