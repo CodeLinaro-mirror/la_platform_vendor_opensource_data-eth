@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -48,6 +48,7 @@ extern struct ioss_mem_allocator ioss_default_alctr;
 
 extern unsigned long ioss_ver;
 extern unsigned long ioss_api_ver;
+extern bool disable_ipa_tx;
 
 extern struct ioss_mem_allocator ioss_tcm_desc_alctr;
 extern struct ioss_mem_allocator ioss_tcm_buf_alctr;
@@ -75,6 +76,8 @@ int ioss_ipa_unregister(struct ioss_interface *iface);
 
 int ioss_ipa_validate_channels(struct ioss_interface *iface);
 void ioss_ipa_invalidate_channels(struct ioss_interface *iface);
+void ioss_ipa_emb_tx_enable(struct ioss_interface *iface);
+void ioss_ipa_emb_tx_disable(struct ioss_interface *iface);
 
 #if IPA_ETH_API_VER > 4
 int ioss_ipa_enable_pipes(struct ioss_interface *iface);
@@ -110,6 +113,10 @@ int ioss_net_watch_device(struct ioss_device *idev);
 int ioss_net_unwatch_device(struct ioss_device *idev);
 int ioss_net_link_device(struct ioss_device *idev);
 void ioss_net_apply_channel_config(struct ioss_channel *ch);
+void ioss_net_xps_set_cpu_mask(struct ioss_interface *iface,
+			       const struct cpumask *cpu_mask, u16 txq);
+void ioss_net_xps_set_rxq_mask(struct ioss_interface *iface, unsigned long rxq_mask, u16 txq);
+void ioss_net_xps_reset(struct ioss_interface *iface);
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
 int ioss_log_init(void);
