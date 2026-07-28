@@ -96,6 +96,8 @@ static void ioss_ipa_tx_callback(void *priv, enum ipa_dp_evt_type evt, unsigned 
 	struct ioss_channel *ch = priv;
 	struct ioss_iface_priv *ifp = ch->iface->ioss_priv;
 	struct sk_buff *skb = (struct sk_buff *)data;
+	struct net_device *ndev;
+	struct netdev_queue *txq;
 
 	if (evt != IPA_WRITE_DONE)
 		return;
@@ -108,6 +110,17 @@ static void ioss_ipa_tx_callback(void *priv, enum ipa_dp_evt_type evt, unsigned 
 
 	if (WARN_RATELIMIT(!idrv || !idrv->ops->xmit_done, "IPA TX: xmit_done is NULL"))
 		return;
+
+	/* Only serialize with ndo_start_xmit when -ENOSPC was returned; skip
+	 * the lock in the common (no congestion) path to reduce contention.
+	 */
+	if (atomic_read(&ch->ipa_tx_nospace_sync)) {
+		ndev = ioss_iface_to_netdev(ch->iface);
+		txq = netdev_get_tx_queue(ndev, ch->queue_number);
+		__netif_tx_lock_bh(txq);
+		atomic_set(&ch->ipa_tx_nospace_sync, 0);
+		__netif_tx_unlock_bh(txq);
+	}
 	idrv->ops->xmit_done(ch, skb, 0, ready);
 }
 
@@ -121,12 +134,17 @@ int ioss_ipa_xmit(struct ioss_channel *ch, struct sk_buff *skb)
 	if (max_pkts &&
 	    atomic_inc_return(&ch->ipa_tx_outstanding_pkts) > max_pkts) {
 		atomic_dec(&ch->ipa_tx_outstanding_pkts);
+		atomic_set(&ch->ipa_tx_nospace_sync, 1);
 		return -ENOSPC;
 	}
 
 	ret = ipa_eth_offload_tx_dp(&cp->ipa_pi, skb);
-	if (ret && max_pkts)
+	if (ret && max_pkts) {
 		atomic_dec(&ch->ipa_tx_outstanding_pkts);
+		if (ret == -ENOSPC)
+			atomic_set(&ch->ipa_tx_nospace_sync, 1);
+	}
+
 	return ret;
 }
 EXPORT_SYMBOL_GPL(ioss_ipa_xmit);

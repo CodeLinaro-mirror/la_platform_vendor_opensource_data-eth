@@ -356,6 +356,7 @@ struct ioss_channel {
 	bool enabled;
 
 	atomic_t ipa_tx_outstanding_pkts;
+	atomic_t ipa_tx_nospace_sync;
 
 	void *ioss_priv;
 	int multi_rx_queues;
