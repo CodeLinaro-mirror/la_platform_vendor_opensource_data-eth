@@ -579,6 +579,7 @@ void ioss_ipa_emb_tx_enable(struct ioss_interface *iface)
 
 	ndev->hw_features     = ipa_config->offload_features;
 	ndev->wanted_features = ipa_config->offload_features;
+	ndev->features        = ipa_config->offload_features;
 	WRITE_ONCE(ndev->gso_max_size, ipa_config->offload_gso_max_size);
 	WRITE_ONCE(ndev->gso_ipv4_max_size, ipa_config->offload_gso_max_size);
 	ndev->needed_headroom += ipa_config->offload_headroom;
