@@ -74,11 +74,14 @@ static void ioss_ipa_rx_callback(void *priv, enum ipa_dp_evt_type evt, unsigned 
 	if (evt != IPA_RECEIVE)
 		return;
 
+	ch->stats.rx_ipa_cb++;
+
 	skb->protocol = eth_type_trans(skb, ioss_iface_to_netdev(iface));
 	skb_set_queue_mapping(skb, ch->queue_number);
 
 	if (idrv && idrv->ops->receive_skb) {
-		ioss_dev_op(idev, receive_skb, ch, skb);
+		if (ioss_dev_op(idev, receive_skb, ch, skb))
+			ch->stats.rx_net_err++;
 		return;
 	}
 
@@ -86,8 +89,10 @@ static void ioss_ipa_rx_callback(void *priv, enum ipa_dp_evt_type evt, unsigned 
 	iface->exception_stats.rx_packets++;
 	iface->exception_stats.rx_bytes += skb->len;
 	ioss_dev_op(idev, update_skb, ch, skb);
-	if (netif_rx(skb) == NET_RX_DROP)
+	if (netif_rx(skb) == NET_RX_DROP) {
 		iface->exception_stats.rx_drops++;
+		ch->stats.rx_net_err++;
+	}
 }
 
 #if IPA_ETH_API_VER >= 8
@@ -95,18 +100,29 @@ static void ioss_ipa_tx_callback(void *priv, enum ipa_dp_evt_type evt, unsigned 
 {
 	struct ioss_channel *ch = priv;
 	struct ioss_iface_priv *ifp = ch->iface->ioss_priv;
+	struct ioss_driver *idrv = to_ioss_driver(ioss_ch_dev(ch)->dev.driver);
 	struct sk_buff *skb = (struct sk_buff *)data;
+	int max_pkts = ifp->ipa_config.offload_max_pkts;
 	struct net_device *ndev;
 	struct netdev_queue *txq;
 
 	if (evt != IPA_WRITE_DONE)
 		return;
 
-	struct ioss_driver *idrv = to_ioss_driver(ioss_ch_dev(ch)->dev.driver);
+	ch->stats.tx_ipa_cb++;
 
-	bool ready = ifp->ipa_config.offload_max_pkts &&
-			  atomic_dec_return(&ch->ipa_tx_outstanding_pkts) <=
-				ifp->ipa_config.offload_max_pkts / 2;
+	int outstanding = atomic_dec_return(&ch->ipa_tx_outstanding_pkts);
+	bool ready = outstanding <= max_pkts / 2;
+
+	/* Only count wake WM on stop-WM exit; outstanding may cross wake_wm
+	 * multiple times per stop-WM hit.
+	 */
+	if (outstanding == max_pkts / 2 && atomic_read(&ch->ipa_tx_wm_fc_active)) {
+		ch->stats.tx_wm_wake++;
+		atomic_set(&ch->ipa_tx_wm_fc_active, 0);
+	}
+
+	ch->stats.tx_ipa_is_ready = ready;
 
 	if (WARN_RATELIMIT(!idrv || !idrv->ops->xmit_done, "IPA TX: xmit_done is NULL"))
 		return;
@@ -117,6 +133,7 @@ static void ioss_ipa_tx_callback(void *priv, enum ipa_dp_evt_type evt, unsigned 
 	if (atomic_read(&ch->ipa_tx_nospace_sync)) {
 		ndev = ioss_iface_to_netdev(ch->iface);
 		txq = netdev_get_tx_queue(ndev, ch->queue_number);
+		ch->stats.tx_net_lock_bh++;
 		__netif_tx_lock_bh(txq);
 		atomic_set(&ch->ipa_tx_nospace_sync, 0);
 		__netif_tx_unlock_bh(txq);
@@ -128,21 +145,44 @@ int ioss_ipa_xmit(struct ioss_channel *ch, struct sk_buff *skb)
 {
 	struct ioss_ch_priv *cp = ch->ioss_priv;
 	struct ioss_iface_priv *ifp = ch->iface->ioss_priv;
-	u32 max_pkts = ifp->ipa_config.offload_max_pkts;
+	int max_pkts = ifp->ipa_config.offload_max_pkts;
+	int pkts = atomic_inc_return(&ch->ipa_tx_outstanding_pkts);
 	int ret;
 
-	if (max_pkts &&
-	    atomic_inc_return(&ch->ipa_tx_outstanding_pkts) > max_pkts) {
+	ch->stats.tx_xmit++;
+
+	if (pkts > max_pkts) {
 		atomic_dec(&ch->ipa_tx_outstanding_pkts);
+		ch->stats.tx_ipa_is_ready = 0;
 		atomic_set(&ch->ipa_tx_nospace_sync, 1);
 		return -ENOSPC;
 	}
+	if (pkts == max_pkts && !atomic_read(&ch->ipa_tx_wm_fc_active)) {
+		ch->stats.tx_wm_stop++;
+		atomic_set(&ch->ipa_tx_wm_fc_active, 1);
+	}
+
+	if (skb_is_gso(skb)) {
+		struct skb_shared_info *shinfo = skb_shinfo(skb);
+
+		if (shinfo->gso_type & (SKB_GSO_TCPV4 | SKB_GSO_TCPV6))
+			ch->stats.tx_gso_tcp++;
+		else if (shinfo->gso_type & SKB_GSO_UDP_L4)
+			ch->stats.tx_gso_udp++;
+	}
 
 	ret = ipa_eth_offload_tx_dp(&cp->ipa_pi, skb);
-	if (ret && max_pkts) {
+	if (ret) {
 		atomic_dec(&ch->ipa_tx_outstanding_pkts);
-		if (ret == -ENOSPC)
+		if (ret == -ENOSPC) {
+			ch->stats.tx_ipa_nospace++;
+			ch->stats.tx_ipa_is_ready = 0;
 			atomic_set(&ch->ipa_tx_nospace_sync, 1);
+		} else {
+			ch->stats.tx_ipa_err++;
+		}
+	} else {
+		ch->stats.tx_ipa++;
 	}
 
 	return ret;

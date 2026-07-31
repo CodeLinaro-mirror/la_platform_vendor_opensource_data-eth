@@ -145,6 +145,9 @@ const char *ioss_traffic_name(enum ioss_traffic_type t);
 
 void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush);
 
+void ioss_ethtool_hijack_stats(struct ioss_interface *iface);
+void ioss_ethtool_restore_stats(struct ioss_interface *iface);
+
 int ioss_sysfs_add_idev(struct ioss_device* idev);
 void ioss_sysfs_remove_idev(struct ioss_device* idev);
 int ioss_sysfs_add_channel(struct ioss_channel* ch);
