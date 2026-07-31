@@ -3120,9 +3120,6 @@ static unsigned long tc956xmac_mac_get_caps(struct phylink_config *config,
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
 
 	priv->hw->link.caps &= ~(MAC_10HD | MAC_100HD | MAC_1000HD);
-#if defined(TC956X_AUTOMOTIVE_CONFIG)
-	priv->hw->link.caps &= ~(MAC_SYM_PAUSE | MAC_ASYM_PAUSE);
-#endif
 	config->mac_capabilities = priv->hw->link.caps;
 
 	if (priv->plat->max_speed)

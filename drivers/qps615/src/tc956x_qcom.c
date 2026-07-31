@@ -21,6 +21,7 @@ struct tc956x_qcom_priv {
 	u32 phy_rst_gpio;
 	u32 phy_reg_gpio;
 	u32 phy_rst_delay_us;
+	u32 phy_rst_gpio_flags;
 	int wol_irq;
 	bool has_always_on_supplies;
 	bool gpio_phy_supply;
@@ -30,14 +31,25 @@ struct tc956x_qcom_priv {
 #define to_priv(priv) \
 	((struct tc956x_qcom_priv *)priv->plat_priv)
 
+static int tc956x_set_phy_reset(struct tc956xmac_priv *priv, bool assert)
+{
+	struct tc956x_qcom_priv *qpriv = to_priv(priv);
+	u8 out_value = assert ? qpriv->phy_rst_gpio_flags :
+		!(qpriv->phy_rst_gpio_flags);
+	int ret;
+
+	ret = tc956x_GPIO_OutputConfigPin(priv, qpriv->phy_rst_gpio, out_value);
+	return ret;
+}
+
 static int tc956x_assert_phy_reset(struct tc956xmac_priv *priv)
 {
-	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 0);
+	return tc956x_set_phy_reset(priv, true);
 }
 
 static int tc956x_deassert_phy_reset(struct tc956xmac_priv *priv)
 {
-	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 1);
+	return tc956x_set_phy_reset(priv, false);
 }
 
 static int tc956x_enable_phy_reg_gpio(struct tc956xmac_priv *priv)
@@ -135,6 +147,11 @@ static int tc956x_platform_of_parse(struct device *dev,
 		dev_err(dev, "Failed to get PHY reset delay time\n");
 			return -EINVAL;
 	}
+
+	if (!qpriv->has_always_on_supplies &&
+	    of_property_read_u32(dev->of_node, "qcom,phy-rst-gpio-flags",
+				 &qpriv->phy_rst_gpio_flags))
+		qpriv->phy_rst_gpio_flags = 0;
 
 	qpriv->wol_irq = of_irq_get_byname(dev->of_node, "wol_irq");
 	if (qpriv->wol_irq < 0) {
@@ -338,6 +355,7 @@ int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_
 	u32 mdc_clk;
 	u32 c45_state;
 	u32 link_down_macrst;
+	u32 start_phy_addr;
 
 	if (of_property_read_u32(dev->of_node, "qcom,phy-port-interface", &interface)) {
 		dev_err(dev, "Failed to get phy port interface\n");
@@ -369,6 +387,15 @@ int tc956x_platform_port_interface_overlay(struct device *dev, struct tc956xmac_
 			dev_err(dev, "link down macrst overlay to %d\n", link_down_macrst);
 			res->link_down_macrst = link_down_macrst;
 		}
+
+		if (of_property_read_u32(dev->of_node, "qcom,start-phy-addr", &start_phy_addr)) {
+			dev_err(dev, "Failed to get start phy addr\n");
+			return ret;
+		} else {
+			dev_err(dev, "start phy addr overlay to %d\n", start_phy_addr);
+			res->start_phy_addr = start_phy_addr;
+		}
+
 		ret = 1;
 	}
 	return ret;
