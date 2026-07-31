@@ -17,6 +17,9 @@
 #include "stmmac_api.h"
 #include "dwxgmac2.h"
 
+#define ETH_QOS_PFC_PAUSE_TIME		256
+#define ETH_QOS_PFC_PLT	0x3	/* Pause Low Threshold: minus-144 slot times, per IEEE 802.3 */
+
 enum eth_qos_filter_type {
 	ETH_QOS_FILTER_NONE = 0,
 	ETH_QOS_FILTER_PCP,
@@ -476,6 +479,44 @@ static int eth_qos_mgr_validate_tx_q_ch_status(struct eth_qos_mgr_ctx *ctx, u32 
 	return 0;
 }
 
+static bool eth_qos_mgr_rx_pcp_in_use(struct eth_qos_mgr_ctx *ctx)
+{
+	u32 i;
+
+	for (i = 0; i < ARRAY_SIZE(ctx->rx.pcp_table); i++) {
+		if (ctx->rx.pcp_table[i].used)
+			return true;
+	}
+
+	return false;
+}
+
+static bool eth_qos_mgr_rx_pcp_in_use_except(struct eth_qos_mgr_ctx *ctx, u32 pcp)
+{
+	u32 i;
+
+	for (i = 0; i < ARRAY_SIZE(ctx->rx.pcp_table); i++) {
+		if (i != pcp && ctx->rx.pcp_table[i].used)
+			return true;
+	}
+
+	return false;
+}
+
+static bool eth_qos_mgr_rx_pcp_queue_in_use_except(struct eth_qos_mgr_ctx *ctx,
+						   u32 queue, u32 pcp)
+{
+	u32 i;
+
+	for (i = 0; i < ARRAY_SIZE(ctx->rx.pcp_table); i++) {
+		if (i != pcp && ctx->rx.pcp_table[i].used &&
+		    ctx->rx.pcp_table[i].queue == queue)
+			return true;
+	}
+
+	return false;
+}
+
 static int eth_qos_mgr_validate_l3l4_input(u16 sport, u16 dport, const char *proto,
 					   const char *sip, const char *dip,
 					   const char *sipv6, const char *dipv6)
@@ -699,8 +740,28 @@ static int eth_qos_mgr_clear_rx_hw(struct eth_qos_mgr_ctx *ctx)
 			eth_qos_log_err(NULL, "failed to config PCP for index %u: ret=%d", i, ret);
 			return ret;
 		}
+
+		ret = stmmac_api_tx_pfc_configure(ctx->ndev, 0, 0, false,
+						  ctx->rx.pcp_table[i].queue);
+		if (ret) {
+			eth_qos_log_err(NULL,
+					"failed to clear PFC TX flow control for PCP index %u: ret=%d",
+					i, ret);
+			return ret;
+		}
+
 		eth_qos_mgr_revert_default_rx_mapping(ctx->ndev, ctx->rx.pcp_table[i].queue);
+		eth_qos_log_cfg(NULL,
+				"eth_qos_mgr: cleared PCP filter pcp=%u queue=%u and PFC TX flow control",
+				i, ctx->rx.pcp_table[i].queue);
 	}
+
+	ret = stmmac_api_rx_pfc_configure(ctx->ndev, false);
+	if (ret) {
+		eth_qos_log_err(NULL, "failed to disable PFC: ret=%d", ret);
+		return ret;
+	}
+	eth_qos_log_cfg(NULL, "eth_qos_mgr: disabled PFC");
 
 	ctx->rx.ra_users = 0;
 	ret = stmmac_api_set_ra_mode(ctx->ndev, false);
@@ -1234,6 +1295,22 @@ int eth_qos_mgr_add_pcp(struct net_device *ndev, u32 hid, u8 pcp, u32 queue, u32
 	ret = stmmac_api_config_pcp(ndev, BIT(pcp), queue, false);
 	if (ret)
 		goto err_disable_ra;
+
+	ret = stmmac_api_rx_pfc_configure(ndev, true);
+	if (ret)
+		goto err_clear_pcp;
+	eth_qos_log_cfg(NULL, "eth_qos_mgr: enabled PFC for PCP hid=%u pcp=%u queue=%u",
+			hid, pcp, queue);
+
+	ret = stmmac_api_tx_pfc_configure(ndev, ETH_QOS_PFC_PAUSE_TIME,
+					  ETH_QOS_PFC_PLT,
+					  true, queue);
+	if (ret)
+		goto err_disable_pfc;
+	eth_qos_log_cfg(NULL,
+			"eth_qos_mgr: configured PFC TX flow control for PCP hid=%u pcp=%u queue=%u pause=%u plt=0x%x",
+			hid, pcp, queue, ETH_QOS_PFC_PAUSE_TIME, ETH_QOS_PFC_PLT);
+
 	stmmac_api_queue_dma_map(ndev, queue, ch);
 
 	/* Record the programmed PCP route in the manager tables. */
@@ -1249,9 +1326,16 @@ int eth_qos_mgr_add_pcp(struct net_device *ndev, u32 hid, u8 pcp, u32 queue, u32
 	entry->hw_path = hw_path;
 	entry->u.pcp.pcp = pcp;
 	eth_qos_mgr_set_rx_q_ch_status(ctx, queue, ch, entry->type, hw_path);
+	eth_qos_log_cfg(NULL, "eth_qos_mgr: added PCP hid=%u pcp=%u queue=%u ch=%u path=%s",
+			hid, pcp, queue, ch, hw_path ? "hw" : "sw");
 	ret = 0;
 	goto out_unlock;
 
+err_disable_pfc:
+	if (!eth_qos_mgr_rx_pcp_in_use(ctx))
+		stmmac_api_rx_pfc_configure(ndev, false);
+err_clear_pcp:
+	stmmac_api_config_pcp(ndev, BIT(pcp), queue, true);
 err_disable_ra:
 	if (!ctx->rx.ra_users)
 		stmmac_api_set_ra_mode(ndev, false);
@@ -1401,13 +1485,30 @@ int eth_qos_mgr_del(struct net_device *ndev, u32 hid)
 		ret = stmmac_api_config_pcp(ndev, BIT(entry->u.pcp.pcp),
 					    entry->queue, true);
 		if (!ret) {
-			if (!eth_qos_mgr_rx_queue_in_use_by_other_filters(ctx, entry->queue,
-									  entry->hid))
-				eth_qos_mgr_revert_default_rx_mapping(ndev, entry->queue);
-			memset(&ctx->rx.pcp_table[entry->u.pcp.pcp], 0,
-			       sizeof(ctx->rx.pcp_table[entry->u.pcp.pcp]));
-			if (ctx->rx.ra_users)
-				ctx->rx.ra_users--;
+			if (!eth_qos_mgr_rx_pcp_queue_in_use_except(ctx, entry->queue,
+								    entry->u.pcp.pcp)) {
+				ret = stmmac_api_tx_pfc_configure(ndev, 0, 0, false, entry->queue);
+				if (!ret)
+					eth_qos_log_cfg(NULL,
+							"eth_qos_mgr: cleared PFC TX flow control for PCP hid=%u queue=%u",
+							entry->hid, entry->queue);
+			}
+
+			if (!ret && !eth_qos_mgr_rx_pcp_in_use_except(ctx, entry->u.pcp.pcp)) {
+				ret = stmmac_api_rx_pfc_configure(ndev, false);
+				if (!ret)
+					eth_qos_log_cfg(NULL, "eth_qos_mgr: disabled PFC");
+			}
+
+			if (!ret) {
+				memset(&ctx->rx.pcp_table[entry->u.pcp.pcp], 0,
+				       sizeof(ctx->rx.pcp_table[entry->u.pcp.pcp]));
+				if (!eth_qos_mgr_rx_queue_in_use_by_other_filters(ctx, entry->queue,
+										  entry->hid))
+					eth_qos_mgr_revert_default_rx_mapping(ndev, entry->queue);
+				if (ctx->rx.ra_users)
+					ctx->rx.ra_users--;
+			}
 		}
 		break;
 	case ETH_QOS_FILTER_SW_TX_PCP:
@@ -1548,6 +1649,19 @@ int eth_qos_mgr_replay(struct net_device *ndev)
 						    entry->queue, false);
 			if (ret)
 				goto out_unlock;
+
+			ret = stmmac_api_rx_pfc_configure(ndev, true);
+			if (ret)
+				goto out_unlock;
+
+			ret = stmmac_api_tx_pfc_configure(ndev, ETH_QOS_PFC_PAUSE_TIME,
+							  ETH_QOS_PFC_PLT,
+							  true, entry->queue);
+			if (ret) {
+				stmmac_api_rx_pfc_configure(ndev, false);
+				goto out_unlock;
+			}
+
 			stmmac_api_queue_dma_map(ndev, entry->queue, entry->ch);
 			ctx->rx.ra_users++;
 			break;
