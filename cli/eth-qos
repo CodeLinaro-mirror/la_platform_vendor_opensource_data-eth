@@ -17,7 +17,7 @@
 #
 #   Filter delete: eth-qos del dev <ifname> hid <handle>
 #
-#   CBS (tx): eth-qos add dev <ifname> hid <handle> config <cbs> idleslope <val> sendslope <val> hicredit <val> locredit <val> queue <qno> ch <chno> TC <id> offload <1|0>
+#   CBS (tx): eth-qos add dev <ifname> hid <handle> config <cbs> idleslope <val> sendslope <val> hicredit <val> locredit <val> queue <qno> ch <chno> TC <id> ETC <id> offload <1|0>
 #   CBS (tx) delete: eth-qos del dev <ifname> hid <handle>
 #
 #   eth-qos show_qos dev <ifname>
@@ -49,7 +49,7 @@ Usage:
 
   eth-qos del dev <ifname> hid <handle>
 
-  CBS (tx): eth-qos add dev <ifname> hid <handle> config <cbs> idleslope <val> sendslope <val> hicredit <val> locredit <val> queue <qno> ch <chno> TC <id> offload <1|0>
+  CBS (tx): eth-qos add dev <ifname> hid <handle> config <cbs> idleslope <val> sendslope <val> hicredit <val> locredit <val> queue <qno> ch <chno> TC <id> ETC <id> offload <1|0>
   CBS (tx) delete: eth-qos del dev <ifname> hid <handle>
 
   eth-qos show_qos dev <ifname>
@@ -62,7 +62,7 @@ Examples:
   eth-qos add dev eth0 hid 12 queue 2 ch 2 offload 1 ftype vlan vlanid 100
   eth-qos add dev eth0 hid 13 queue 1 ch 3 offload 0 ftype l3l4 sip 192.168.1.10
   eth-qos del dev eth0 hid 12
-  eth-qos add dev eth0 hid 20 config cbs idleslope 100000 sendslope -900000 hicredit 1234 locredit -5678 queue 0 ch 2 TC 1 offload 1
+  eth-qos add dev eth0 hid 20 config cbs idleslope 100000 sendslope -900000 hicredit 1234 locredit -5678 queue 0 ch 2 TC 1 ETC 1 offload 1
   eth-qos del dev eth0 hid 20
   eth-qos show_qos dev eth0
   eth-qos dump_reg dev eth0
@@ -116,7 +116,7 @@ add_cmd() {
   local pcpno=""
   local vlanid=""
   local sport="" dport="" proto="" sip="" dip="" sipv6="" dipv6=""
-  local tcid="" config="" idleslope="" sendslope="" hicredit="" locredit=""
+  local tcid="" etcid="" config="" idleslope="" sendslope="" hicredit="" locredit=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -136,6 +136,7 @@ add_cmd() {
       sipv6)  sipv6="${2:-}"; shift 2 ;;
       dipv6)  dipv6="${2:-}"; shift 2 ;;
       TC|tc)  tcid="${2:-}"; shift 2 ;;
+      ETC|etc) etcid="${2:-}"; shift 2 ;;
       config) config="${2:-}"; shift 2 ;;
       idleslope) idleslope="${2:-}"; shift 2 ;;
       sendslope) sendslope="${2:-}"; shift 2 ;;
@@ -163,6 +164,8 @@ add_cmd() {
     is_offload "$offload" || die "offload must be 1 or 0"
     req TC "$tcid"
     is_uint "$tcid" || die "TC id must be an integer"
+    req ETC "$etcid"
+    is_uint "$etcid" || die "ETC id must be an integer"
     req idleslope "$idleslope"
     req sendslope "$sendslope"
     req hicredit "$hicredit"
@@ -171,7 +174,7 @@ add_cmd() {
     is_int "$sendslope" || die "sendslope must be integer"
     is_int "$hicredit" || die "hicredit must be integer"
     is_int "$locredit" || die "locredit must be integer"
-    local payload="hid $hid TC $tcid offload $offload queue $qno ch $chno config cbs idleslope $idleslope sendslope $sendslope hicredit $hicredit locredit $locredit"
+    local payload="hid $hid TC $tcid ETC $etcid offload $offload queue $qno ch $chno config cbs idleslope $idleslope sendslope $sendslope hicredit $hicredit locredit $locredit"
     if ! echo "$payload" > "$params/tx_bw"; then
       die "CBS not supported by kernel (write to $params/tx_bw failed)"
     fi
