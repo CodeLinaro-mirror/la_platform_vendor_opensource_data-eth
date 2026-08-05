@@ -670,6 +670,7 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 	struct stmmac_priv *priv;
 	struct qcom_ethqos *ethqos;
 	unsigned int queue_num;
+	u32 value;
 
 	if (!channel_input->ndev) {
 		pr_err("%s: ERROR: Invalid netdevice pointer\n", __func__);
@@ -740,6 +741,13 @@ struct channel_info *request_channel(struct request_channel_input *channel_input
 
 	if (!strcmp(channel_input->ipa_config_info, "qos"))
 		channel->qos_enabled = true;
+
+	if (channel->tsn_enabled) {
+		priv->plat->mka_mcbcq_filtering = false;
+		value = readl(priv->ioaddr + XGMAC_RXQ_CTRL1);
+		value &= ~XGMAC_RXQCTRL_MCBCQEN;
+		writel(value, priv->ioaddr + XGMAC_RXQ_CTRL1);
+	}
 
 	if ((channel->ezmesh_enabled) && (channel->traffic_type_info == IOSS_TRAFFIC_BE_TAGGED))
 	{
