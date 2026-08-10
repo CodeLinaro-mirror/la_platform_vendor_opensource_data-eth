@@ -331,6 +331,7 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 
 	strscpy(ipa_channel_info.ipa_config_info, ch->iface->ipa_config, CONFIG_LEN);
 	ipa_channel_info.traffic_type_info = ch->traffic_type;
+	ipa_channel_info.pppoe_qos_vlan_id = ch->pppoe_qos_vlan_id;
 
 	ring = request_channel(&ipa_channel_info);
 

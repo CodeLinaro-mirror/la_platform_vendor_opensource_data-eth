@@ -182,6 +182,10 @@ def define_modules(target, variant):
             "drivers/ethdbg/ethdbg_uio.c",
             "drivers/ethdbg/ethdbg_main.c",
             "drivers/ethdbg/ethdbg.h",
+            "drivers/ethdbg/ethdbg_dump.c",
+            "drivers/ethdbg/ethdbg_regs.h",
+            "drivers/ethdbg/ethdbg_regs_kova.h",
+            "drivers/ethdbg/ethdbg_regs_echo.h",
         ],
         kernel_build = "//msm-kernel:{}-defconfig".format(kernel_build_variant),
         deps = [

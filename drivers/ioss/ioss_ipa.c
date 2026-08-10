@@ -25,6 +25,7 @@ static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type
 		[IOSS_TRAFFIC_BE_TAGGED] = IPA_ETH_PIPE_BEST_EFFORT_VLAN,
 		[IOSS_TRAFFIC_QOS]	=	IPA_ETH_PIPE_TRAFFIC_TYPE_QOS,
 		[IOSS_TRAFFIC_LL] = IPA_ETH_PIPE_LOW_LATENCY,
+		[IOSS_TRAFFIC_BE_VID] = IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE,
 	};
 
 	return ipa_map[ioss_type];
@@ -37,6 +38,7 @@ static enum ioss_traffic_type to_ioss_traffic(enum ipa_eth_pipe_traffic_type ipa
 		[IPA_ETH_PIPE_LOW_LATENCY] = IOSS_TRAFFIC_LL,
 		[IPA_ETH_PIPE_BEST_EFFORT_VLAN] = IOSS_TRAFFIC_BE_TAGGED,
 		[IPA_ETH_PIPE_TRAFFIC_TYPE_QOS]	=	IOSS_TRAFFIC_QOS,
+		[IPA_ETH_PIPE_BEST_EFFORT_VLAN_PPPOE] = IOSS_TRAFFIC_BE_VID,
 	};
 
 	return ioss_map[ipa_type];
@@ -439,6 +441,9 @@ int ioss_ipa_validate_channels(struct ioss_interface *iface)
 	required_channels = ipa_config->num_dma_channel;
 	if (!strcmp(ipa_config->config, "qos"))
 		required_channels = 2;
+
+	if (!strcmp(ipa_config->config, "pppoe_qos"))
+		required_channels = 3;
 
 	return ioss_ipa_validate_one_channel(
 			iface, ipa_config->dma_config, required_channels);
