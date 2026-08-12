@@ -327,11 +327,6 @@ static struct eth_qos_mgr_ctx *eth_qos_mgr_get_existing_ctx_locked(struct net_de
 }
 
 #if STMMAC_API_VER >= 3
-static int eth_qos_mgr_set_q2tc_map(struct net_device *ndev, u32 queue, u32 etc)
-{
-	return stmmac_api_set_q2tc_map(ndev, queue, etc);
-}
-
 static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send_slope,
 				  int idle_slope, int high_credit, int low_credit,
 				  u32 queue, u32 etc)
@@ -340,13 +335,6 @@ static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send
 				     high_credit, low_credit, queue, etc);
 }
 #else
-static int eth_qos_mgr_set_q2tc_map(struct net_device *ndev, u32 queue, u32 etc)
-{
-	eth_qos_log_err(&ndev->dev,
-			"Q2TC map requires STMMAC_API_VER >= 3 (cur=%d)", STMMAC_API_VER);
-	return -EOPNOTSUPP;
-}
-
 static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send_slope,
 				  int idle_slope, int high_credit, int low_credit,
 				  u32 queue, u32 etc)
@@ -359,20 +347,6 @@ static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send
 				     high_credit, low_credit, queue);
 }
 #endif
-
-/* Queue 0 is not AVB capable and has no Q2TC mapping to program. */
-static void eth_qos_mgr_reset_tx_q2tc_map(struct eth_qos_mgr_ctx *ctx)
-{
-	int ret;
-	u32 i;
-
-	for (i = 1; i < ctx->max_tx_queues; i++) {
-		ret = eth_qos_mgr_set_q2tc_map(ctx->ndev, i, 0);
-		if (ret)
-			eth_qos_log_err(&ctx->ndev->dev,
-					"failed to reset Q2TC map for queue %u to TC0: ret=%d", i, ret);
-	}
-}
 
 static struct eth_qos_mgr_ctx *eth_qos_mgr_get_or_create_ctx_locked(struct net_device *ndev)
 {
@@ -419,7 +393,6 @@ static struct eth_qos_mgr_ctx *eth_qos_mgr_get_or_create_ctx_locked(struct net_d
 	ctx->rx.max_vlan_filters = caps.vlan_filters;
 	mutex_init(&ctx->lock);
 	eth_qos_mgr_init_q_ch_status_table(ctx);
-	eth_qos_mgr_reset_tx_q2tc_map(ctx);
 	list_add_tail(&ctx->list, &eth_qos_mgr_list);
 	mutex_lock(&ctx->lock);
 	mutex_unlock(&eth_qos_mgr_list_lock);
@@ -658,11 +631,6 @@ static bool eth_qos_mgr_rx_queue_in_use_by_other_filters(struct eth_qos_mgr_ctx 
 static void eth_qos_mgr_revert_default_rx_mapping(struct net_device *ndev, u32 queue)
 {
 	stmmac_api_queue_dma_map(ndev, queue, queue);
-}
-
-static void eth_qos_mgr_revert_default_tx_mapping(struct net_device *ndev, u32 queue)
-{
-	eth_qos_mgr_set_q2tc_map(ndev, queue, 0);
 }
 
 static int eth_qos_mgr_clear_tx_ipa_tc_bmap(struct net_device *ndev, u32 ch)
@@ -1589,8 +1557,7 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 etc, u32 q
 	goto out_unlock;
 
 err_clear_cbs:
-	if (!eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, queue, etc))
-		eth_qos_mgr_revert_default_tx_mapping(ndev, queue);
+	eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, queue, etc);
 err_free_entry:
 	list_del(&entry->list);
 	kfree(entry);
