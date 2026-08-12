@@ -81,7 +81,7 @@ static const struct ethdbg_reg_desc qos_direct_regs_echo[] = {
 	{0x00A8, 0x00AC},		/* PCP MAP (RXQ_CTRL2/3) */
 	{0x0070, 0x008C},		/* Tx Flow Control Q0-Q7 */
 	{0x0090, 0x0090},		/* Rx Flow Control */
-	/* CBS Q0-Q8: QUANTUM_WEIGHT, SENDSLOPE, HICREDIT, LOCREDIT */
+	/* CBS Q0-Q7: QUANTUM_WEIGHT, SENDSLOPE, HICREDIT, LOCREDIT */
 	{0x1118, 0x1124},		/* Q0 */
 	{0x1198, 0x11A4},		/* Q1 */
 	{0x1218, 0x1224},		/* Q2 */
@@ -90,7 +90,15 @@ static const struct ethdbg_reg_desc qos_direct_regs_echo[] = {
 	{0x1398, 0x13A4},		/* Q5 */
 	{0x1418, 0x1424},		/* Q6 */
 	{0x1498, 0x14A4},		/* Q7 */
-	{0x1518, 0x1524},		/* Q8 */
+	/* TX OPMODE Q0-Q7 (Qualcomm MTL channel addressing) */
+	{0x8000, 0x8000},		/* Q0 */
+	{0x9000, 0x9000},		/* Q1 */
+	{0xA000, 0xA000},		/* Q2 */
+	{0xB000, 0xB000},		/* Q3 */
+	{0xC000, 0xC000},		/* Q4 */
+	{0xD000, 0xD000},		/* Q5 */
+	{0xE000, 0xE000},		/* Q6 */
+	{0xF000, 0xF000},		/* Q7 */
 };
 
 /* 32 VLAN filter entries, one register each */
