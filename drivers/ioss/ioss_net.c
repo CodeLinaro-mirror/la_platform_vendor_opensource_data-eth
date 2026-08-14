@@ -215,6 +215,8 @@ static void ioss_net_event_register(struct ioss_interface *iface,
 	if (idrv && idrv->ops && !idrv->ops->receive_skb)
 		__hijack_netdev_ops(iface);
 
+	ioss_ethtool_hijack_stats(iface);
+
 	ioss_net_xps_reset(iface);
 
 	ioss_iface_queue_refresh(iface, false);
@@ -232,6 +234,8 @@ static void ioss_net_event_unregister(struct ioss_interface *iface,
 	idrv = idev->dev.driver ? to_ioss_driver(idev->dev.driver) : NULL;
 	if (idrv && idrv->ops && !idrv->ops->receive_skb)
 		__restore_netdev_ops(iface);
+
+	ioss_ethtool_restore_stats(iface);
 	ioss_bus_unregister_iface(iface);
 
 	ioss_iface_queue_refresh(iface, false);

@@ -214,6 +214,9 @@ struct ioss_interface {
 
 	struct net_device_ops netdev_ops;
 	const struct net_device_ops *netdev_ops_real;
+	struct ethtool_ops ethtool_ops;
+	const struct ethtool_ops *ethtool_ops_real;
+	int ethtool_stat_count;
 	struct ioss_ipa_tx_state ipa_tx_state_saved;
 	bool ipa_tx_disabled;
 	bool auto_resume_disabled;
@@ -323,6 +326,24 @@ struct ioss_channel_event {
 	bool enabled;
 };
 
+struct ioss_ch_stats {
+	u64 tx_xmit;         /* total calls to IPA xmit API */
+	u64 tx_ipa;          /* packets IPA successfully accepted */
+	u64 tx_ipa_cb;       /* IPA TX completion callbacks */
+	u64 tx_wm_stop;      /* outstanding pkts reached stop WM */
+	u64 tx_wm_wake;      /* outstanding pkts dropped to wake WM */
+	u64 tx_gso_tcp;      /* GSO TCP pkts (SKB_GSO_TCPV4/V6) to IPA */
+	u64 tx_gso_udp;      /* GSO UDP pkts (SKB_GSO_UDP_L4) to IPA */
+	u64 tx_ipa_err;      /* errors returned by IPA xmit API */
+	u64 tx_ipa_nospace;  /* IPA xmit returned -ENOSPC */
+	u64 tx_ipa_is_ready;  /* current IPA ready status (bool: 0/1) */
+	u64 tx_wm_space_used; /* snapshot: pkts in flight (computed at read) */
+	u64 tx_wm_space_free; /* snapshot: free stop-WM slots (computed at read) */
+	u64 tx_net_lock_bh;   /* times TX callback held netif_tx_lock_bh for -ENOSPC sync */
+	u64 rx_ipa_cb;        /* IPA RX exception callbacks */
+	u64 rx_net_err;      /* netif_receive_skb drops in exception path */
+};
+
 struct ioss_channel {
 	struct list_head node;
 
@@ -356,6 +377,7 @@ struct ioss_channel {
 	bool enabled;
 
 	atomic_t ipa_tx_outstanding_pkts;
+	atomic_t ipa_tx_wm_fc_active;
 	atomic_t ipa_tx_nospace_sync;
 
 	void *ioss_priv;
@@ -370,6 +392,8 @@ struct ioss_channel {
 	u32 tcm_ring_size_max;
 
 	bool pending_user_cfg;
+
+	struct ioss_ch_stats stats;
 };
 
 struct ioss_device {
