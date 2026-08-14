@@ -16,7 +16,7 @@ int eth_qos_mgr_add_l3l4(struct net_device *ndev, u32 hid, u32 queue, u32 ch,
 int eth_qos_mgr_add_pcp(struct net_device *ndev, u32 hid, u8 pcp, u32 queue, u32 ch,
 			bool hw_path);
 int eth_qos_mgr_add_tx_pcp(struct net_device *ndev, u32 hid, u8 pcp, u32 queue, u32 ch);
-int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32 ch,
+int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 etc, u32 queue, u32 ch,
 			bool hw_path, int sendslope, int idleslope,
 			int hicredit, int locredit);
 int eth_qos_mgr_del(struct net_device *ndev, u32 hid);
