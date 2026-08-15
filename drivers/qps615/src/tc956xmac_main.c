@@ -2984,6 +2984,18 @@ static void tc956xmac_release_ptp(struct tc956xmac_priv *priv)
 {
 	if (priv->plat->clk_ptp_ref)
 		clk_disable_unprepare(priv->plat->clk_ptp_ref);
+
+	/*
+	 * During system suspend, unregistering PTP emits uevents and can trigger
+ 	 * NETLINK wakeups that abort suspend. Keep the PTP clock registered
+ 	 * across suspend/resume and only unregister on real interface close.
+ 	 */
+	if (priv->tc956x_port_pm_suspend) {
+		NMSGPR_INFO(priv->device, "%s: skip ptp_clock_unregister during suspend path",
+				    __func__);
+		return;
+	}
+
 	tc956xmac_ptp_unregister(priv);
 }
 #ifndef TC956X_SRIOV_VF
@@ -7705,7 +7717,7 @@ static int tc956xmac_open(struct net_device *dev)
 				pwol_dev_name = priv->int_name_wol;
 				snprintf(pwol_dev_name, sizeof(priv->int_name_wol), "%s_wol", dev->name);
 				ret = request_irq(priv->wol_irq, tc956xmac_wol_interrupt,
-						  IRQF_NO_SUSPEND, pwol_dev_name, dev);
+						  0, pwol_dev_name, dev);
 				if (unlikely(ret < 0)) {
 					netdev_err(priv->dev,
 						   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
@@ -8050,7 +8062,7 @@ static int tc956xmac_release(struct net_device *dev)
 	/* Disable the MAC Rx/Tx */
 	tc956xmac_mac_set(priv, priv->ioaddr, false);
 #endif
-	if (priv->link_down_rst == false)
+	if (priv->link_down_rst && !priv->tc956x_port_pm_suspend)
 		netif_carrier_off(dev);
 	NMSGPR_INFO(priv->device, "PHY Link : DOWN\n");
 

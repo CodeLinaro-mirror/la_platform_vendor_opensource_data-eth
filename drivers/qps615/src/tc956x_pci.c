@@ -4118,8 +4118,15 @@ static int tc956x_pcie_suspend(struct device *dev)
 #ifdef TC956X_SRIOV_PF
 #ifdef TC956X_MAGIC_PACKET_WOL_GPIO
 	if (priv->port_num == RM_PF0_ID) {
-		KPRINT_INFO("%s: Port %d %s - Configuring GPIO for WOL", __func__, priv->port_num, priv->dev->name);
-		tc956x_wol_gpio_trigger(priv->ioaddr, true); /* Set to HIGH */
+		if (priv->wolopts) {
+			KPRINT_INFO("%s: Port %d %s - WoL enabled (wolopts=0x%x), setting GPIO HIGH",
+				    __func__, priv->port_num, priv->dev->name, priv->wolopts);
+			tc956x_wol_gpio_trigger(priv->ioaddr, true); /* Set to HIGH */
+		} else {
+			KPRINT_INFO("%s: Port %d %s - WoL disabled (wolopts=0x%x), forcing GPIO LOW",
+				    __func__, priv->port_num, priv->dev->name, priv->wolopts);
+			tc956x_wol_gpio_trigger(priv->ioaddr, false); /* Set to LOW */
+		}
 	}
 #endif
 #endif
