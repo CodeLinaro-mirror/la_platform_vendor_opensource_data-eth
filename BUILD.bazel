@@ -29,10 +29,32 @@ ddk_headers(
         "drivers/r8125/src/r8125_rss.h",
         "drivers/r8125/src/rtl_eeprom.h",
         "drivers/r8125/src/rtltool.h",
-		"drivers/r8125/src/r8125_fiber.h",
+	"drivers/r8125/src/r8125_fiber.h",
     ]),
     includes = [
         "drivers/r8125",
         "drivers/r8125/src",
     ],
+)
+
+ddk_headers(
+    name = "qps615_headers",
+    hdrs = glob([
+       "drivers/qps615/src/common.h",
+       "drivers/qps615/src/descs.h",
+       "drivers/qps615/src/dwxgmac2.h",
+       "drivers/qps615/src/hwif.h",
+       "drivers/qps615/src/mmc.h",
+       "drivers/qps615/src/tc956x_pcie_logstat.h",
+       "drivers/qps615/src/tc956x_pf_mbx.h",
+       "drivers/qps615/src/tc956x_pf_rsc_mng.h",
+       "drivers/qps615/src/tc956x_pma.h",
+       "drivers/qps615/src/tc956x_xpcs.h",
+       "drivers/qps615/src/tc956xmac_config.h",
+       "drivers/qps615/src/tc956xmac_inc.h",
+       "drivers/qps615/src/tc956xmac_ioctl.h",
+       "drivers/qps615/src/tc956xmac_pcs.h",
+       "drivers/qps615/src/tc956xmac_ptp.h",
+       "drivers/qps615/src/tc956xmac.h",
+    ]),
 )
