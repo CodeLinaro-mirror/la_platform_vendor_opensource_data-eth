@@ -512,7 +512,7 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 		if (!emac_ctrl_fe_register_ready_cb(ethqos_emac_fe_ready_cb,
 						    (void *)ethqos))
 			break;
-		ETHQOSINFO("emac_ctrl_fe_register_ready_cb failed\n");
+		ETHQOSERR("emac_ctrl_fe_register_ready_cb failed\n");
 		cond_resched();
 		count++;
 	}
