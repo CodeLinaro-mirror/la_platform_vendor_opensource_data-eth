@@ -284,7 +284,7 @@ static int stmmac_ioss_enable_channel(struct ioss_channel *ch)
 	if (rc)
 		return rc;
 
-	if (ch->direction == IOSS_CH_DIR_RX)
+	if (ch->direction == IOSS_CH_DIR_RX && ch->queue_number >= 0)
 		stmmac_api_queue_dma_map(ndev, ch->queue_number, ch->channel_num);
 
 	return 0;
