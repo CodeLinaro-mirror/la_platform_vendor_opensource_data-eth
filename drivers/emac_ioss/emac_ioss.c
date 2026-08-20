@@ -322,7 +322,8 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 	ipa_channel_info.ch_flags = STMMAC_CONTIG_BUFS;
 	ipa_channel_info.flags = GFP_KERNEL;
 
-	strscpy(ipa_channel_info.ipa_config_info, ch->iface->ipa_config, CONFIG_LEN);
+	if (ch->iface->ipa_config)
+		strscpy(ipa_channel_info.ipa_config_info, ch->iface->ipa_config, CONFIG_LEN);
 	ipa_channel_info.traffic_type_info = ch->traffic_type;
 
 	ring = request_channel(&ipa_channel_info);
