@@ -4,7 +4,7 @@
 [Unit]
 Description=Ethernet SDK DLKM
 DefaultDependencies=no
-After=sysinit.target
+After=sysinit.target dataipa.service
 Before=basic.target
 
 [Service]
