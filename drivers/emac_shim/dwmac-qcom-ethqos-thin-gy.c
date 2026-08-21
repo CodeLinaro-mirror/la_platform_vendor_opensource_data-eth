@@ -47,6 +47,16 @@
 #define MAX_CONNECT_FAST_RETRIES 10
 #define CONNECT_RETRY_MIN_MS 500
 #define CONNECT_RETRY_MAX_MS 5000
+/* Upper bound for a single kernel_connect(). The socket has no send timeout by
+ * default (O_RDWR does not set O_NONBLOCK), so an unreachable server makes
+ * connect block for the whole TCP SYN retransmit sequence (~63s). This bounds
+ * connect only; the data path uses MSG_DONTWAIT and never reads sk_sndtimeo.
+ *
+ * MAX_CONNECT_FAST_RETRIES * CONNECT_TIMEOUT_MS is how long suspend can block
+ * in kthread_cancel_delayed_work_sync() waiting for this work, so keep the
+ * product well under the DPM watchdog timeout (CONFIG_DPM_WATCHDOG_TIMEOUT).
+ */
+#define CONNECT_TIMEOUT_MS 200
 static DECLARE_WAIT_QUEUE_HEAD(conn_wait_queue);
 
 struct client_socket
@@ -407,20 +417,31 @@ void qcom_ethqos_client_start(struct kthread_work *work)
 		return;
 	}
 
+	memset(server,0,sizeof(struct sockaddr_in));
+	server->sin_family = AF_INET;
+	in4_pton(SERVER_IP, -1, (u8 *)&server->sin_addr.s_addr, '\0', NULL);
+	server->sin_port = htons(SERVER_PORT);
+
+connect:
+	/* Use a fresh socket for every attempt: a timed-out connect returns
+	 * -EINPROGRESS with the sk left in SYN_SENT, and reconnecting the same sk
+	 * yields -EALREADY. sock_create() leaves *res untouched on failure, so
+	 * clear sockt first to keep the release path safe.
+	 */
+	if (sockt) {
+		sock_release(sockt);
+		sockt = NULL;
+	}
+
 	acc=sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &sockt);
 	if (acc < 0) {
 		ETHQOSERR("Could not create socket: %d \n",acc);
 		goto release;
 	}
 
-	memset(server,0,sizeof(struct sockaddr_in));
-	server->sin_family = AF_INET;
-	in4_pton(SERVER_IP, -1, (u8 *)&server->sin_addr.s_addr, '\0', NULL);
-	server->sin_port = htons(SERVER_PORT);
-
 	sockt->sk->sk_data_ready = qcom_ethqos_client_data_recieved;
+	sockt->sk->sk_sndtimeo = msecs_to_jiffies(CONNECT_TIMEOUT_MS);
 
-connect:
 	/* socket connect start*/
 	cn=kernel_connect(sockt, (struct sockaddr*) server,sizeof(struct sockaddr_in),O_RDWR);
 	ETHQOSDBG("kernel sock connection :%d\n",cn);
