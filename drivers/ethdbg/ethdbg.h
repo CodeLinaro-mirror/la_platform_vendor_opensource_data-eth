@@ -57,7 +57,14 @@ struct ethdbg_map {
  * @num_captured: Number of registers actually captured
  * @num_skipped: Number of registers skipped due to out-of-bounds access
  * @map: Pointer to the original ethdbg_map structure, NULL for PHY blocks
- * @minidump_registered: True when reg_list is registered with minidump
+ * @minidump_registered: True when reg_list (and map, for MMIO blocks) is
+ *                        registered with minidump.
+ * @md_name: Minidump region name used for reg_list, captured at registration
+ *           time so unregistration always removes the exact region that was
+ *           added, regardless of any future change to how the name would be
+ *           computed.
+ * @md_map_name: Minidump region name used for @map (MMIO blocks only, empty
+ *               for PHY blocks), captured for the same reason as @md_name.
  *
  * Represents a single hardware block (STMMAC, PCS, RGMII,
  * or SERDES) for panic register capture. During panic,
@@ -76,6 +83,8 @@ struct ethdbg_hw_block {
 	struct ethdbg_map *map;
 	struct ethdbg_reg_entry *reg_list;
 	bool minidump_registered;
+	char md_name[ETHDBG_MD_NAME_LEN];
+	char md_map_name[ETHDBG_MD_NAME_LEN];
 };
 
 /**
@@ -158,6 +167,7 @@ void ethdbg_uio_del_qos(struct ethdbg_interface *iface);
 int ethdbg_dump_register(struct ethdbg_interface *iface);
 int ethdbg_dump_register_phy(struct ethdbg_interface *iface);
 void ethdbg_dump_unregister(struct ethdbg_interface *iface);
+void ethdbg_dump_unregister_phy(struct ethdbg_interface *iface);
 int ethdbg_dump_register_qos(struct ethdbg_device *dev, const char *interface_name);
 void ethdbg_dump_unregister_qos(struct ethdbg_device *dev);
 
@@ -171,8 +181,6 @@ u32 ethdbg_read_vlan_indirect(void __iomem *base, u32 index);
 u32 ethdbg_read_l3l4_indirect(void __iomem *base, u32 filter_no, u32 reg_id);
 
 
-int ethdbg_minidump_register(struct ethdbg_interface *iface);
-int ethdbg_minidump_unregister(struct ethdbg_interface *iface);
 int ethdbg_minidump_add_region(const char *name, uintptr_t vaddr, size_t size);
 int ethdbg_minidump_remove_region(const char *name, uintptr_t vaddr, size_t size);
 void ethdbg_va_minidump_init(void);
@@ -198,6 +206,8 @@ struct ethdbg_capture_ops {
 void ethdbg_register_capture_ops(const struct ethdbg_capture_ops *ops);
 void ethdbg_unregister_capture_ops(const struct ethdbg_capture_ops *ops);
 
+void ethdbg_stmmac_dump_register(struct ethdbg_interface *iface);
+void ethdbg_stmmac_dump_unregister(struct ethdbg_interface *iface);
 void ethdbg_stmmac_init(void);
 void ethdbg_stmmac_exit(void);
 void ethdbg_ioss_init(void);
