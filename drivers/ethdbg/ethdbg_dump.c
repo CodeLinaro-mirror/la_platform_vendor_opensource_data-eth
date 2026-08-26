@@ -108,6 +108,9 @@ static int ethdbg_panic_notifier(struct notifier_block *nb,
 	struct ethdbg_interface *iface;
 
 	list_for_each_entry(iface, &ethdbg_interfaces, list) {
+		if (!iface->device)
+			continue;
+
 		ethdbg_dump_device(iface->device);
 		ethdbg_dump_device_qos(iface->device, true);
 		/* PHY capture during panic is disabled by default;
