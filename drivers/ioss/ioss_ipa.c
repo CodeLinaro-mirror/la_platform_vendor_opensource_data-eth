@@ -39,6 +39,9 @@ MODULE_PARM_DESC(disable_ipa_tx, "Disable IPA OFFLOAD TX feature globally");
 #define to_ioss_dir(ipa_dir) \
 	((ipa_dir == IPA_ETH_PIPE_DIR_TX) ? IOSS_CH_DIR_TX : IOSS_CH_DIR_RX)
 
+#define IOSS_IPA_RETAIN_FLAGS \
+	(NETIF_F_HW_VLAN_CTAG_FILTER | NETIF_F_HW_VLAN_STAG_FILTER)
+
 static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type ioss_type)
 {
 	static const enum ipa_eth_pipe_traffic_type ipa_map[IOSS_TRAFFIC_TYPE_MAX] = {
@@ -651,9 +654,12 @@ void ioss_ipa_emb_tx_enable(struct ioss_interface *iface)
 	state_save->gso_max_size    = ndev->gso_max_size;
 	state_save->gso_ipv4_max_size = ndev->gso_ipv4_max_size;
 
-	ndev->hw_features     = ipa_config->offload_features;
-	ndev->wanted_features = ipa_config->offload_features;
-	ndev->features        = ipa_config->offload_features;
+	ndev->hw_features     = (ipa_config->offload_features & ~IOSS_IPA_RETAIN_FLAGS) |
+		(state_save->hw_features & IOSS_IPA_RETAIN_FLAGS);
+	ndev->wanted_features = (ipa_config->offload_features & ~IOSS_IPA_RETAIN_FLAGS) |
+		(state_save->wanted_features & IOSS_IPA_RETAIN_FLAGS);
+	ndev->features        = (ipa_config->offload_features & ~IOSS_IPA_RETAIN_FLAGS) |
+		(state_save->features & IOSS_IPA_RETAIN_FLAGS);
 	WRITE_ONCE(ndev->gso_max_size, ipa_config->offload_gso_max_size);
 	WRITE_ONCE(ndev->gso_ipv4_max_size, ipa_config->offload_gso_max_size);
 	ndev->needed_headroom += ipa_config->offload_headroom;
