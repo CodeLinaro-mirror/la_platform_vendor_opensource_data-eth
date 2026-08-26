@@ -266,6 +266,10 @@ MODULE_PARM_DESC(buf_sz, "DMA buffer size");
 
 #define	TC956XMAC_RX_COPYBREAK	256
 
+#ifndef MAX_T
+#define MAX_T(type, a, b) __cmp(max, (type)(a), (type)(b))
+#endif
+
 static const u32 default_msg_level = (NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				      NETIF_MSG_LINK | NETIF_MSG_IFUP |
 				      NETIF_MSG_IFDOWN | NETIF_MSG_TIMER);
@@ -5949,7 +5953,7 @@ static void tc956xmac_dma_interrupt(struct tc956xmac_priv *priv)
 	u32 channels_to_check = tx_channel_count > rx_channel_count ?
 				tx_channel_count : rx_channel_count;
 	u32 chan;
-	int status[max_t(u32, MTL_MAX_TX_QUEUES, MTL_MAX_RX_QUEUES)];
+	int status[MAX_T(u32, MTL_MAX_TX_QUEUES, MTL_MAX_RX_QUEUES)];
 
 	/* Make sure we never check beyond our status buffer. */
 	if (WARN_ON_ONCE(channels_to_check > ARRAY_SIZE(status)))
@@ -15570,9 +15574,14 @@ int tc956xmac_vf_dvr_probe(struct device *device,
 #endif
 
 	ret = tc956xmac_tc_init(priv, NULL);
+	/* TC commands are tested only for kernel versions 5.4, 6.1 and 6.6
+	* For other kernel versions, dont enable TC support
+	*/
+#if ((LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)) ||\
+ ((LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)) &&(LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0))))
 	if (!ret)
 		ndev->hw_features |= NETIF_F_HW_TC;
-
+#endif
 	/* Enable TSO module if any Queue TSO is Enabled */
 	for (queue = 0; queue < MTL_MAX_TX_QUEUES; queue++) {
 #ifdef TC956X_SRIOV_VF
