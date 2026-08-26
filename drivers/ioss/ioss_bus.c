@@ -323,6 +323,7 @@ static int ioss_bus_probe(struct device *dev)
 		ioss_dev_err(idev, "unable to create disable_ioss_auto_resume node");
 		goto err_create_sysfs;
 	}
+
 	idev->api_managed_kobj = kobject_create_and_add("api_managed",
 							 &idev->net_dev->dev.kobj);
 	if (!idev->api_managed_kobj) {
@@ -342,6 +343,11 @@ static int ioss_bus_probe(struct device *dev)
 		ioss_dev_err(idev, "unable to create api_managed/tx node");
 		goto err_tx_attr;
 	}
+
+	/* Emit a fresh "change" uevent so that udev rules are rerun after the new
+	 * sysfs node are created.
+	 */
+	kobject_uevent(&idev->net_dev->dev.kobj, KOBJ_CHANGE);
 
 	if (iface->auto_resume_disabled) {
 		ioss_dev_cfg(idev, "creating dev char device for auto platform\n");
