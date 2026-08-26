@@ -70,20 +70,6 @@ void ioss_net_xps_set_cpu_mask(struct ioss_interface *iface,
 		ioss_dev_err(idev, "XPS: failed to set CPU mask for TXQ %u", txq);
 }
 
-void ioss_net_xps_set_rxq_mask(struct ioss_interface *iface, unsigned long rxq_mask, u16 txq)
-{
-	struct net_device *ndev = ioss_iface_to_netdev(iface);
-	struct ioss_device *idev = ioss_iface_dev(iface);
-	int ret;
-
-	if (!ndev || txq >= ndev->real_num_tx_queues)
-		return;
-
-	ret = __netif_set_xps_queue(ndev, &rxq_mask, txq, XPS_RXQS);
-	if (ret)
-		ioss_dev_err(idev, "XPS: failed to set RXQ mask for TXQ %u", txq);
-}
-
 static unsigned long ioss_net_get_txqs_from_prio(struct net_device *ndev, u32 prio)
 {
 	unsigned long txq_mask = 0;
@@ -106,24 +92,16 @@ void ioss_net_xps_reset(struct ioss_interface *iface)
 {
 	struct net_device *ndev = ioss_iface_to_netdev(iface);
 	struct ioss_device *idev = ioss_iface_dev(iface);
-	unsigned long rxq_mask, txq_mask, q;
+	unsigned long txq_mask, q;
 
 	/* Clear XPS masks from all TXQs */
-	for (q = 0; q < ndev->real_num_tx_queues; q++) {
+	for (q = 0; q < ndev->real_num_tx_queues; q++)
 		ioss_net_xps_set_cpu_mask(iface, cpu_none_mask, q);
-		ioss_net_xps_set_rxq_mask(iface, 0, q);
-	}
 
 	txq_mask = ioss_net_get_txqs_from_prio(ndev, TC_PRIO_BESTEFFORT);
 
-	for_each_set_bit(q, &txq_mask, BITS_PER_LONG) {
+	for_each_set_bit(q, &txq_mask, BITS_PER_LONG)
 		ioss_net_xps_set_cpu_mask(iface, cpu_possible_mask, q);
-
-		if (q < ndev->real_num_rx_queues) {
-			rxq_mask = BIT(q);
-			ioss_net_xps_set_rxq_mask(iface, rxq_mask, q);
-		}
-	}
 
 	ioss_dev_log(idev, "XPS: default configured for TC TXQs 0x%lx", txq_mask);
 }

@@ -605,10 +605,8 @@ static void ioss_ipa_xps_configure_tx_offload(struct ioss_interface *iface)
 	unsigned long q;
 
 	/* Clear XPS CPU and RXQ masks on all TXQs */
-	for (q = 0; q < ndev->real_num_tx_queues; q++) {
+	for (q = 0; q < ndev->real_num_tx_queues; q++)
 		ioss_net_xps_set_cpu_mask(iface, cpu_none_mask, q);
-		ioss_net_xps_set_rxq_mask(iface, 0, q);
-	}
 
 	/* Steer all CPUs to BE TXQs */
 	for_each_set_bit(q, &be_txq_mask, BITS_PER_LONG)
@@ -623,10 +621,8 @@ static void ioss_ipa_clear_be_xps(struct ioss_interface *iface)
 	unsigned long be_txq_mask = ioss_ipa_be_txq_mask(iface);
 	unsigned long q;
 
-	for_each_set_bit(q, &be_txq_mask, BITS_PER_LONG) {
+	for_each_set_bit(q, &be_txq_mask, BITS_PER_LONG)
 		ioss_net_xps_set_cpu_mask(iface, cpu_none_mask, q);
-		ioss_net_xps_set_rxq_mask(iface, 0, q);
-	}
 
 	ioss_dev_log(idev, "XPS: IPA disabled - cleared CPUs from TXQs 0x%lx", be_txq_mask);
 }
