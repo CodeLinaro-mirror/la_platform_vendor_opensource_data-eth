@@ -193,6 +193,38 @@ static void stmmac_ioss_xmit_done(struct ioss_channel *ch, struct sk_buff *skb, 
 }
 #endif
 
+/**
+ * stmmac_ioss_update_api_managed - set or clear a channel's bit in the
+ *                                   direction-specific api_managed mask
+ * @ch: ioss channel that was just requested or released
+ * @set: true to set the channel's bit (request), false to clear it (release)
+ *
+ * Reads the current RX or TX api_managed mask from idev (initialised to 0x0
+ * at boot), sets or clears bit @ch->channel_num, then calls
+ * ioss_set_api_managed_mask() to store the updated value.
+ */
+static void stmmac_ioss_update_api_managed(struct ioss_channel *ch, bool set)
+{
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	u32 mask;
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
+		mask = idev->rx_api_managed_mask;
+		if (set)
+			mask |= BIT(ch->channel_num);
+		else
+			mask &= ~BIT(ch->channel_num);
+	} else {
+		mask = idev->tx_api_managed_mask;
+		if (set)
+			mask |= BIT(ch->channel_num);
+		else
+			mask &= ~BIT(ch->channel_num);
+	}
+
+	ioss_set_api_managed_mask(idev, ch->direction, mask);
+}
+
 static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 {
 	int i;
@@ -246,6 +278,8 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 	ch->id = ch->channel_num;
 	ch->private = stmmac_ch;
 
+	stmmac_ioss_update_api_managed(ch, true);
+
 	return 0;
 
 err_add_channel_mem:
@@ -270,6 +304,8 @@ static int stmmac_ioss_release_channel(struct ioss_channel *ch)
 	kfree(stmmac_ch);
 	ch->id = -1;
 	ch->private = NULL;
+
+	stmmac_ioss_update_api_managed(ch, false);
 
 	return 0;
 }
