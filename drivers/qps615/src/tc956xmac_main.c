@@ -1716,8 +1716,10 @@ int tc956xmac_cleanup_debugfs(struct net_device *net_device)
 		return -1;
 	}
 
-	if (priv->debugfs_dir)
+	if (priv->debugfs_dir) {
 		debugfs_remove_recursive(priv->debugfs_dir);
+		priv->debugfs_dir = NULL; /* prevent double-remove on resume path */
+	}
 
 	printk("TC956x port-%d %s, debugfs Deleted Successfully\n", priv->port_num, priv->dev->name);
 	return 0;
@@ -7946,7 +7948,10 @@ static int tc956xmac_release(struct net_device *dev)
 #ifndef TC956X_SRIOV_VF
 #ifdef TC956X_SRIOV_PF
 #ifdef CONFIG_DEBUG_FS
-	if (priv->link_down_rst == false)
+	/* During suspend, debugfs is already removed before rtnl_lock is taken
+	 * to avoid rwsem deadlock. Skip here if already cleaned up.
+	 */
+	if (priv->link_down_rst == false && priv->debugfs_dir)
 		tc956xmac_cleanup_debugfs(priv->dev);
 #endif
 #endif /* TC956X_SRIOV_PF */
@@ -16264,6 +16269,19 @@ int tc956xmac_vf_suspend(struct device *dev)
 			}
 		}
 	}
+#endif
+	/* Remove debugfs before taking rtnl_lock to avoid rwsem deadlock.
+	 * debugfs_remove_recursive() acquires a write semaphore internally.
+	 * Calling it while holding rtnl_lock causes deadlock if a concurrent
+	 * debugfs reader holds the read side of the same semaphore.
+	 */
+#ifndef TC956X_SRIOV_VF
+#ifdef TC956X_SRIOV_PF
+#ifdef CONFIG_DEBUG_FS
+	if (priv->link_down_rst == false)
+		tc956xmac_cleanup_debugfs(ndev);
+#endif
+#endif
 #endif
 	/* Invoke device driver close only when net inteface is up and running. */
 	rtnl_lock();
