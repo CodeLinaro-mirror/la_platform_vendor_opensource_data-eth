@@ -792,8 +792,10 @@ static ssize_t store_add_tc(struct device *dev,
 	if (!idrv)
 		return -EINVAL;
 
-	if (len != 2)
+	if (len != 2) {
+		kfree(buf);
 		return -EINVAL;
+	}
 
 	tmp = buf;
 	while ( (token = strsep(&buf, " ")) ) {
@@ -922,8 +924,11 @@ static ssize_t store_add_handle(struct device *dev,
 	struct kobject *kobj = real_kobj_from_dev(dev, 1);
 
 	idev = ioss_dev_from_kobj(kobj);
-	if(!idev)
+	if(!idev) {
+		kfree(dup);
+		kfree(buf);
 		return -EINVAL;
+	}
 
 	tmp = dup;
 	len = get_num_arguments(&dup, " ");
@@ -1113,8 +1118,10 @@ static ssize_t store_del_tc(struct device *dev,
 	len = get_num_arguments(&dup, " ");
 	kfree(tmp);
 
-	if (len != 2)
+	if (len != 2) {
+		kfree(buf);
 		return -EINVAL;
+	}
 
 	tmp = buf;
 	while ( (token = strsep(&buf, " ")) ) {
@@ -1139,6 +1146,7 @@ static ssize_t store_del_tc(struct device *dev,
 	if (is_dir_rx) {
 		if (!rx_tc_already_exists(idev, prio)) {
 			ioss_qos_dev_log(NULL, "[ioss qos] : entered tc priority not present in rx table\n");
+			kfree(tmp);
 			return -EINVAL;
 		}
 
@@ -1154,6 +1162,7 @@ static ssize_t store_del_tc(struct device *dev,
 	else {
 		if (!tx_tc_already_exists(idev, prio)) {
 			ioss_qos_dev_log(NULL, "[ioss qos] : entered tc priority not present in tx table\n");
+			kfree(tmp);
 			return -EINVAL;
 		}
 
@@ -2014,6 +2023,7 @@ smac_err:
 		idev->ioss_qos_new_nodes.rx_hdl_node = NULL;
 		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add smac failure\n");
 	}
+	kfree(tmp);
 	return -EINVAL;
 }
 
@@ -2073,6 +2083,7 @@ dmac_err:
 		idev->ioss_qos_new_nodes.rx_hdl_node = NULL;
 		ioss_qos_dev_log(NULL, "[ioss qos] cleaned rx node due to add dmac failure\n");
 	}
+	kfree(tmp);
 	return -EINVAL;
 }
 
