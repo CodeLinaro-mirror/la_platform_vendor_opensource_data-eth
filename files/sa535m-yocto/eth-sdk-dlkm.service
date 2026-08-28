@@ -5,7 +5,7 @@
 Description=Ethernet SDK DLKM
 DefaultDependencies=no
 After=sysinit.target
-Before=basic.target
+Before=basic.target shutdown.target reboot.target halt.target
 
 [Service]
 Type=oneshot
