@@ -21,44 +21,67 @@ def define_modules(target, variant):
         "//conditions:default": [],
     })
 
-    # TC956X/QPS615 PF Driver Module
-    ddk_module(
-        name = qps615_rule,
-        out = "tc956x_pcie_eth.ko",
-        srcs = [
-            "drivers/qps615/src/dwxgmac2_core.c",
-            "drivers/qps615/src/dwxgmac2_descs.c",
-            "drivers/qps615/src/dwxgmac2_dma.c",
-            "drivers/qps615/src/hwif.c",
-            "drivers/qps615/src/mmc_core.c",
-            "drivers/qps615/src/tc956x_pci.c",
-            "drivers/qps615/src/tc956x_pcie_logstat.c",
-            "drivers/qps615/src/tc956x_pma.c",
-            "drivers/qps615/src/tc956x_qcom.c",
-            "drivers/qps615/src/tc956x_xpcs.c",
-            "drivers/qps615/src/tc956xmac_ethtool.c",
-            "drivers/qps615/src/tc956xmac_hwtstamp.c",
-            "drivers/qps615/src/tc956xmac_main.c",
-            "drivers/qps615/src/tc956xmac_mdio.c",
-            "drivers/qps615/src/tc956xmac_ptp.c",
-            "drivers/qps615/src/tc956xmac_tc.c",
-            "drivers/qps615/src/tc956x_msigen.c",
-            "drivers/qps615/src/tc956x_pf_mbx_wrapper.c",
-            "drivers/qps615/src/tc956x_pf_mbx.c",
-            "drivers/qps615/src/tc956x_pf_rsc_mng.c",
-        ],
-        kernel_build = base_kernel,
-        deps = [":qps615_headers"] + header_deps,
-        copts = [
-            "-DTC956X",
-            "-DCONFIG_TC956X_PLATFORM_SUPPORT",
-            "-DTC956X_SRIOV_PF",
-            "-DFIRMWARE_NAME=\\\"qps615_fw.bin\\\"",
-        ],
-    )
+    # TC956X/QPS615 and QCA81xx modules disabled for sun platform (stability issues)
+    if target != "sun":
+        ddk_module(
+            name = qps615_rule,
+            out = "tc956x_pcie_eth.ko",
+            srcs = [
+                "drivers/qps615/src/dwxgmac2_core.c",
+                "drivers/qps615/src/dwxgmac2_descs.c",
+                "drivers/qps615/src/dwxgmac2_dma.c",
+                "drivers/qps615/src/hwif.c",
+                "drivers/qps615/src/mmc_core.c",
+                "drivers/qps615/src/tc956x_pci.c",
+                "drivers/qps615/src/tc956x_pcie_logstat.c",
+                "drivers/qps615/src/tc956x_pma.c",
+                "drivers/qps615/src/tc956x_qcom.c",
+                "drivers/qps615/src/tc956x_xpcs.c",
+                "drivers/qps615/src/tc956xmac_ethtool.c",
+                "drivers/qps615/src/tc956xmac_hwtstamp.c",
+                "drivers/qps615/src/tc956xmac_main.c",
+                "drivers/qps615/src/tc956xmac_mdio.c",
+                "drivers/qps615/src/tc956xmac_ptp.c",
+                "drivers/qps615/src/tc956xmac_tc.c",
+                "drivers/qps615/src/tc956x_msigen.c",
+                "drivers/qps615/src/tc956x_pf_mbx_wrapper.c",
+                "drivers/qps615/src/tc956x_pf_mbx.c",
+                "drivers/qps615/src/tc956x_pf_rsc_mng.c",
+            ],
+            kernel_build = base_kernel,
+            deps = [":qps615_headers"] + header_deps,
+            copts = [
+                "-DTC956X",
+                "-DCONFIG_TC956X_PLATFORM_SUPPORT",
+                "-DTC956X_SRIOV_PF",
+                "-DFIRMWARE_NAME=\\\"qps615_fw.bin\\\"",
+            ],
+        )
 
-    mod_list.append(":{}".format(qps615_rule))
+        mod_list.append(":{}".format(qps615_rule))
 
+<<<<<<< HEAD   (4f8e45 Merge f3e91c461cab2ad0c04dce61a37f8e203f6d769b on remote bra)
+=======
+        ddk_module(
+		name = qca_nss_phy_rule,
+		out = "qca81xx-phy.ko",
+		srcs = [
+		    "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx.c",
+		    "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx_hwmon.c",
+		    "drivers/qca-nss-phy/linux_std/qca81xx/qca81xx_macsec.c",
+		],
+		kernel_build = base_kernel,
+		deps = [":qca_nss_phy_headers"] + header_deps,
+		copts = [
+                "-Werror",
+		    "-Wall",
+                "-Wmissing-prototypes",
+		],
+        )
+
+        mod_list.append(":{}".format(qca_nss_phy_rule))
+
+>>>>>>> CHANGE (18b17c data-eth: disable tc956x and qca81xx ethernet for sun platfo)
     ddk_module(
         name = r8125_rule,
         out = "r8125.ko",
