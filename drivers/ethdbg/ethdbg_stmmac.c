@@ -98,7 +98,7 @@ static const struct ethdbg_capture_ops ethdbg_stmmac_capture_ops = {
 	.capture_tx_queue = ethdbg_stmmac_capture_tx_queue,
 };
 
-void ethdbg_stmmac_register(struct ethdbg_interface *iface)
+void ethdbg_stmmac_dump_register(struct ethdbg_interface *iface)
 {
 	struct ethdbg_device *dev = iface->device;
 	const char *interface_name = iface->interface_name;
@@ -116,14 +116,14 @@ void ethdbg_stmmac_register(struct ethdbg_interface *iface)
 	/* Register net_device region */
 	scnprintf(md_name, sizeof(md_name), "%s-ndev", interface_name);
 	ret = ethdbg_minidump_add_region(md_name, (uintptr_t)net_dev, sizeof(*net_dev));
-	if (!ret)
+	if (ret >= 0)
 		pr_info("ethdbg: [%s] registered minidump region '%s'\n", interface_name, md_name);
 
 	/* Register stmmac_priv region */
 	priv = netdev_priv(net_dev);
 	scnprintf(md_name, sizeof(md_name), "%s-priv", interface_name);
 	ret = ethdbg_minidump_add_region(md_name, (uintptr_t)priv, sizeof(*priv));
-	if (!ret)
+	if (ret >= 0)
 		pr_info("ethdbg: [%s] registered minidump region '%s'\n", interface_name, md_name);
 
 	/* Register platform_device region if the parent is a platform device */
@@ -133,7 +133,7 @@ void ethdbg_stmmac_register(struct ethdbg_interface *iface)
 
 		scnprintf(md_name, sizeof(md_name), "%s-dev", interface_name);
 		ret = ethdbg_minidump_add_region(md_name, (uintptr_t)pdev, sizeof(*pdev));
-		if (!ret)
+		if (ret >= 0)
 			pr_info("ethdbg: [%s] registered minidump region '%s'\n",
 				interface_name, md_name);
 	}
@@ -149,7 +149,7 @@ void ethdbg_stmmac_exit(void)
 	ethdbg_unregister_capture_ops(&ethdbg_stmmac_capture_ops);
 }
 
-void ethdbg_stmmac_unregister(struct ethdbg_interface *iface)
+void ethdbg_stmmac_dump_unregister(struct ethdbg_interface *iface)
 {
 	struct ethdbg_device *dev = iface->device;
 	const char *interface_name = iface->interface_name;

@@ -157,6 +157,7 @@ static void unregister_interface_phy(struct ethdbg_interface *iface)
 		return;
 
 	ethdbg_uio_del_phy(iface);
+	ethdbg_dump_unregister_phy(iface);
 	iface->device->phy_registered = false;
 }
 

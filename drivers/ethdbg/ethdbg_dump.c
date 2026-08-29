@@ -7,10 +7,29 @@
 #include <linux/slab.h>
 #include <linux/io.h>
 #include <linux/netdevice.h>
+#include <linux/of.h>
 #include <linux/phy.h>
 #include "ethdbg.h"
 #include "ethdbg_regs.h"
 #define REG_SIZE 4
+
+/*
+ * ethdbg_dev_is_stmmac - same compatibility check register_interface_device()
+ * uses to gate ethdbg_device creation; kept here too so the stmmac-specific
+ * dump APIs are only invoked for net_devices that went through that gate.
+ */
+static bool ethdbg_dev_is_stmmac(struct net_device *net_dev)
+{
+	struct device *parent_dev;
+
+	if (!net_dev)
+		return false;
+
+	parent_dev = net_dev->dev.parent;
+
+	return parent_dev && parent_dev->of_node &&
+	       of_device_is_compatible(parent_dev->of_node, "qcom,echo-ethqos");
+}
 
 /* Module param to enable capture_phy */
 static bool capture_phy_on_panic;
@@ -210,6 +229,7 @@ static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 	struct ethdbg_dump_data *dump_data = &dev->dump_data;
 	struct ethdbg_map *map;
 	const struct ethdbg_hw_desc *hw_desc;
+	struct ethdbg_hw_block *block;
 	int hw_block_idx = 0, ret;
 
 	list_for_each_entry(map, &dev->map_regions, list) {
@@ -219,8 +239,31 @@ static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 
 		ret = ethdbg_init_hw_block(&dump_data->blocks[hw_block_idx], map,
 					   hw_desc, interface_name);
-		if (ret == 0)
-			hw_block_idx++;
+		if (ret)
+			continue;
+
+		block = &dump_data->blocks[hw_block_idx];
+
+		/* msm_minidump_add_region() returns >= 0 on success (a pending-list
+		 * index while the driver is still probing); only ret < 0 is a failure.
+		 */
+		scnprintf(block->md_name, sizeof(block->md_name), "%s-reg%u", interface_name, map->index);
+		ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
+						 block->num_registers * sizeof(struct ethdbg_reg_entry));
+		if (ret >= 0) {
+			/* Also register the map as eth0-map<index>, to resolve
+			 * index to region name during postprocessing.
+			 */
+			scnprintf(block->md_map_name, sizeof(block->md_map_name), "%s-map%u", interface_name, map->index);
+			ret = ethdbg_minidump_add_region(block->md_map_name, (uintptr_t)block->map,
+							 sizeof(struct ethdbg_map));
+		}
+		block->minidump_registered = (ret >= 0);
+		if (ret < 0)
+			pr_warn("ethdbg: [%s][%s] minidump registration failed, ret=%d\n",
+				interface_name, map->name, ret);
+
+		hw_block_idx++;
 	}
 
 	return hw_block_idx;
@@ -232,7 +275,9 @@ int ethdbg_dump_register(struct ethdbg_interface *iface)
 	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data;
 	int block_count;
-	int ret;
+
+	if (ethdbg_dev_is_stmmac(dev->net_dev))
+		ethdbg_stmmac_dump_register(iface);
 
 	memset(&dev->dump_data, 0, sizeof(dev->dump_data));
 	dump_data = &dev->dump_data;
@@ -249,34 +294,47 @@ int ethdbg_dump_register(struct ethdbg_interface *iface)
 
 	dump_data->num_blocks = ethdbg_setup_dump_blocks(dev, interface_name);
 
-	ret = ethdbg_minidump_register(iface);
-	if (ret)
-		pr_warn("ethdbg: [%s] minidump registration incomplete, ret=%d\n",
-			interface_name, ret);
 	return 0;
 }
 
+/*
+ * ethdbg_dump_unregister - by the time this runs, dump_data->blocks never
+ * contains PHY blocks: unregister_interface() always tears those down via
+ * unregister_interface_phy()/ethdbg_dump_unregister_phy() first, and the
+ * error-unwind caller in register_interface_device() runs before PHY
+ * registration ever happens. So every block here is MMIO.
+ *
+ * block->map is still valid: it is only freed by free_map_regions(), which
+ * runs after this function returns (see unregister_interface()).
+ */
 void ethdbg_dump_unregister(struct ethdbg_interface *iface)
 {
 	struct ethdbg_device *dev = iface->device;
-	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data;
-	int ret;
 	int i;
 
 	dump_data = &dev->dump_data;
 	if (!dump_data->blocks)
 		return;
 
-	ret = ethdbg_minidump_unregister(iface);
-	if (ret)
-		pr_warn("ethdbg: [%s] minidump unregistration incomplete, ret=%d\n",
-			interface_name, ret);
+	if (ethdbg_dev_is_stmmac(dev->net_dev))
+		ethdbg_stmmac_dump_unregister(iface);
 
 	for (i = 0; i < dump_data->num_blocks; i++) {
-		if (!dump_data->blocks[i].is_phy)
-			iounmap(dump_data->blocks[i].base);
-		kfree(dump_data->blocks[i].reg_list);
+		struct ethdbg_hw_block *block = &dump_data->blocks[i];
+
+		if (block->minidump_registered) {
+			/* Remove the map descriptor first, then the register data */
+			ethdbg_minidump_remove_region(block->md_map_name, (uintptr_t)block->map,
+						      sizeof(struct ethdbg_map));
+
+			ethdbg_minidump_remove_region(block->md_name, (uintptr_t)block->reg_list,
+						      block->num_registers * sizeof(struct ethdbg_reg_entry));
+			block->minidump_registered = false;
+		}
+
+		iounmap(block->base);
+		kfree(block->reg_list);
 	}
 
 	kfree(dump_data->blocks);
@@ -391,6 +449,7 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data = &dev->dump_data;
 	const struct ethdbg_hw_desc *vendor_desc;
+	struct ethdbg_hw_block *block;
 	struct phy_device *phydev;
 	u32 phy_id;
 	int ret;
@@ -418,37 +477,108 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 				     common_desc);
 	if (ret)
 		return ret;
-	dump_data->num_blocks++;
+	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks + 1);
+
+	block = &dump_data->blocks[dump_data->num_blocks - 1];
+	scnprintf(block->md_name, sizeof(block->md_name), "%s-phyreg%u", interface_name, 0);
+	ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
+					 block->num_registers * sizeof(struct ethdbg_reg_entry));
+	block->minidump_registered = (ret >= 0);
+	if (ret < 0)
+		pr_warn("ethdbg: [%s] minidump registration failed for PHY common block, ret=%d\n",
+			interface_name, ret);
 
 	ret = ethdbg_alloc_phy_block(&dump_data->blocks[dump_data->num_blocks],
 				     vendor_desc);
 	if (ret) {
 		kfree(dump_data->blocks[dump_data->num_blocks - 1].reg_list);
 		dump_data->blocks[dump_data->num_blocks - 1].reg_list = NULL;
-		dump_data->num_blocks--;
+		smp_store_release(&dump_data->num_blocks, dump_data->num_blocks - 1);
 		return ret;
 	}
-	dump_data->num_blocks++;
+	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks + 1);
 
-	ret = ethdbg_minidump_register(iface);
-	if (ret)
-		pr_warn("ethdbg: [%s] minidump registration incomplete, ret=%d\n",
+	block = &dump_data->blocks[dump_data->num_blocks - 1];
+	scnprintf(block->md_name, sizeof(block->md_name), "%s-phyreg%u", interface_name, 1);
+	ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
+					 block->num_registers * sizeof(struct ethdbg_reg_entry));
+	block->minidump_registered = (ret >= 0);
+	if (ret < 0)
+		pr_warn("ethdbg: [%s] minidump registration failed for PHY vendor block, ret=%d\n",
 			interface_name, ret);
+
 	return 0;
+}
+
+/*
+ * ethdbg_dump_unregister_phy - tear down the PHY dump blocks on NETDEV_DOWN
+ * so they can be safely re-allocated with fresh values on the next
+ * NETDEV_UP, instead of freezing the captured PHY set at first link-up.
+ *
+ * PHY blocks are always allocated as an all-or-nothing pair (common +
+ * vendor), always appended after every MMIO block, so whenever they exist
+ * they are unconditionally the last two entries in dump_data->blocks[].
+ * Each block's minidump region name was captured in md_name at registration
+ * time, so unregistration always removes the exact region that was added.
+ *
+ * num_blocks is shrunk (published via smp_store_release) before either
+ * reg_list is freed, so a concurrent panic notifier reading it via
+ * smp_load_acquire() (see ethdbg_dump_device_phy()) can never observe a
+ * bound that still includes an already-freed slot.
+ */
+void ethdbg_dump_unregister_phy(struct ethdbg_interface *iface)
+{
+	struct ethdbg_device *dev = iface->device;
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	struct ethdbg_hw_block *vendor, *common;
+
+	if (dump_data->num_blocks < 2 ||
+	    !dump_data->blocks[dump_data->num_blocks - 1].is_phy)
+		return;
+
+	vendor = &dump_data->blocks[dump_data->num_blocks - 1];
+	common = &dump_data->blocks[dump_data->num_blocks - 2];
+
+	if (vendor->minidump_registered) {
+		ethdbg_minidump_remove_region(vendor->md_name, (uintptr_t)vendor->reg_list,
+					      vendor->num_registers * sizeof(struct ethdbg_reg_entry));
+		vendor->minidump_registered = false;
+	}
+	if (common->minidump_registered) {
+		ethdbg_minidump_remove_region(common->md_name, (uintptr_t)common->reg_list,
+					      common->num_registers * sizeof(struct ethdbg_reg_entry));
+		common->minidump_registered = false;
+	}
+
+	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks - 2);
+
+	kfree(vendor->reg_list);
+	vendor->reg_list = NULL;
+	kfree(common->reg_list);
+	common->reg_list = NULL;
 }
 
 void ethdbg_dump_device_phy(struct ethdbg_device *dev)
 {
-	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	struct ethdbg_dump_data *dump_data;
 	struct phy_device *phydev;
+	unsigned int num_blocks;
 	unsigned int i;
 
 	if (!dev->net_dev || !dev->net_dev->phydev)
 		return;
 
+	dump_data = &dev->dump_data;
 	phydev = dev->net_dev->phydev;
 
-	for (i = 0; i < dump_data->num_blocks; i++) {
+	/*
+	 * Acquire-load: pairs with the smp_store_release() in
+	 * ethdbg_dump_unregister_phy()/ethdbg_dump_register_phy() so this
+	 * never iterates into a slot whose reg_list has since been freed.
+	 */
+	num_blocks = smp_load_acquire(&dump_data->num_blocks);
+
+	for (i = 0; i < num_blocks; i++) {
 		struct ethdbg_hw_block *block = &dump_data->blocks[i];
 
 		if (!block->is_phy || !block->reg_list)
