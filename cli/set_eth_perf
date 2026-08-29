@@ -50,6 +50,13 @@ disable_pcf() {
 	fi
 }
 
+# Configure RSS indirection evenly across RX queues 1-4
+set_rss() {
+	local interface="$1"
+
+	ethtool -X "$interface" equal 4 start 1
+}
+
 # Map all traffic to TX queues 0-4 via mqprio
 set_mqprio() {
 	local interface="$1"
@@ -66,6 +73,7 @@ if [ /sys/class/net/"$1"/device/driver -ef /sys/bus/platform/drivers/qcom-ethqos
 	# Validate the interface value
 	if [ "$1" = "eth0" ] || [ "$1" = "eth1" ] || [ "$1" = "eth2" ]; then
 		set_mqprio "$1"
+		set_rss "$1"
 		disable_pcf "$1"
 		set_rps_cpus "$1"
 		set_napi_threaded "$1"
