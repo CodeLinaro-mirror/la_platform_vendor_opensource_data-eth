@@ -4032,15 +4032,20 @@ static int tc956x_pcie_suspend(struct device *dev)
 	/* Set flag to avoid queuing any more work */
 	priv->tc956x_port_pm_suspend = true;
 
+	/* Lock is held only for the state that is genuinely shared between
+	 * Port0 and Port1 (usage counter and common TAMAP capture). Per-port
+	 * teardown below (tc956xmac_suspend()/tc956x_platform_suspend()/etc.)
+	 * runs without this lock held, so it cannot block the sibling port's
+	 * suspend callback, which otherwise leads to both ports timing out
+	 * on the PM core's DPM device timeout and a subsequent panic.
+	 */
 	mutex_lock(&tc956x_pm_suspend_lock);
 
 	/* Decrement device usage counter */
 	tx956x_pci_shrd_mem[priv->pci_bd].pci_dev_active_cnt--;
 	DBGPR_FUNC(&(pdev->dev), "%s : (Number of Ports Left to Suspend = [%d])\n", __func__, tx956x_pci_shrd_mem[priv->pci_bd].pci_dev_active_cnt);
 
-	/* Call tc956xmac_suspend() */
 #ifdef TC956X_SRIOV_PF
-	tc956xmac_suspend(&pdev->dev);
 #ifdef TC956X_DMA_OFFLOAD_ENABLE
 	if (tx956x_pci_shrd_mem[priv->pci_bd].pci_dev_active_cnt == TC956X_ALL_MAC_PORT_SUSPENDED) {
 		DBGPR_FUNC(&(pdev->dev), "%s : Port %d %s - Tamap Configuration", __func__, priv->port_num, priv->dev->name);
@@ -4067,6 +4072,15 @@ static int tc956x_pcie_suspend(struct device *dev)
 		}
 	}
 #endif
+#endif
+
+	mutex_unlock(&tc956x_pm_suspend_lock);
+
+	/* Call tc956xmac_suspend() : per-port teardown, run without the
+	 * shared lock held.
+	 */
+#ifdef TC956X_SRIOV_PF
+	tc956xmac_suspend(&pdev->dev);
 #elif defined TC956X_SRIOV_VF
 	tc956xmac_vf_suspend(&pdev->dev);
 #endif
@@ -4088,7 +4102,14 @@ static int tc956x_pcie_suspend(struct device *dev)
 	}
 #endif
 #endif
+
+	/* Only tc956x_pcie_pm_pci() below touches PCI state of sibling ports
+	 * on the shared upstream bridge, so it is the only remaining part
+	 * that needs the shared lock.
+	 */
+	mutex_lock(&tc956x_pm_suspend_lock);
 	ret = tc956x_pcie_pm_pci(pdev, SUSPEND);
+	mutex_unlock(&tc956x_pm_suspend_lock);
 	if (ret < 0)
 		goto err;
 #ifdef TC956X_SRIOV_PF
@@ -4101,7 +4122,6 @@ static int tc956x_pcie_suspend(struct device *dev)
 #endif /* #ifdef TC956X_MAGIC_PACKET_WOL_CONF */
 #endif
 err:
-	mutex_unlock(&tc956x_pm_suspend_lock);
 	DBGPR_FUNC(&(pdev->dev), "<--%s\n", __func__);
 	return ret;
 }
@@ -4342,25 +4362,18 @@ static int tc956x_pcie_resume(struct device *dev)
 		return -1;
 	}
 #endif
-	mutex_lock(&tc956x_pm_suspend_lock);
-
 #ifndef TC956X_SRIOV_VF
+	/* Lock is held only for the state that is genuinely shared between
+	 * Port0 and Port1 (PCI enable of this device, and the Gen3-speed /
+	 * TAMAP restore which are gated on all ports being suspended). The
+	 * per-port resume work below (tc956xmac_resume()/platform_resume()/
+	 * etc.) runs without this lock held, so it cannot block the sibling
+	 * port's resume callback.
+	 */
+	mutex_lock(&tc956x_pm_suspend_lock);
 	ret = tc956x_pcie_pm_enable_pci(pdev);
-	if (ret < 0)
-		goto err;
-
-	tc956xmac_pm_set_power(priv, RESUME);
-
-	/* Restore the GPIO settings which was saved during GPIO configuration */
-	ret = tc956x_gpio_restore_configuration(priv);
-	if (ret < 0)
-		KPRINT_INFO("GPIO configuration restoration failed\n");
-
-	DBGPR_FUNC(&(pdev->dev), "%s : Port %d %s - Platform Resume", __func__, priv->port_num, priv->dev->name);
-	ret = tc956x_platform_resume(priv);
-	if (ret) {
-		NMSGPR_ERR(&(pdev->dev), "%s: error in calling tc956x_platform_resume", pci_name(pdev));
-		pci_disable_device(pdev);
+	if (ret < 0) {
+		mutex_unlock(&tc956x_pm_suspend_lock);
 		goto err;
 	}
 
@@ -4385,8 +4398,6 @@ static int tc956x_pcie_resume(struct device *dev)
 			tc956x_set_pci_speed(pdev, pcie_link_speed);
 	}
 #endif
-#endif
-#ifndef TC956X_SRIOV_VF
 	/* Configure TA map registers */
 
 	if (tx956x_pci_shrd_mem[priv->pci_bd].pci_dev_active_cnt == TC956X_ALL_MAC_PORT_SUSPENDED) {
@@ -4401,6 +4412,23 @@ static int tc956x_pcie_resume(struct device *dev)
 
 #endif
 	}
+	mutex_unlock(&tc956x_pm_suspend_lock);
+
+	/* Per-port resume work, run without the shared lock held. */
+	tc956xmac_pm_set_power(priv, RESUME);
+
+	/* Restore the GPIO settings which was saved during GPIO configuration */
+	ret = tc956x_gpio_restore_configuration(priv);
+	if (ret < 0)
+		KPRINT_INFO("GPIO configuration restoration failed\n");
+
+	DBGPR_FUNC(&(pdev->dev), "%s : Port %d %s - Platform Resume", __func__, priv->port_num, priv->dev->name);
+	ret = tc956x_platform_resume(priv);
+	if (ret) {
+		NMSGPR_ERR(&(pdev->dev), "%s: error in calling tc956x_platform_resume", pci_name(pdev));
+		pci_disable_device(pdev);
+		goto err;
+	}
 
 #ifdef TC956X
 	/* Configure EMAC Port */
@@ -4408,7 +4436,9 @@ static int tc956x_pcie_resume(struct device *dev)
 #endif
 #endif
 
-	/* Call tc956xmac_resume() */
+	/* Call tc956xmac_resume() : per-port bring-up, run without the
+	 * shared lock held.
+	 */
 #ifdef TC956X_SRIOV_PF
 	tc956xmac_resume(&pdev->dev);
 	if ((priv->port_num == RM_PF1_ID) && ((priv->port_interface == ENABLE_RGMII_INTERFACE) || (priv->port_interface == ENABLE_RGMII_ID_INTERFACE))) {
@@ -4420,9 +4450,11 @@ static int tc956x_pcie_resume(struct device *dev)
 #endif
 
 #ifndef TC956X_SRIOV_VF
-	/* Increment device usage counter */
+	/* Increment device usage counter : shared state, briefly locked */
+	mutex_lock(&tc956x_pm_suspend_lock);
 	tx956x_pci_shrd_mem[priv->pci_bd].pci_dev_active_cnt++;
 	DBGPR_FUNC(&(pdev->dev), "%s : (Number of Ports Resumed = [%d])\n", __func__, tx956x_pci_shrd_mem[priv->pci_bd].pci_dev_active_cnt);
+	mutex_unlock(&tc956x_pm_suspend_lock);
 
 	priv->tc956x_port_pm_suspend = false;
 
@@ -4477,7 +4509,6 @@ err_resume_logstat:
 #ifndef TC956X_SRIOV_VF
 err:
 #endif
-	mutex_unlock(&tc956x_pm_suspend_lock);
 	DBGPR_FUNC(&(pdev->dev), "<--%s\n", __func__);
 
 	return ret;
