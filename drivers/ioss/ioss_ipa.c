@@ -691,9 +691,12 @@ void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
 			atomic_set(&ch->ipa_tx_outstanding_pkts, 0);
 	}
 
-	ndev->hw_features     = saved_state->hw_features;
-	ndev->wanted_features = saved_state->wanted_features;
-	ndev->features        = saved_state->features;
+	ndev->hw_features     = (saved_state->hw_features & ~IOSS_IPA_RETAIN_FLAGS) |
+				(ndev->hw_features & IOSS_IPA_RETAIN_FLAGS);
+	ndev->wanted_features = (saved_state->wanted_features & ~IOSS_IPA_RETAIN_FLAGS) |
+				(ndev->wanted_features & IOSS_IPA_RETAIN_FLAGS);
+	ndev->features        = (saved_state->features & ~IOSS_IPA_RETAIN_FLAGS) |
+				(ndev->features & IOSS_IPA_RETAIN_FLAGS);
 	WRITE_ONCE(ndev->gso_max_size, saved_state->gso_max_size);
 	WRITE_ONCE(ndev->gso_ipv4_max_size, saved_state->gso_ipv4_max_size);
 	ndev->needed_headroom -= ipa_config->offload_headroom;
