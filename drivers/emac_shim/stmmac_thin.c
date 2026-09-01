@@ -817,6 +817,13 @@ static void stmmac_stop_dma(struct stmmac_priv *priv)
 	stmmac_stop_tx_dma(priv, priv->queue);
 }
 
+static int stmmac_reset_dma_chan(struct stmmac_priv *priv)
+{
+	/* Thin driver owns one DMA channel; hide the repeated channel args. */
+	return stmmac_reset_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
+				 priv->queue);
+}
+
 /**
  *  stmmac_dma_operation_mode - HW DMA operation mode
  *  @priv: driver private structure
@@ -1096,10 +1103,18 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 	struct stmmac_rx_queue *rx_q = &priv->rx_queue;
 	struct stmmac_tx_queue *tx_q = &priv->tx_queue;
 	u32 chan = priv->queue;
+	int ret;
 
 	if (!priv->plat->dma_cfg || !priv->plat->dma_cfg->pbl) {
 		dev_err(priv->device, "Invalid DMA configuration\n");
 		return -EINVAL;
+	}
+
+	/* Stop TX/RX DMA and clear stale pointers before programming a new ring. */
+	ret = stmmac_reset_dma_chan(priv);
+	if (ret) {
+		dev_err(priv->device, "Failed to reset DMA channel %u\n", chan);
+		return ret;
 	}
 
 	/* DMA CSR Channel configuration */
@@ -1310,37 +1325,42 @@ static int stmmac_release(struct net_device *dev)
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 ch = priv->queue;
 	int filter_del;
+	int ret;
 
 	dev_info(priv->device, "%s: Enter, emac_state = %u\n",
 				__func__, priv->emac_state);
 	priv->dev_inited = false;
 	priv->dev_opened = false;
 
-	if (!priv->is_gy_en && priv->del_mc_broadcast_filter){
-	filter_del = priv->del_mc_broadcast_filter();
-	if(filter_del)
-		pr_info("qcom-ethqos-thin: Filter delete unsuccessful");
-	else
-		pr_info("qcom-ethqos-thin: Filter delete successful");
+	if (!priv->is_gy_en && priv->del_mc_broadcast_filter) {
+		filter_del = priv->del_mc_broadcast_filter();
+		if (filter_del)
+			pr_info("qcom-ethqos-thin: Filter delete unsuccessful");
+		else
+			pr_info("qcom-ethqos-thin: Filter delete successful");
 	}
 
 	if (priv->emac_state > EMAC_INIT_ST) {
-	stmmac_stop_queue(priv);
+		stmmac_stop_queue(priv);
 
-	stmmac_disable_queue(priv);
+		stmmac_disable_queue(priv);
 
-	if (!priv->tx_coal_timer_disable)
-		del_timer_sync(&priv->tx_queue.txtimer);
+		if (!priv->tx_coal_timer_disable)
+			del_timer_sync(&priv->tx_queue.txtimer);
 
-	/* Free the IRQ line */
-	free_irq(priv->rx_irq[ch], dev);
-	free_irq(priv->tx_irq[ch], dev);
+		/* Free the IRQ line */
+		free_irq(priv->rx_irq[ch], dev);
+		free_irq(priv->tx_irq[ch], dev);
 
-	/* Stop TX/RX DMA and clear the descriptors */
-	stmmac_stop_dma(priv);
+		/* Stop TX/RX DMA and clear stale pointers before freeing the rings. */
+		ret = stmmac_reset_dma_chan(priv);
+		if (ret)
+			netdev_err(priv->dev,
+				   "%s: DMA channel reset failed: %d, continuing teardown\n",
+				   __func__, ret);
 
-	/* Release and free the Rx/Tx resources */
-	free_dma_desc_resources(priv);
+		/* Release and free the Rx/Tx resources */
+		free_dma_desc_resources(priv);
 	}
 
 	if(priv->is_gy_en && priv->clks_config)
@@ -2903,6 +2923,7 @@ int stmmac_thin_suspend(struct device *dev)
 {
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
+	int ret;
 
 	if (!ndev || !netif_running(ndev))
 		return 0;
@@ -2913,17 +2934,21 @@ int stmmac_thin_suspend(struct device *dev)
 	netif_device_detach(ndev);
 
 	if (priv->emac_state > EMAC_INIT_ST) {
-	stmmac_stop_queue(priv);
+		stmmac_stop_queue(priv);
 
-	stmmac_disable_queue(priv);
+		stmmac_disable_queue(priv);
 
-	del_timer_sync(&priv->tx_queue.txtimer);
+		del_timer_sync(&priv->tx_queue.txtimer);
 
-	/* Stop TX/RX DMA */
-	stmmac_stop_dma(priv);
-	free_dma_desc_resources(priv);
+		/* Stop TX/RX DMA and clear stale pointers before freeing the rings. */
+		ret = stmmac_reset_dma_chan(priv);
+		if (ret)
+			netdev_err(priv->dev,
+				   "%s: DMA channel reset failed: %d, continuing teardown\n",
+				   __func__, ret);
+		free_dma_desc_resources(priv);
 
-	netif_carrier_off(ndev);
+		netif_carrier_off(ndev);
 	}
 
 	mutex_unlock(&priv->lock);
