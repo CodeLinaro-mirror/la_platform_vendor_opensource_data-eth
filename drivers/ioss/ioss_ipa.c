@@ -40,7 +40,9 @@ MODULE_PARM_DESC(disable_ipa_tx, "Disable IPA OFFLOAD TX feature globally");
 	((ipa_dir == IPA_ETH_PIPE_DIR_TX) ? IOSS_CH_DIR_TX : IOSS_CH_DIR_RX)
 
 #define IOSS_IPA_RETAIN_FLAGS \
-	(NETIF_F_HW_VLAN_CTAG_FILTER | NETIF_F_HW_VLAN_STAG_FILTER)
+	(NETIF_F_HW_VLAN_CTAG_FILTER | \
+	 NETIF_F_HW_VLAN_STAG_FILTER | \
+	 NETIF_F_GRO_UDP_FWD)
 
 static enum ipa_eth_pipe_traffic_type to_ipa_traffic_type(enum ioss_traffic_type ioss_type)
 {
