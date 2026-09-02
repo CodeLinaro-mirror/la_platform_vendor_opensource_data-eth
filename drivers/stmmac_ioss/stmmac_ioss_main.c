@@ -245,6 +245,7 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 	stmmac_ch->ch_num = ch->channel_num;
 	stmmac_ch->ring_size = ch->config.ring_size;
 	stmmac_ch->buff_size = ch->config.buff_size;
+	ch->config.desc_size = STMMAC_IOSS_DESC_SIZE;
 
 	rc = stmmac_ioss_alloc_channel_memory(ch, stmmac_ch, STMMAC_IOSS_DESC_SIZE);
 	if (rc)
