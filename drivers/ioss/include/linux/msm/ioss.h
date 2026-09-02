@@ -420,6 +420,10 @@ struct ioss_device {
 		u64 apps_resume;
 		u64 system_suspend;
 		u64 system_resume;
+		u64 runtime_suspend;
+		u64 runtime_resume;
+		u64 nop_runtime_suspend;
+		u64 nop_runtime_resume;
 	} pm_stats;
 
 	u32 rx_api_managed_mask;

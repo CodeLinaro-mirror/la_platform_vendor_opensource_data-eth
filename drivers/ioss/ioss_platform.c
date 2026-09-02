@@ -249,9 +249,20 @@ static int ioss_plat_resume_handler(struct device *dev)
 			ioss_plat_real_resume(dev);
 }
 
-static int ioss_plat_runtime_suspend_handler(struct device *dev)
+static int ioss_plat_nop_runtime_suspend(struct ioss_device *idev)
 {
+	idev->pm_stats.nop_runtime_suspend++;
+
+	return 0;
+}
+
+static int ioss_plat_real_runtime_suspend(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
 	const struct dev_pm_ops *real_pm_ops = __real_pm_ops(dev);
+
+	if (idev)
+		idev->pm_stats.runtime_suspend++;
 
 	if (real_pm_ops && real_pm_ops->runtime_suspend)
 		return real_pm_ops->runtime_suspend(dev);
@@ -259,9 +270,20 @@ static int ioss_plat_runtime_suspend_handler(struct device *dev)
 	return 0;
 }
 
-static int ioss_plat_runtime_resume_handler(struct device *dev)
+static int ioss_plat_nop_runtime_resume(struct ioss_device *idev)
 {
+	idev->pm_stats.nop_runtime_resume++;
+
+	return 0;
+}
+
+static int ioss_plat_real_runtime_resume(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
 	const struct dev_pm_ops *real_pm_ops = __real_pm_ops(dev);
+
+	if (idev)
+		idev->pm_stats.runtime_resume++;
 
 	if (real_pm_ops && real_pm_ops->runtime_resume)
 		return real_pm_ops->runtime_resume(dev);
@@ -269,7 +291,12 @@ static int ioss_plat_runtime_resume_handler(struct device *dev)
 	return 0;
 }
 
-static int ioss_plat_runtime_idle_handler(struct device *dev)
+static int ioss_plat_nop_runtime_idle(struct ioss_device *idev)
+{
+	return 0;
+}
+
+static int ioss_plat_real_runtime_idle(struct device *dev)
 {
 	const struct dev_pm_ops *real_pm_ops = __real_pm_ops(dev);
 
@@ -277,6 +304,33 @@ static int ioss_plat_runtime_idle_handler(struct device *dev)
 		return real_pm_ops->runtime_idle(dev);
 
 	return 0;
+}
+
+static int ioss_plat_runtime_suspend_handler(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+
+	return (idev && idev->interface.state == IOSS_IF_ST_ONLINE)?
+			ioss_plat_nop_runtime_suspend(idev):
+			ioss_plat_real_runtime_suspend(dev);
+}
+
+static int ioss_plat_runtime_resume_handler(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+
+	return (idev && idev->interface.state == IOSS_IF_ST_ONLINE)?
+			ioss_plat_nop_runtime_resume(idev):
+			ioss_plat_real_runtime_resume(dev);
+}
+
+static int ioss_plat_runtime_idle_handler(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+
+	return (idev && idev->interface.state == IOSS_IF_ST_ONLINE)?
+			ioss_plat_nop_runtime_idle(idev):
+			ioss_plat_real_runtime_idle(dev);
 }
 
 static const struct dev_pm_ops __ioss_plat_pm_ops = {
