@@ -398,6 +398,9 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 	if (ch->config.buff_alctr == &ioss_tcm_buf_alctr)
 		ch->tcm_buff_bytes = ch->config.ring_size * ch->config.buff_size;
 
+	if (ch->config.desc_alctr == &ioss_tcm_desc_alctr)
+		ch->tcm_desc_bytes = ch->config.desc_size * ch->config.ring_size;
+
 	ioss_dev_log(idev, "Allocated channel %d for interface %s",
 			ch->id, idev->net_dev->name);
 
@@ -435,6 +438,7 @@ static int __ioss_net_free_channel(struct ioss_channel *ch)
 
 	/* Clear per-channel TCM (LLCC) usage */
 	ch->tcm_buff_bytes = 0;
+	ch->tcm_desc_bytes = 0;
 
 	ioss_dev_log(idev,
 		"Released channel %d on interface %s", id, idev->net_dev->name);

@@ -294,6 +294,7 @@ struct ioss_mem_allocator {
 struct ioss_channel_config {
 	u32 ring_size;
 	u32 buff_size;
+	u32 desc_size;
 
 	struct ioss_mem_allocator *desc_alctr;
 	struct ioss_mem_allocator *buff_alctr;
