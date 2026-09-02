@@ -5,9 +5,9 @@
  * ethdbg_stmmac.c - Minidump registration for stmmac driver structures.
  *
  * Captures:
- *   - struct net_device          region: <ifname>-ndev
- *   - struct stmmac_priv         region: <ifname>-priv
- *   - struct platform_device     region: <ifname>-dev
+ *   - struct net_device          region: <ifname>_ndev
+ *   - struct stmmac_priv         region: <ifname>_priv
+ *   - struct platform_device     region: <ifname>_dev
  *
  * Also provides indirect register read helpers for QoS VLAN and L3/L4
  * filters, which require stmmac-private register definitions.
@@ -49,7 +49,7 @@ static void ethdbg_stmmac_capture_rx_queue(struct net_device *ndev,
 	if (!vaddr || !size)
 		return;
 
-	scnprintf(owner, sizeof(owner), "%s-rx%u", ifname, q);
+	scnprintf(owner, sizeof(owner), "%s_rx%u", ifname, q);
 
 	ret = ethdbg_va_md_add_region(owner, vaddr, size);
 	if (ret)
@@ -86,7 +86,7 @@ static void ethdbg_stmmac_capture_tx_queue(struct net_device *ndev,
 	if (!vaddr || !size)
 		return;
 
-	scnprintf(owner, sizeof(owner), "%s-tx%u", ifname, q);
+	scnprintf(owner, sizeof(owner), "%s_tx%u", ifname, q);
 
 	ret = ethdbg_va_md_add_region(owner, vaddr, size);
 	if (ret)
@@ -114,14 +114,14 @@ void ethdbg_stmmac_dump_register(struct ethdbg_interface *iface)
 	net_dev = dev->net_dev;
 
 	/* Register net_device region */
-	scnprintf(md_name, sizeof(md_name), "%s-ndev", interface_name);
+	scnprintf(md_name, sizeof(md_name), "%s_ndev", interface_name);
 	ret = ethdbg_minidump_add_region(md_name, (uintptr_t)net_dev, sizeof(*net_dev));
 	if (ret >= 0)
 		pr_info("ethdbg: [%s] registered minidump region '%s'\n", interface_name, md_name);
 
 	/* Register stmmac_priv region */
 	priv = netdev_priv(net_dev);
-	scnprintf(md_name, sizeof(md_name), "%s-priv", interface_name);
+	scnprintf(md_name, sizeof(md_name), "%s_priv", interface_name);
 	ret = ethdbg_minidump_add_region(md_name, (uintptr_t)priv, sizeof(*priv));
 	if (ret >= 0)
 		pr_info("ethdbg: [%s] registered minidump region '%s'\n", interface_name, md_name);
@@ -131,7 +131,7 @@ void ethdbg_stmmac_dump_register(struct ethdbg_interface *iface)
 	if (parent_dev && dev_is_platform(parent_dev)) {
 		struct platform_device *pdev = to_platform_device(parent_dev);
 
-		scnprintf(md_name, sizeof(md_name), "%s-dev", interface_name);
+		scnprintf(md_name, sizeof(md_name), "%s_dev", interface_name);
 		ret = ethdbg_minidump_add_region(md_name, (uintptr_t)pdev, sizeof(*pdev));
 		if (ret >= 0)
 			pr_info("ethdbg: [%s] registered minidump region '%s'\n",
@@ -169,7 +169,7 @@ void ethdbg_stmmac_dump_unregister(struct ethdbg_interface *iface)
 	if (parent_dev && dev_is_platform(parent_dev)) {
 		struct platform_device *pdev = to_platform_device(parent_dev);
 
-		scnprintf(md_name, sizeof(md_name), "%s-dev", interface_name);
+		scnprintf(md_name, sizeof(md_name), "%s_dev", interface_name);
 		ret = ethdbg_minidump_remove_region(md_name, (uintptr_t)pdev, sizeof(*pdev));
 		if (!ret)
 			pr_info("ethdbg: [%s] unregistered minidump region '%s'\n",
@@ -178,14 +178,14 @@ void ethdbg_stmmac_dump_unregister(struct ethdbg_interface *iface)
 
 	/* Unregister stmmac_priv region */
 	priv = netdev_priv(net_dev);
-	scnprintf(md_name, sizeof(md_name), "%s-priv", interface_name);
+	scnprintf(md_name, sizeof(md_name), "%s_priv", interface_name);
 	ret = ethdbg_minidump_remove_region(md_name, (uintptr_t)priv, sizeof(*priv));
 	if (!ret)
 		pr_info("ethdbg: [%s] unregistered minidump region '%s'\n",
 			interface_name, md_name);
 
 	/* Unregister net_device region */
-	scnprintf(md_name, sizeof(md_name), "%s-ndev", interface_name);
+	scnprintf(md_name, sizeof(md_name), "%s_ndev", interface_name);
 	ret = ethdbg_minidump_remove_region(md_name, (uintptr_t)net_dev, sizeof(*net_dev));
 	if (!ret)
 		pr_info("ethdbg: [%s] unregistered minidump region '%s'\n",

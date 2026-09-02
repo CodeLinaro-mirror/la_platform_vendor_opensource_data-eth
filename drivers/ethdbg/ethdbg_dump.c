@@ -247,14 +247,14 @@ static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 		/* msm_minidump_add_region() returns >= 0 on success (a pending-list
 		 * index while the driver is still probing); only ret < 0 is a failure.
 		 */
-		scnprintf(block->md_name, sizeof(block->md_name), "%s-reg%u", interface_name, map->index);
+		scnprintf(block->md_name, sizeof(block->md_name), "%s_reg%u", interface_name, map->index);
 		ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
 						 block->num_registers * sizeof(struct ethdbg_reg_entry));
 		if (ret >= 0) {
-			/* Also register the map as eth0-map<index>, to resolve
+			/* Also register the map as eth0_map<index>, to resolve
 			 * index to region name during postprocessing.
 			 */
-			scnprintf(block->md_map_name, sizeof(block->md_map_name), "%s-map%u", interface_name, map->index);
+			scnprintf(block->md_map_name, sizeof(block->md_map_name), "%s_map%u", interface_name, map->index);
 			ret = ethdbg_minidump_add_region(block->md_map_name, (uintptr_t)block->map,
 							 sizeof(struct ethdbg_map));
 		}
@@ -480,7 +480,7 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks + 1);
 
 	block = &dump_data->blocks[dump_data->num_blocks - 1];
-	scnprintf(block->md_name, sizeof(block->md_name), "%s-phyreg%u", interface_name, 0);
+	scnprintf(block->md_name, sizeof(block->md_name), "%s_phyreg%u", interface_name, 0);
 	ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
 					 block->num_registers * sizeof(struct ethdbg_reg_entry));
 	block->minidump_registered = (ret >= 0);
@@ -499,7 +499,7 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks + 1);
 
 	block = &dump_data->blocks[dump_data->num_blocks - 1];
-	scnprintf(block->md_name, sizeof(block->md_name), "%s-phyreg%u", interface_name, 1);
+	scnprintf(block->md_name, sizeof(block->md_name), "%s_phyreg%u", interface_name, 1);
 	ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
 					 block->num_registers * sizeof(struct ethdbg_reg_entry));
 	block->minidump_registered = (ret >= 0);

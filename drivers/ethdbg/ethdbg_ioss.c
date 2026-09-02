@@ -46,7 +46,7 @@ static void ethdbg_ioss_capture_rx_queue(struct net_device *ndev,
 	if (!vaddr || !size)
 		return;
 
-	scnprintf(owner, sizeof(owner), "%s-rx%u", ifname, q);
+	scnprintf(owner, sizeof(owner), "%s_rx%u", ifname, q);
 
 	ret = ethdbg_va_md_add_region(owner, vaddr, size);
 	if (ret)
@@ -87,7 +87,7 @@ static void ethdbg_ioss_capture_tx_queue(struct net_device *ndev,
 	if (!vaddr || !size)
 		return;
 
-	scnprintf(owner, sizeof(owner), "%s-tx%u", ifname, q);
+	scnprintf(owner, sizeof(owner), "%s_tx%u", ifname, q);
 
 	ret = ethdbg_va_md_add_region(owner, vaddr, size);
 	if (ret)
