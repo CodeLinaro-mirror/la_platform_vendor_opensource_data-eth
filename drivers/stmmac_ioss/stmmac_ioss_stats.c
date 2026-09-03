@@ -174,6 +174,9 @@ int stmmac_ioss_channel_status(struct ioss_channel *ch, struct ioss_channel_stat
 
 	update_ethtool_stats(idev);
 
+	status->interrupt_modc = ch->event.mod_count_max;
+	status->interrupt_modt = (u64)ch->event.mod_usecs_max * 1000ULL;
+
 	if (ch->direction == IOSS_CH_DIR_RX) {
 		snprintf(stat_name, sizeof(stat_name), "rx_desc_laddr[%d]", ch->id);
 		status->head_ptr = get_stats_data(stat_name, stmmac_dev->stats_data,
