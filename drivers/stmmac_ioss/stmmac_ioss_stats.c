@@ -175,19 +175,19 @@ int stmmac_ioss_channel_status(struct ioss_channel *ch, struct ioss_channel_stat
 	update_ethtool_stats(idev);
 
 	if (ch->direction == IOSS_CH_DIR_RX) {
-		snprintf(stat_name, sizeof(stat_name), "rx_desc_curr_laddr[%d]", ch->id);
+		snprintf(stat_name, sizeof(stat_name), "rx_desc_laddr[%d]", ch->id);
 		status->head_ptr = get_stats_data(stat_name, stmmac_dev->stats_data,
 						  stmmac_dev->stats_strings, stmmac_dev->stats_count);
 
-		snprintf(stat_name, sizeof(stat_name), "rx_desc_tail[%d]", ch->id);
+		snprintf(stat_name, sizeof(stat_name), "rx_desc_tail_lptr[%d]", ch->id);
 		status->tail_ptr = get_stats_data(stat_name, stmmac_dev->stats_data,
 						  stmmac_dev->stats_strings, stmmac_dev->stats_count);
 	} else {
-		snprintf(stat_name, sizeof(stat_name), "tx_desc_curr_laddr[%d]", ch->id);
+		snprintf(stat_name, sizeof(stat_name), "tx_desc_laddr[%d]", ch->id);
 		status->head_ptr = get_stats_data(stat_name, stmmac_dev->stats_data,
 						  stmmac_dev->stats_strings, stmmac_dev->stats_count);
 
-		snprintf(stat_name, sizeof(stat_name), "tx_desc_tail[%d]", ch->id);
+		snprintf(stat_name, sizeof(stat_name), "tx_desc_tail_lptr[%d]", ch->id);
 		status->tail_ptr = get_stats_data(stat_name, stmmac_dev->stats_data,
 						  stmmac_dev->stats_strings, stmmac_dev->stats_count);
 	}
