@@ -380,6 +380,10 @@ struct ioss_channel {
 	atomic_t ipa_tx_wm_fc_active;
 	atomic_t ipa_tx_nospace_sync;
 
+	/* TCM (LLCC) usage tracking */
+	u32 tcm_desc_bytes;
+	u32 tcm_buff_bytes;
+
 	void *ioss_priv;
 	int multi_rx_queues;
 
