@@ -116,7 +116,6 @@ int ioss_net_link_device(struct ioss_device *idev);
 void ioss_net_apply_channel_config(struct ioss_channel *ch);
 void ioss_net_xps_set_cpu_mask(struct ioss_interface *iface,
 			       const struct cpumask *cpu_mask, u16 txq);
-void ioss_net_xps_set_rxq_mask(struct ioss_interface *iface, unsigned long rxq_mask, u16 txq);
 void ioss_net_xps_reset(struct ioss_interface *iface);
 
 #if IS_ENABLED(CONFIG_IPC_LOGGING)
