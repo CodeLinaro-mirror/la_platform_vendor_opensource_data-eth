@@ -57,14 +57,14 @@ struct ethdbg_map {
  * @num_captured: Number of registers actually captured
  * @num_skipped: Number of registers skipped due to out-of-bounds access
  * @map: Pointer to the original ethdbg_map structure, NULL for PHY blocks
- * @minidump_registered: True when reg_list (and map, for MMIO blocks) is
- *                        registered with minidump.
- * @md_name: Minidump region name used for reg_list, captured at registration
- *           time so unregistration always removes the exact region that was
- *           added, regardless of any future change to how the name would be
- *           computed.
- * @md_map_name: Minidump region name used for @map (MMIO blocks only, empty
- *               for PHY blocks), captured for the same reason as @md_name.
+ * @minidump_registered: True when @map is registered with msm_minidump (MMIO
+ *                       blocks only). @reg_list never is -- see @md_name.
+ * @md_name: VA-minidump owner name for @reg_list. reg_list is vmalloc'd, so it
+ *           cannot be an msm_minidump region (virt_to_phys() invalid, pages not
+ *           contiguous); it is added to VA-minidump from the panic notifier.
+ * @md_map_name: msm_minidump region name for @map (empty for PHY blocks).
+ *               @map is kzalloc'd, so it is a valid msm_minidump region.
+ *               Both names are computed once, at registration time.
  *
  * Represents a single hardware block (STMMAC, PCS, RGMII,
  * or SERDES) for panic register capture. During panic,
@@ -176,6 +176,7 @@ void ethdbg_panic_deinit(void);
 void ethdbg_dump_device(struct ethdbg_device *dev);
 void ethdbg_dump_device_phy(struct ethdbg_device *dev);
 void ethdbg_dump_device_qos(struct ethdbg_device *dev, bool panic_mode);
+void ethdbg_va_md_add_dump_regions(struct ethdbg_device *dev);
 
 u32 ethdbg_read_vlan_indirect(void __iomem *base, u32 index);
 u32 ethdbg_read_l3l4_indirect(void __iomem *base, u32 filter_no, u32 reg_id);

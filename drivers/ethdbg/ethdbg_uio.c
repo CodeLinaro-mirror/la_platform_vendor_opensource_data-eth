@@ -75,7 +75,7 @@ static int set_map_info(struct ethdbg_device *dev)
 
 		dev->dump_uio_info.mem[i].addr = (phys_addr_t)(uintptr_t)dump_data->blocks[i].reg_list;
 		dev->dump_uio_info.mem[i].size = dump_data->blocks[i].num_registers * sizeof(struct ethdbg_reg_entry);
-		dev->dump_uio_info.mem[i].memtype = UIO_MEM_LOGICAL;
+		dev->dump_uio_info.mem[i].memtype = UIO_MEM_VIRTUAL;
 
 		i++;
 	}
@@ -106,7 +106,7 @@ static int set_phy_map_info(struct ethdbg_device *dev)
 		}
 		dev->phy_uio_info.mem[idx].addr    = (phys_addr_t)(uintptr_t)dump_data->blocks[i].reg_list;
 		dev->phy_uio_info.mem[idx].size    = dump_data->blocks[i].num_registers * sizeof(struct ethdbg_reg_entry);
-		dev->phy_uio_info.mem[idx].memtype = UIO_MEM_LOGICAL;
+		dev->phy_uio_info.mem[idx].memtype = UIO_MEM_VIRTUAL;
 		idx++;
 	}
 
@@ -150,7 +150,7 @@ static int set_qos_map_info(struct ethdbg_device *dev)
 		return -ENOMEM;
 	dev->qos_uio_info.mem[0].addr    = (phys_addr_t)(uintptr_t)direct->reg_list;
 	dev->qos_uio_info.mem[0].size    = direct->num_registers * sizeof(struct ethdbg_reg_entry);
-	dev->qos_uio_info.mem[0].memtype = UIO_MEM_LOGICAL;
+	dev->qos_uio_info.mem[0].memtype = UIO_MEM_VIRTUAL;
 
 	/* map[1]: VLAN indirect */
 	dev->qos_uio_info.mem[1].name = kstrdup("dump:qos-vlan", GFP_KERNEL);
@@ -158,7 +158,7 @@ static int set_qos_map_info(struct ethdbg_device *dev)
 		goto err_free_0;
 	dev->qos_uio_info.mem[1].addr    = (phys_addr_t)(uintptr_t)vlan->reg_list;
 	dev->qos_uio_info.mem[1].size    = vlan->num_registers * sizeof(struct ethdbg_reg_entry);
-	dev->qos_uio_info.mem[1].memtype = UIO_MEM_LOGICAL;
+	dev->qos_uio_info.mem[1].memtype = UIO_MEM_VIRTUAL;
 
 	/* map[2]: L3/L4 indirect */
 	dev->qos_uio_info.mem[2].name = kstrdup("dump:qos-l3l4", GFP_KERNEL);
@@ -166,7 +166,7 @@ static int set_qos_map_info(struct ethdbg_device *dev)
 		goto err_free_1;
 	dev->qos_uio_info.mem[2].addr    = (phys_addr_t)(uintptr_t)l3l4->reg_list;
 	dev->qos_uio_info.mem[2].size    = l3l4->num_registers * sizeof(struct ethdbg_reg_entry);
-	dev->qos_uio_info.mem[2].memtype = UIO_MEM_LOGICAL;
+	dev->qos_uio_info.mem[2].memtype = UIO_MEM_VIRTUAL;
 
 	return 0;
 
