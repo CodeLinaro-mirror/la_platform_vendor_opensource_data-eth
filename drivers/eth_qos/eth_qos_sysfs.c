@@ -696,7 +696,7 @@ static DEVICE_ATTR(tx_pcp, 0644, noop_show, store_tx_pcp);
 static DEVICE_ATTR(tx_bw,  0644, noop_show, store_tx_bw);
 int eth_qos_create_sysfs(struct eth_qos_device *edev)
 {
-	int ret;
+	int ret = -EINVAL;
 	struct kobject *qos_kobj = NULL;
 	struct kobject *tc_param_kobj = NULL;
 
