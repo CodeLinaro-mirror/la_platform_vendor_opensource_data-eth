@@ -13,6 +13,7 @@ static int get_idev_statistics(struct ioss_device *idev,
 	int rc;
 	struct ioss_channel *ch;
 	struct ioss_interface *iface = &idev->interface;
+	struct net_device *netdev = ioss_iface_to_netdev(iface);
 	struct rtnl_link_stats64 netdev_stats;
 
 	memset(stats, 0, sizeof(struct ioss_device_stats));
@@ -47,8 +48,11 @@ static int get_idev_statistics(struct ioss_device *idev,
 	}
 
 	/* Fetch Linux netdev stats */
+	if (!netdev)
+		return -ENODEV;
+
 	memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
-	dev_get_stats(ioss_iface_to_netdev(iface), &netdev_stats);
+	dev_get_stats(netdev, &netdev_stats);
 
 	stats->exp_rx_packets += iface->exception_stats.rx_packets;
 	stats->exp_rx_bytes += iface->exception_stats.rx_bytes;
