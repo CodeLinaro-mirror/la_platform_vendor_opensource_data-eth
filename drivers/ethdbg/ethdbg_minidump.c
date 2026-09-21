@@ -100,6 +100,9 @@ static int ethdbg_va_md_notify(struct notifier_block *nb, unsigned long event,
 
 		ndev = dev->net_dev;
 
+		/* reg_list buffers are vmalloc'd: VA-minidump, not msm_minidump */
+		ethdbg_va_md_add_dump_regions(dev);
+
 		for (q = 0; q < ndev->num_rx_queues; q++) {
 			for (i = 0; i < num_capture_ops; i++) {
 				if (capture_ops[i]->capture_rx_queue)

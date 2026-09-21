@@ -5,6 +5,7 @@
 #include <linux/panic_notifier.h>
 #include <linux/list.h>
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 #include <linux/io.h>
 #include <linux/netdevice.h>
 #include <linux/of.h>
@@ -200,8 +201,7 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 				reg_desc->start_offset, reg_desc->end_offset, map->size);
 	}
 
-	hw_block->reg_list = kzalloc(PAGE_ALIGN(num_registers * sizeof(struct ethdbg_reg_entry)),
-								 GFP_KERNEL);
+	hw_block->reg_list = vzalloc(PAGE_ALIGN(num_registers * sizeof(struct ethdbg_reg_entry)));
 	if (!hw_block->reg_list) {
 		pr_err("[%s][%s] Failed to allocate register list\n", interface_name, map->name);
 		return -ENOMEM;
@@ -210,7 +210,7 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 	hw_block->base = ioremap(map->base_addr, map->size);
 	if (!hw_block->base) {
 		pr_err("[%s][%s] Failed to ioremap\n", interface_name, map->name);
-		kfree(hw_block->reg_list);
+		vfree(hw_block->reg_list);
 		hw_block->reg_list = NULL;
 		return -ENXIO;
 	}
@@ -244,20 +244,19 @@ static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 
 		block = &dump_data->blocks[hw_block_idx];
 
-		/* msm_minidump_add_region() returns >= 0 on success (a pending-list
-		 * index while the driver is still probing); only ret < 0 is a failure.
+		/* reg_list is vmalloc'd: added to VA-minidump at panic time
+		 * (see ethdbg_va_md_add_dump_regions()), name computed here.
 		 */
 		scnprintf(block->md_name, sizeof(block->md_name), "%s_reg%u", interface_name, map->index);
-		ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
-						 block->num_registers * sizeof(struct ethdbg_reg_entry));
-		if (ret >= 0) {
-			/* Also register the map as eth0_map<index>, to resolve
-			 * index to region name during postprocessing.
-			 */
-			scnprintf(block->md_map_name, sizeof(block->md_map_name), "%s_map%u", interface_name, map->index);
-			ret = ethdbg_minidump_add_region(block->md_map_name, (uintptr_t)block->map,
-							 sizeof(struct ethdbg_map));
-		}
+
+		/* block->map is kzalloc'd, so it stays an msm_minidump region.
+		 * Registered as eth0_map<index> to resolve index to region name
+		 * during postprocessing. add_region() returns >= 0 on success
+		 * (a pending-list index while probing); only < 0 is a failure.
+		 */
+		scnprintf(block->md_map_name, sizeof(block->md_map_name), "%s_map%u", interface_name, map->index);
+		ret = ethdbg_minidump_add_region(block->md_map_name, (uintptr_t)block->map,
+						 sizeof(struct ethdbg_map));
 		block->minidump_registered = (ret >= 0);
 		if (ret < 0)
 			pr_warn("ethdbg: [%s][%s] minidump registration failed, ret=%d\n",
@@ -324,17 +323,13 @@ void ethdbg_dump_unregister(struct ethdbg_interface *iface)
 		struct ethdbg_hw_block *block = &dump_data->blocks[i];
 
 		if (block->minidump_registered) {
-			/* Remove the map descriptor first, then the register data */
 			ethdbg_minidump_remove_region(block->md_map_name, (uintptr_t)block->map,
 						      sizeof(struct ethdbg_map));
-
-			ethdbg_minidump_remove_region(block->md_name, (uintptr_t)block->reg_list,
-						      block->num_registers * sizeof(struct ethdbg_reg_entry));
 			block->minidump_registered = false;
 		}
 
 		iounmap(block->base);
-		kfree(block->reg_list);
+		vfree(block->reg_list);
 	}
 
 	kfree(dump_data->blocks);
@@ -397,7 +392,7 @@ static int ethdbg_alloc_phy_block(struct ethdbg_hw_block *block,
 
 	num_regs = ethdbg_count_phy_regs(desc->reg_desc, desc->num_reg_desc, desc->is_c45);
 
-	block->reg_list = kzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)), GFP_KERNEL);
+	block->reg_list = vzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)));
 	if (!block->reg_list)
 		return -ENOMEM;
 
@@ -479,19 +474,16 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 		return ret;
 	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks + 1);
 
+	/* PHY reg_list is vmalloc'd: added to VA-minidump at panic time,
+	 * name computed here.
+	 */
 	block = &dump_data->blocks[dump_data->num_blocks - 1];
 	scnprintf(block->md_name, sizeof(block->md_name), "%s_phyreg%u", interface_name, 0);
-	ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
-					 block->num_registers * sizeof(struct ethdbg_reg_entry));
-	block->minidump_registered = (ret >= 0);
-	if (ret < 0)
-		pr_warn("ethdbg: [%s] minidump registration failed for PHY common block, ret=%d\n",
-			interface_name, ret);
 
 	ret = ethdbg_alloc_phy_block(&dump_data->blocks[dump_data->num_blocks],
 				     vendor_desc);
 	if (ret) {
-		kfree(dump_data->blocks[dump_data->num_blocks - 1].reg_list);
+		vfree(dump_data->blocks[dump_data->num_blocks - 1].reg_list);
 		dump_data->blocks[dump_data->num_blocks - 1].reg_list = NULL;
 		smp_store_release(&dump_data->num_blocks, dump_data->num_blocks - 1);
 		return ret;
@@ -500,12 +492,6 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 
 	block = &dump_data->blocks[dump_data->num_blocks - 1];
 	scnprintf(block->md_name, sizeof(block->md_name), "%s_phyreg%u", interface_name, 1);
-	ret = ethdbg_minidump_add_region(block->md_name, (uintptr_t)block->reg_list,
-					 block->num_registers * sizeof(struct ethdbg_reg_entry));
-	block->minidump_registered = (ret >= 0);
-	if (ret < 0)
-		pr_warn("ethdbg: [%s] minidump registration failed for PHY vendor block, ret=%d\n",
-			interface_name, ret);
 
 	return 0;
 }
@@ -518,13 +504,11 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
  * PHY blocks are always allocated as an all-or-nothing pair (common +
  * vendor), always appended after every MMIO block, so whenever they exist
  * they are unconditionally the last two entries in dump_data->blocks[].
- * Each block's minidump region name was captured in md_name at registration
- * time, so unregistration always removes the exact region that was added.
  *
- * num_blocks is shrunk (published via smp_store_release) before either
- * reg_list is freed, so a concurrent panic notifier reading it via
- * smp_load_acquire() (see ethdbg_dump_device_phy()) can never observe a
- * bound that still includes an already-freed slot.
+ * num_blocks is shrunk (via smp_store_release) before either reg_list is
+ * freed, so a concurrent panic notifier reading it with smp_load_acquire()
+ * (ethdbg_dump_device_phy(), ethdbg_va_md_add_dump_regions()) never sees a
+ * bound that includes a freed slot.
  */
 void ethdbg_dump_unregister_phy(struct ethdbg_interface *iface)
 {
@@ -539,22 +523,11 @@ void ethdbg_dump_unregister_phy(struct ethdbg_interface *iface)
 	vendor = &dump_data->blocks[dump_data->num_blocks - 1];
 	common = &dump_data->blocks[dump_data->num_blocks - 2];
 
-	if (vendor->minidump_registered) {
-		ethdbg_minidump_remove_region(vendor->md_name, (uintptr_t)vendor->reg_list,
-					      vendor->num_registers * sizeof(struct ethdbg_reg_entry));
-		vendor->minidump_registered = false;
-	}
-	if (common->minidump_registered) {
-		ethdbg_minidump_remove_region(common->md_name, (uintptr_t)common->reg_list,
-					      common->num_registers * sizeof(struct ethdbg_reg_entry));
-		common->minidump_registered = false;
-	}
-
 	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks - 2);
 
-	kfree(vendor->reg_list);
+	vfree(vendor->reg_list);
 	vendor->reg_list = NULL;
-	kfree(common->reg_list);
+	vfree(common->reg_list);
 	common->reg_list = NULL;
 }
 
@@ -591,6 +564,47 @@ void ethdbg_dump_device_phy(struct ethdbg_device *dev)
 	}
 }
 
+/*
+ * ethdbg_va_md_add_dump_regions - hand every reg_list buffer to VA-minidump.
+ *
+ * reg_list is vmalloc'd, so it cannot be an msm_minidump region. Must only be
+ * called from the VA-minidump notifier; qcom_va_md_add_region() returns -EINVAL
+ * outside the VA-MD oops handler.
+ *
+ * Panic ordering on panic_notifier_list (higher priority first):
+ *   ethdbg_panic_nb          INT_MAX      captures registers into reg_list
+ *   qcom_va_md_panic_blk     INT_MAX - 4  runs this via the notifier
+ *   qcom_va_md_elf_panic_blk INT_MAX - 5  copies reg_list into the ELF payload
+ *
+ * num_blocks is read with smp_load_acquire() to pair with the release-stores in
+ * ethdbg_dump_register_phy()/unregister_phy(), so a PHY teardown racing with a
+ * panic cannot expose a freed slot.
+ */
+void ethdbg_va_md_add_dump_regions(struct ethdbg_device *dev)
+{
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	unsigned int i, num_blocks;
+
+	if (!dump_data->blocks)
+		return;
+
+	num_blocks = smp_load_acquire(&dump_data->num_blocks);
+
+	for (i = 0; i < num_blocks; i++) {
+		struct ethdbg_hw_block *block = &dump_data->blocks[i];
+		int ret;
+
+		if (!block->reg_list || !block->num_registers || !block->md_name[0])
+			continue;
+
+		ret = ethdbg_va_md_add_region(block->md_name, (unsigned long)block->reg_list,
+					      block->num_registers * sizeof(struct ethdbg_reg_entry));
+		if (ret)
+			pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
+			       block->md_name, ret);
+	}
+}
+
 int ethdbg_panic_init(void)
 {
 	int ret;
@@ -623,8 +637,7 @@ static int ethdbg_alloc_indirect_block(struct ethdbg_hw_block *block,
 {
 	unsigned int num_regs = desc->num_reg_desc; /* one entry per descriptor row */
 
-	block->reg_list = kzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)),
-				  GFP_KERNEL);
+	block->reg_list = vzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)));
 	if (!block->reg_list)
 		return -ENOMEM;
 
@@ -711,13 +724,13 @@ int ethdbg_dump_register_qos(struct ethdbg_device *dev, const char *interface_na
 	return 0;
 
 err_free_vlan:
-	kfree(qos_data->blocks[1].reg_list);
+	vfree(qos_data->blocks[1].reg_list);
 	qos_data->blocks[1].reg_list = NULL;
 	qos_data->blocks[1].base = NULL;
 err_free_direct:
 	iounmap(qos_data->blocks[0].base);
 	qos_data->blocks[0].base = NULL;
-	kfree(qos_data->blocks[0].reg_list);
+	vfree(qos_data->blocks[0].reg_list);
 	qos_data->blocks[0].reg_list = NULL;
 err_free_blocks:
 	kfree(qos_data->blocks);
@@ -745,7 +758,7 @@ void ethdbg_dump_unregister_qos(struct ethdbg_device *dev)
 		if (i == 0 && qos_data->blocks[0].base)
 			iounmap(qos_data->blocks[0].base);
 		qos_data->blocks[i].base = NULL;
-		kfree(qos_data->blocks[i].reg_list);
+		vfree(qos_data->blocks[i].reg_list);
 		qos_data->blocks[i].reg_list = NULL;
 	}
 
