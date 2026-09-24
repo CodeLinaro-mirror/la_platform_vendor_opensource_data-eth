@@ -5,11 +5,6 @@
 
 #include "ioss_i.h"
 
-static bool enable_ioss_ethtool_ops;
-module_param(enable_ioss_ethtool_ops, bool, 0444);
-MODULE_PARM_DESC(enable_ioss_ethtool_ops,
-		 "Enable IOSS ethtool operations (default: false)");
-
 struct ioss_stat_desc {
 	char name[ETH_GSTRING_LEN];
 	int idx;
@@ -216,9 +211,6 @@ void ioss_ethtool_hijack_stats(struct ioss_interface *iface)
 	struct net_device *ndev = ioss_iface_to_netdev(iface);
 
 	iface->ethtool_ops_real = ndev->ethtool_ops;
-	if (!enable_ioss_ethtool_ops)
-		return;
-
 	if (iface->ethtool_ops_real)
 		iface->ethtool_ops = *iface->ethtool_ops_real;
 	else
