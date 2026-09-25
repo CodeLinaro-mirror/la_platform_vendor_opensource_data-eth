@@ -78,6 +78,10 @@ if [ /sys/class/net/"$1"/device/driver -ef /sys/bus/platform/drivers/qcom-ethqos
 		set_napi_threaded "$1"
 		ethtool -K "$1" rx-udp-gro-forwarding on
 		set_rss "$1"
+		# Program tc and RSS before IPA is connected; otherwise IOSS may clear the
+		# XPS mask or enable RSS while IPA is connected.
+		echo 1 > /sys/class/net/"$1"/suspend_ipa_offload || true
+		echo 0 > /sys/class/net/"$1"/suspend_ipa_offload || true
 	else
 		echo "Error: Invalid interface. Only 'eth0', 'eth1', or 'eth2' are allowed."
 		exit 1
