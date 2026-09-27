@@ -645,6 +645,7 @@ void ioss_ipa_emb_tx_enable(struct ioss_interface *iface)
 		return;
 	}
 
+	rtnl_lock();
 	state_save->hw_features     = ndev->hw_features;
 	state_save->features        = ndev->features;
 	state_save->wanted_features = ndev->wanted_features;
@@ -661,6 +662,7 @@ void ioss_ipa_emb_tx_enable(struct ioss_interface *iface)
 	WRITE_ONCE(ndev->gso_ipv4_max_size, ipa_config->offload_gso_max_size);
 	ndev->needed_headroom += ipa_config->offload_headroom;
 	netdev_features_change(ndev);
+	rtnl_unlock();
 
 	ioss_ipa_xps_configure_tx_offload(iface);
 
@@ -690,6 +692,7 @@ void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
 			atomic_set(&ch->ipa_tx_outstanding_pkts, 0);
 	}
 
+	rtnl_lock();
 	ndev->hw_features     = saved_state->hw_features;
 	ndev->wanted_features = saved_state->wanted_features;
 	ndev->features        = saved_state->features;
@@ -697,6 +700,7 @@ void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
 	WRITE_ONCE(ndev->gso_ipv4_max_size, saved_state->gso_ipv4_max_size);
 	ndev->needed_headroom -= ipa_config->offload_headroom;
 	netdev_update_features(ndev);
+	rtnl_unlock();
 
 	ioss_dev_log(idev, "Restored device feature flags after IPA disconnect");
 }

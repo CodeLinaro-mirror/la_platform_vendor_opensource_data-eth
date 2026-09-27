@@ -10,7 +10,7 @@
 #include <stmmac/stmmac_api.h>
 #include <linux/msm/ioss.h>
 
-#if STMMAC_API_VER < 4
+#if STMMAC_API_VER  < 1
 #error Unsupported STMMAC API VERSION
 #endif
 

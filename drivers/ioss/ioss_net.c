@@ -856,7 +856,9 @@ static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)
 	int rc;
 	struct ethtool_link_ksettings link_ksettings;
 
+	rtnl_lock();
 	rc = __ethtool_get_link_ksettings(net_dev, &link_ksettings);
+	rtnl_unlock();
 
 	if (!rc)
 		return link_ksettings.base.speed;
@@ -864,8 +866,9 @@ static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)
 		return 0;
 }
 
-static void __ioss_refresh(struct ioss_interface *iface)
+static void ioss_refresh_work(struct work_struct *work)
 {
+	struct ioss_interface *iface = ioss_refresh_work_to_iface(work);
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 	struct ioss_device *idev = ioss_iface_dev(iface);
 	struct device *dev = &idev->dev;
@@ -890,16 +893,6 @@ static void __ioss_refresh(struct ioss_interface *iface)
 		"Interface %s state is %s", idev->net_dev->name, if_st_s(iface));
 
 	mutex_unlock(&idev->refresh_lock);
-}
-
-static void ioss_refresh_work(struct work_struct *work)
-{
-	struct ioss_interface *iface = ioss_refresh_work_to_iface(work);
-
-	/* Keep the lock order consistent with ethtool: rtnl -> refresh_lock. */
-	rtnl_lock();
-	__ioss_refresh(iface);
-	rtnl_unlock();
 }
 
 int ioss_net_watch_device(struct ioss_device *idev)
