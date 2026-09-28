@@ -362,7 +362,7 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 			     ch->config.ring_size);
 
 		rc = ioss_dev_op(idev, request_channel, ch);
-	} while (rc && ioss_net_next_channel_config(ch));
+	} while (rc == -ENOMEM && ioss_net_next_channel_config(ch));
 
 	if (rc) {
 		ioss_dev_err(idev,
