@@ -15,7 +15,6 @@
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include <linux/minmax.h>
-#include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/platform_device.h>
 #include "stmmac_ioss.h"
