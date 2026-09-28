@@ -3864,7 +3864,10 @@ static void tc956xmac_mac_link_down(struct phylink_config *config,
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
 	struct net_device *ndev = to_net_dev(config->dev);
 
-	tc956xmac_mac_set_rx(priv, priv->ioaddr, false);
+	pr_warn("%s %s: mac_link_down entry carrier=%d queues_stopped=%d\n",
+		dev_driver_string(priv->device), dev_name(priv->device),
+		netif_carrier_ok(ndev), netif_tx_queue_stopped(netdev_get_tx_queue(ndev, 0)));
+	tc956xmac_mac_set(priv, priv->ioaddr, false);
 	/* In SRIOV code, EEE is handled by PF driver */
 #ifndef TC956X_SRIOV_VF
 #ifdef EEE
@@ -4132,6 +4135,9 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 #endif
 {
 	struct tc956xmac_priv *priv = netdev_priv(to_net_dev(config->dev));
+
+	pr_warn("%s %s: mac_link_up entry\n",
+		dev_driver_string(priv->device), dev_name(priv->device));
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
 	u32 ctrl, emac_ctrl, misc_ctrl;
 	bool config_done = false;
@@ -4419,6 +4425,12 @@ static void tc956xmac_mac_link_up(struct phylink_config *config,
 		tc956xmac_link_change_set_power(priv, LINK_UP); /* Restore, De-assert and Enable Reset and Clock */
 	}
 	mutex_unlock(&priv->port_ld_release_lock);
+#endif
+#ifdef TC956X_SRIOV_PF
+	/* Restore MSI_OUT_EN after link-down: sources such as XPCS_INT are
+	 * self-disabled in the v1 ISR to stop re-fire loops during AN restart.
+	 * Re-enable all PF interrupt sources here before traffic resumes. */
+	tc956x_msi_intr_en(priv, priv->dev, TC956X_ENABLE);
 #endif
 	tc956xmac_mac_set_rx(priv, priv->ioaddr, true);
 
@@ -6054,6 +6066,9 @@ static void tc956xmac_tx_err(struct tc956xmac_priv *priv, u32 chan)
 {
 	struct tc956xmac_tx_queue *tx_q = &priv->tx_queue[chan];
 
+	pr_warn("%s: tx_err chan=%u cur_tx=%u dirty_tx=%u\n",
+		dev_name(priv->device), chan,
+		tx_q->cur_tx, tx_q->dirty_tx);
 	netif_tx_stop_queue(netdev_get_tx_queue(priv->dev, chan));
 
 	tc956xmac_stop_tx_dma(priv, chan);
@@ -9376,6 +9391,7 @@ static void tc956xmac_tx_timeout(struct net_device *dev)
 {
 	struct tc956xmac_priv *priv = netdev_priv(dev);
 
+	pr_warn("%s: tx_timeout txqueue=%u\n", dev->name, txqueue);
 	tc956xmac_global_err(priv);
 }
 
@@ -10083,14 +10099,35 @@ static irqreturn_t tc956xmac_interrupt_v1(int irq, void *dev_id)
 
 	priv->xstats.total_interrupts++;
 
-	if (val & (1 << 0))
+	if (val & (1 << 0)) {
+		u32 out_en;
 		priv->xstats.lpi_intr_n++;
+		/* LPI_INT is level-sensitive: without disabling it in OUT_EN the
+		 * MSI re-fires immediately after re-arm because the driver has no
+		 * LPI status register path to de-assert the source.  This produces
+		 * a ~9k IRQ/s storm that starves the WDT kthread.
+		 * tc956x_msi_intr_en() restores OUT_EN on the next link-up. */
+		pr_warn_ratelimited("%s %s: LPI INT (bit 0) — disabling in MSI_OUT_EN\n",
+			dev_driver_string(priv->device), dev_name(priv->device));
+		out_en = readl(priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->fn_id_info.pf_no, priv->fn_id_info.vf_no));
+		out_en &= ~(1 << 0);
+		writel(out_en, priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->fn_id_info.pf_no, priv->fn_id_info.vf_no));
+	}
 
 	if (val & (1 << 1))
 		priv->xstats.pmt_intr_n++;
 
-	if (val & (1 << 2))
+	if (val & (1 << 2)) {
+		u32 out_en;
 		priv->xstats.event_intr_n++;
+		/* Same defensive self-disable as LPI_INT — EVENT_INT has no
+		 * dedicated clear path in the v1 handler. */
+		pr_warn_ratelimited("%s %s: EVENT INT (bit 2) — disabling in MSI_OUT_EN\n",
+			dev_driver_string(priv->device), dev_name(priv->device));
+		out_en = readl(priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->fn_id_info.pf_no, priv->fn_id_info.vf_no));
+		out_en &= ~(1 << 2);
+		writel(out_en, priv->ioaddr + TC956X_MSI_OUT_EN_OFFSET(priv->fn_id_info.pf_no, priv->fn_id_info.vf_no));
+	}
 
 	if (val & (1 << 19))
 		priv->xstats.xpcs_intr_n++;

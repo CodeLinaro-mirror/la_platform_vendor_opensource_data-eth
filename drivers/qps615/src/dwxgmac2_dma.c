@@ -512,6 +512,8 @@ static int dwxgmac2_dma_interrupt(struct tc956xmac_priv *priv, void __iomem *ioa
 
 	/* ABNORMAL interrupts */
 	if (unlikely(intr_status & XGMAC_AIS)) {
+		pr_warn_ratelimited("%s: DMA abnormal ch%u intr_en=0x%x status=0x%x\n",
+			__func__, chan, intr_en, intr_status);
 		if (unlikely(intr_status & XGMAC_RBU)) {
 			x->rx_buf_unav_irq[chan]++;
 			ret |= handle_rx;

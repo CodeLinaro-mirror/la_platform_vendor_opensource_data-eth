@@ -125,11 +125,16 @@ static void tc956x_interrupt_en(struct tc956xmac_priv *priv, struct net_device *
 				mask_val |= (1 << (MSI_INT_RX_CH0 + chan));
 		}
 #ifdef TC956X_SRIOV_PF
-		if (priv->dev->phydev != NULL) {
-			/* PHY MSI interrupt enabled */
+		if (priv->dev->phydev != NULL &&
+		    priv->dev->phydev->irq != PHY_POLL) {
+			/* PHY MSI interrupt enabled only in interrupt-driven mode.
+			 * In polling mode the host does not handle this source and
+			 * leaving it enabled causes a vector-1 storm on link change
+			 * because the TC956X asserts ETH_INT without software ever
+			 * clearing the underlying condition. */
 			mask_val &= ~(1 << MSI_INT_EXT_PHY);
 		} else
-			mask_val |= (1 << MSI_INT_EXT_PHY); /* Disable PHY interrupt on PHY absence */
+			mask_val |= (1 << MSI_INT_EXT_PHY);
 #else
 		/* PHY MSI interrupt diabled */
 		mask_val |= (1 << MSI_INT_EXT_PHY);
