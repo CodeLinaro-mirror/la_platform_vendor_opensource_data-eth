@@ -24,7 +24,12 @@ MODULE_PARM_DESC(stats_refresh_ms, "Minimum interval in milliseconds between sta
 int stmmac_ioss_stats_init(struct ioss_device *idev)
 {
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
-	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
+	const struct ethtool_ops *ops;
+
+	if (!stmmac_dev)
+		return -ENODEV;
+
+	ops = idev->net_dev->ethtool_ops;
 
 	if (!ops || !ops->get_sset_count || !ops->get_strings || !ops->get_ethtool_stats) {
 		stmmac_dev->stats_count = 0;
@@ -47,7 +52,7 @@ int stmmac_ioss_stats_init(struct ioss_device *idev)
 	if (!stmmac_dev->stats_strings) {
 		kfree(stmmac_dev->stats_data);
 		return -ENOMEM;
-        }
+	}
 
 	ops->get_strings(idev->net_dev, ETH_SS_STATS, stmmac_dev->stats_strings);
 
@@ -57,6 +62,9 @@ int stmmac_ioss_stats_init(struct ioss_device *idev)
 void stmmac_ioss_stats_deinit(struct ioss_device *idev)
 {
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
+
+	if (!stmmac_dev)
+		return;
 
 	kfree(stmmac_dev->stats_strings);
 	kfree(stmmac_dev->stats_data);
@@ -78,12 +86,14 @@ static u64 get_stats_data(const char *name, u64 data[], const u8 *strings_data, 
 static void update_ethtool_stats(struct ioss_device *idev)
 {
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
-	const struct ethtool_ops *ops = idev->net_dev->ethtool_ops;
+	const struct ethtool_ops *ops;
 	ktime_t now, elapsed;
 	int stats_count;
 
-	if(!stmmac_dev->stats_count)
+	if (!stmmac_dev || !stmmac_dev->stats_count)
 		return;
+
+	ops = idev->net_dev->ethtool_ops;
 
 	now = ktime_get();
 	elapsed = ktime_sub(now, stmmac_dev->stats_last_update);
@@ -106,6 +116,9 @@ static void update_ethtool_stats(struct ioss_device *idev)
 int stmmac_ioss_device_statistics(struct ioss_device *idev, struct ioss_device_stats *statistics)
 {
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
+
+	if (!stmmac_dev)
+		return -ENODEV;
 
 	update_ethtool_stats(idev);
 
@@ -140,6 +153,9 @@ int stmmac_ioss_channel_statistics(struct ioss_channel *ch, struct ioss_channel_
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
 	char stat_name[ETH_GSTRING_LEN];
 
+	if (!stmmac_dev)
+		return -ENODEV;
+
 	update_ethtool_stats(idev);
 
 	if (ch->direction == IOSS_CH_DIR_RX) {
@@ -166,6 +182,9 @@ int stmmac_ioss_channel_status(struct ioss_channel *ch, struct ioss_channel_stat
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
 	struct stmmac_api_channel *stmmac_ch = ch->private;
 	char stat_name[ETH_GSTRING_LEN];
+
+	if (!stmmac_dev || !stmmac_ch)
+		return -ENODEV;
 
 	status->ring_size = stmmac_ch->ring_size;
 

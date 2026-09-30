@@ -52,6 +52,9 @@ static int stmmac_ioss_close_device(struct ioss_device *idev)
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
 
 	stmmac_ioss_stats_deinit(idev);
+
+	idev->private = NULL;
+	smp_mb();
 	kfree(stmmac_dev);
 
 	return 0;
