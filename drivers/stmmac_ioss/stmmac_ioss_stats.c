@@ -15,7 +15,6 @@
 #include <linux/module.h>
 #include <linux/ethtool.h>
 #include <linux/ktime.h>
-#include <linux/rtnetlink.h>
 #include "stmmac_ioss.h"
 
 static uint stats_refresh_ms = 10;
@@ -99,9 +98,7 @@ static void update_ethtool_stats(struct ioss_device *idev)
 		return;
 	}
 
-	rtnl_lock();
 	ops->get_ethtool_stats(idev->net_dev, NULL, stmmac_dev->stats_data);
-	rtnl_unlock();
 
 	stmmac_dev->stats_last_update = now;
 }
