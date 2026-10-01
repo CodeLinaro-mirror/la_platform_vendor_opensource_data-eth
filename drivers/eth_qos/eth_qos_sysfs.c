@@ -472,6 +472,13 @@ out:
  *   caller and passed through without modification.
  * - path=hw programs HW CBS via eth_qos_mgr.
  * - path=sw stores SW-path CBS bookkeeping only.
+ * - All four shaper parameters are mandatory, but passing them ALL AS ZERO
+ *   requests "no shaping": only the queue->ETC mapping (and the HW-path IOSS
+ *   TC bitmap) is programmed, with no credit-based shaper. This reuses the
+ *   existing command rather than adding a new one. A zero-rate shaper cannot
+ *   express "unshaped" -- tc_setup_cbs() rejects a zero portTransmitRate, and
+ *   a zero idle slope would starve the queue -- so the all-zero case is
+ *   dispatched to the mapping-only path instead.
  */
 static ssize_t store_tx_bw(struct device *dev, struct device_attribute *attr,
 			   const char *user_buf, size_t size)
@@ -484,6 +491,7 @@ static ssize_t store_tx_bw(struct device *dev, struct device_attribute *attr,
 	bool have_path = false, hw_path = false;
 	bool have_idleslope = false, have_sendslope = false;
 	bool have_hicredit = false, have_locredit = false;
+	bool no_shaping = false;
 	int idleslope = 0, sendslope = 0, hicredit = 0, locredit = 0;
 
 	if (!ndev)
@@ -547,26 +555,43 @@ static ssize_t store_tx_bw(struct device *dev, struct device_attribute *attr,
 		last_key = NULL;
 	}
 
+	/* Parameters common to every config type. */
 	if (hid < 0 || tc < 0 || etc < 0 || etc >= MAX_EMAC_TC || queue < 0 || ch < 0 ||
-	    !have_path || !config || !have_idleslope || !have_sendslope ||
-	    !have_hicredit || !have_locredit) {
+	    !have_path || !config) {
 		eth_qos_log_err(NULL, "tx_bw: missing/invalid params. input='%s'", buf);
 		goto out;
 	}
 
-	eth_qos_log_cfg(NULL, "tx_bw: TC=%d ETC=%d path=%s queue=%d ch=%d config=%s idle=%d send=%d hi=%d lo=%d",
-		 tc, etc, hw_path ? "hw" : "sw", queue, ch, config,
-		 idleslope, sendslope, hicredit, locredit);
+	/* All four shaper parameters are mandatory. */
+	if (!have_idleslope || !have_sendslope ||
+	    !have_hicredit || !have_locredit) {
+		eth_qos_log_err(NULL, "tx_bw: missing CBS params. input='%s'", buf);
+		goto out;
+	}
 
 	if (strcmp(config, "cbs")) {
-		eth_qos_log_err(NULL, "tx_bw: unsupported config='%s' (only 'cbs' supported)", config);
+		eth_qos_log_err(NULL, "tx_bw: unsupported config='%s' (only 'cbs' supported)",
+				config);
 		ret = -EOPNOTSUPP;
 		goto out;
 	}
 
+	/* All-zero shaper parameters mean "map the queue, install no shaper".
+	 * Only the log line distinguishes them here -- eth_qos_mgr_add_cbs()
+	 * makes the same determination and picks the programming path. */
+	no_shaping = !idleslope && !sendslope && !hicredit && !locredit;
+
+	if (no_shaping)
+		eth_qos_log_cfg(NULL, "tx_bw: TC=%d ETC=%d path=%s queue=%d ch=%d config=%s (all-zero: no shaping)",
+			 tc, etc, hw_path ? "hw" : "sw", queue, ch, config);
+	else
+		eth_qos_log_cfg(NULL, "tx_bw: TC=%d ETC=%d path=%s queue=%d ch=%d config=%s idle=%d send=%d hi=%d lo=%d",
+			 tc, etc, hw_path ? "hw" : "sw", queue, ch, config,
+			 idleslope, sendslope, hicredit, locredit);
+
 	ret = eth_qos_mgr_add_cbs(ndev, hid, tc, etc, queue, ch, hw_path,
-				  sendslope, idleslope,
-				  hicredit, locredit);
+				  sendslope, idleslope, hicredit, locredit);
+
 	if (!ret)
 		ret = size;
 

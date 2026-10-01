@@ -84,6 +84,13 @@ struct eth_qos_tx_pcp_entry {
 struct eth_qos_cbs_entry {
 	bool used;
 	bool hw_path;
+	/*
+	 * TC created with no bandwidth: only the queue -> ETC mapping (and, on
+	 * the HW path, the IOSS TC bitmap) is programmed, with no credit-based
+	 * shaper. The idleslope/sendslope/hicredit/locredit fields below are
+	 * unused and left zero for such an entry.
+	 */
+	bool no_bw;
 	u32 tc;
 	u32 etc;
 	u32 queue;
@@ -116,6 +123,7 @@ struct eth_qos_hid_entry {
 		} l3l4;
 		struct {
 			bool hw_path;
+			bool no_bw;	/* mapping only, no shaper */
 		} cbs;
 	} u;
 };
@@ -334,6 +342,11 @@ static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send
 	return stmmac_api_config_cbs(ndev, enable, send_slope, idle_slope,
 				     high_credit, low_credit, queue, etc);
 }
+
+static int eth_qos_mgr_set_q2tc_map(struct net_device *ndev, u32 queue, u32 etc)
+{
+	return stmmac_api_set_q2tc_map(ndev, queue, etc);
+}
 #else
 static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send_slope,
 				  int idle_slope, int high_credit, int low_credit,
@@ -345,6 +358,19 @@ static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send
 				STMMAC_API_VER, queue, etc);
 	return stmmac_api_config_cbs(ndev, enable, send_slope, idle_slope,
 				     high_credit, low_credit, queue);
+}
+
+/*
+ * Standalone queue->ETC mapping arrived with STMMAC_API_VER 3 alongside the
+ * ETC-aware config_cbs(). Without it a no-BW TC cannot be programmed at all,
+ * so fail explicitly rather than silently installing nothing.
+ */
+static int eth_qos_mgr_set_q2tc_map(struct net_device *ndev, u32 queue, u32 etc)
+{
+	eth_qos_log_err(&ndev->dev,
+			"no-BW TC requires STMMAC_API_VER >= 3 (cur=%d); queue=%u etc=%u unsupported",
+			STMMAC_API_VER, queue, etc);
+	return -EOPNOTSUPP;
 }
 #endif
 
@@ -851,14 +877,29 @@ static int eth_qos_mgr_clear_tx_hw(struct eth_qos_mgr_ctx *ctx)
 	int ret;
 	int fail_ret = 0;
 
-	/* Queue 0 is not AVB capable */
-	for (i = 1; i < ctx->max_tx_queues; i++) {
+	/*
+	 * Queue 0 is not AVB capable so it never holds a CBS shaper, but it can
+	 * hold a no-BW TC (mapping only), so the scan starts at 0 and skips
+	 * the shaper reset for such entries.
+	 */
+	for (i = 0; i < ctx->max_tx_queues; i++) {
 		if (!ctx->tx.cbs_table[i].used)
 			continue;
-		ret = eth_qos_mgr_config_cbs(ctx->ndev, false, 0, 0, 0, 0, i, ctx->tx.cbs_table[i].etc);
-		if (ret) {
-			eth_qos_log_err(&ctx->ndev->dev, "failed to config CBS for index %u: ret=%d", i, ret);
-			fail_ret = ret;
+		if (ctx->tx.cbs_table[i].no_bw) {
+			ret = eth_qos_mgr_set_q2tc_map(ctx->ndev, i, i);
+			if (ret) {
+				eth_qos_log_err(&ctx->ndev->dev,
+						"failed to revert Q2TC map for index %u: ret=%d",
+						i, ret);
+				fail_ret = ret;
+			}
+		} else {
+			ret = eth_qos_mgr_config_cbs(ctx->ndev, false, 0, 0, 0, 0, i,
+						     ctx->tx.cbs_table[i].etc);
+			if (ret) {
+				eth_qos_log_err(&ctx->ndev->dev, "failed to config CBS for index %u: ret=%d", i, ret);
+				fail_ret = ret;
+			}
 		}
 
 		if (ctx->tx.cbs_table[i].used && ctx->tx.cbs_table[i].hw_path) {
@@ -954,7 +995,8 @@ static ssize_t eth_qos_mgr_dump_hid_table(struct eth_qos_mgr_ctx *ctx, char *buf
 			break;
 		case ETH_QOS_FILTER_CBS:
 			len += scnprintf(buf + len, buf_sz - len,
-					 "hw_path=%u\n", entry->u.cbs.hw_path);
+					 "hw_path=%u%s\n", entry->u.cbs.hw_path,
+					 entry->u.cbs.no_bw ? " nobw" : "");
 			break;
 		default:
 			len += scnprintf(buf + len, buf_sz - len, "-\n");
@@ -1076,6 +1118,20 @@ static ssize_t eth_qos_mgr_dump_tx_tables(struct eth_qos_mgr_ctx *ctx, char *buf
 
 		if (!entry->used)
 			continue;
+
+		/*
+		 * A no-BW TC has no shaper: print "-" for the four CBS columns
+		 * rather than zeros, which would read as a real (starving)
+		 * shaper configuration.
+		 */
+		if (entry->no_bw) {
+			len += scnprintf(buf + len, buf_sz - len,
+					 "%-8u%-8u%-8u%-8u%-8u%-8u%-12s%-12s%-12s%-12s\n",
+					 i, entry->used, entry->hw_path, entry->tc,
+					 entry->etc, entry->ch,
+					 "-", "-", "-", "-");
+			continue;
+		}
 
 		len += scnprintf(buf + len, buf_sz - len,
 				 "%-8u%-8u%-8u%-8u%-8u%-8u%-12d%-12d%-12d%-12d\n",
@@ -1467,6 +1523,29 @@ out_unlock:
 	return ret;
 }
 
+/*
+ * eth_qos_mgr_add_cbs - add a DL traffic class, shaped or unshaped
+ *
+ * Programs the queue -> ETC mapping and, on the hardware path, the IOSS TC
+ * bitmap. Whether a credit-based shaper is installed on top depends on the
+ * four shaper parameters:
+ *
+ *   - non-zero: a CBS shaper is programmed with them, as normal.
+ *   - ALL ZERO: no shaper is installed; only the mapping is programmed. This
+ *     is how the QoS manager asks for a traffic class that is classified to a
+ *     queue/ETC but not rate limited, reusing this same entry point and the
+ *     same "config cbs" sysfs command rather than a separate one.
+ *
+ * All-zero must never be handed to the shaper: tc_setup_cbs() derives
+ * portTransmitRate from idleslope-sendslope and rejects zero outright, and
+ * dwxgmac2_config_cbs() would write the zeros and still set XGMAC_CBS --
+ * arming a shaper that never accrues credit, which starves the queue instead
+ * of leaving it unshaped. Hence the separate mapping-only call below.
+ *
+ * Unlike CBS, the mapping-only path has no queue restriction: tc_setup_cbs()
+ * rejects queue 0 as not AVB capable, but a plain Q2TC mapping has no such
+ * limit, so queue 0 is accepted for an unshaped traffic class.
+ */
 int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 etc, u32 queue, u32 ch,
 			bool hw_path, int sendslope, int idleslope,
 			int hicredit, int locredit)
@@ -1475,13 +1554,17 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 etc, u32 q
 	struct eth_qos_hid_entry *entry;
 	struct ioss_interface *iface;
 	struct ioss_device *idev;
+	bool no_bw;
 	int ret;
+
+	/* All-zero shaper parameters mean "map the queue, install no shaper". */
+	no_bw = !idleslope && !sendslope && !hicredit && !locredit;
 
 	ctx = eth_qos_mgr_get_or_create_ctx_locked(ndev);
 	if (IS_ERR(ctx))
 		return PTR_ERR(ctx);
 
-	/* Validate the TX queue/channel resources before enabling CBS. */
+	/* Validate the TX queue/channel resources before programming. */
 	ret = eth_qos_mgr_validate_tx_queue(ctx, queue);
 	if (ret)
 		goto out_unlock;
@@ -1497,42 +1580,53 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 etc, u32 q
 	}
 
 	/*
-	 * Program the stmmac CBS shaper first; when the flow uses the hardware
-	 * path, also mirror the traffic-class mapping into IOSS.
+	 * Program the queue first -- with a shaper, or mapping-only when no
+	 * bandwidth was supplied. When the flow uses the hardware path, also
+	 * mirror the traffic-class mapping into IOSS.
 	 */
-	ret = eth_qos_mgr_config_cbs(ndev, true, sendslope, idleslope, hicredit, locredit,
-				    queue, etc);
+	if (no_bw)
+		ret = eth_qos_mgr_set_q2tc_map(ndev, queue, etc);
+	else
+		ret = eth_qos_mgr_config_cbs(ndev, true, sendslope, idleslope,
+					     hicredit, locredit, queue, etc);
 	if (ret)
 		goto err_free_entry;
-	eth_qos_log_cfg(&ndev->dev,
-			"eth_qos_mgr: configured CBS hid=%u queue=%u ch=%u tc=%u idle=%d send=%d hi=%d lo=%d",
-			hid, queue, ch, tc, idleslope, sendslope, hicredit, locredit);
+
+	if (no_bw)
+		eth_qos_log_cfg(&ndev->dev,
+				"eth_qos_mgr: configured no-BW TC hid=%u queue=%u ch=%u tc=%u etc=%u",
+				hid, queue, ch, tc, etc);
+	else
+		eth_qos_log_cfg(&ndev->dev,
+				"eth_qos_mgr: configured CBS hid=%u queue=%u ch=%u tc=%u idle=%d send=%d hi=%d lo=%d",
+				hid, queue, ch, tc, idleslope, sendslope, hicredit, locredit);
 
 	if (hw_path) {
 		iface = ioss_netdev_to_iface(ndev);
 		if (!iface) {
 			ret = -ENODEV;
-			goto err_clear_cbs;
+			goto err_unprogram;
 		}
 
 		idev = ioss_iface_dev(iface);
 		if (!idev) {
 			ret = -ENODEV;
-			goto err_clear_cbs;
+			goto err_unprogram;
 		}
 
 		ret = ioss_ipa_set_tc_bmap(idev, false, ch, BIT(tc));
 		if (ret)
-			goto err_clear_cbs;
+			goto err_unprogram;
 		eth_qos_log_cfg(&ndev->dev,
 				"eth_qos_mgr: configured IOSS TC bitmap hid=%u tc=%u ch=%u",
 				hid, tc, ch);
 	}
 
 
-	/* Persist the CBS configuration so it can be dumped/replayed later. */
+	/* Persist the configuration so it can be dumped/replayed later. */
 	ctx->tx.cbs_table[queue].used = true;
 	ctx->tx.cbs_table[queue].hw_path = hw_path;
+	ctx->tx.cbs_table[queue].no_bw = no_bw;
 	ctx->tx.cbs_table[queue].tc = tc;
 	ctx->tx.cbs_table[queue].etc = etc;
 	ctx->tx.cbs_table[queue].queue = queue;
@@ -1548,16 +1642,26 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 etc, u32 q
 	entry->ch = ch;
 	entry->hw_path = hw_path;
 	entry->u.cbs.hw_path = hw_path;
+	entry->u.cbs.no_bw = no_bw;
 	eth_qos_mgr_set_tx_q_ch_status(ctx, queue, ch, entry->type, hw_path);
 
-	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: added CBS hid=%u queue=%u ch=%u tc=%u path=%s",
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: added %s hid=%u queue=%u ch=%u tc=%u path=%s",
+			no_bw ? "no-BW TC" : "CBS",
 			hid, queue, ch, tc, hw_path ? "hw" : "sw");
 
 	ret = 0;
 	goto out_unlock;
 
-err_clear_cbs:
-	eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, queue, etc);
+err_unprogram:
+	/*
+	 * Undo the programming above. For an unshaped TC that means reverting
+	 * to the identity Q2TC mapping (what stmmac itself uses when CBS is
+	 * disabled); for a shaped one, disabling the shaper.
+	 */
+	if (no_bw)
+		eth_qos_mgr_set_q2tc_map(ndev, queue, queue);
+	else
+		eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, queue, etc);
 err_free_entry:
 	list_del(&entry->list);
 	kfree(entry);
@@ -1655,9 +1759,21 @@ int eth_qos_mgr_del(struct net_device *ndev, u32 hid)
 		}
 		break;
 	case ETH_QOS_FILTER_CBS:
-		/* Reset the shaper programming, then clear the cached CBS profile. */
-		ret = eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, entry->queue, entry->etc);
-		eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: deleting CBS filter with hid=%u on queue=%u ch=%u ret=%d\n",
+		/*
+		 * Reset the programming, then clear the cached profile. A no-BW
+		 * TC never installed a shaper, so only its queue -> ETC mapping
+		 * is reverted to identity; calling config_cbs(enable=false)
+		 * would also work (tc_setup_cbs() skips rate validation when
+		 * disabling) but would touch a shaper that was never programmed.
+		 */
+		if (entry->u.cbs.no_bw)
+			ret = eth_qos_mgr_set_q2tc_map(ndev, entry->queue,
+						       entry->queue);
+		else
+			ret = eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0,
+						     entry->queue, entry->etc);
+		eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: deleting %s filter with hid=%u on queue=%u ch=%u ret=%d\n",
+			    entry->u.cbs.no_bw ? "no-BW TC" : "CBS",
 			    entry->hid, entry->queue, entry->ch, ret);
 		if (!ret && entry->u.cbs.hw_path) {
 			ret = eth_qos_mgr_clear_tx_ipa_tc_bmap(ndev, entry->ch);
