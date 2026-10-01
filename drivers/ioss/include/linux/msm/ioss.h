@@ -436,6 +436,10 @@ struct ioss_device {
 		u64 runtime_resume;
 		u64 nop_runtime_suspend;
 		u64 nop_runtime_resume;
+		u64 nop_noirq_suspend;
+		u64 nop_noirq_resume;
+		u64 system_noirq_suspend;
+		u64 system_noirq_resume;
 	} pm_stats;
 
 	u32 rx_api_managed_mask;

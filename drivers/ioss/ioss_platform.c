@@ -333,12 +333,76 @@ static int ioss_plat_runtime_idle_handler(struct device *dev)
 			ioss_plat_real_runtime_idle(dev);
 }
 
+static int ioss_plat_nop_noirq_suspend(struct ioss_device *idev)
+{
+	idev->pm_stats.nop_noirq_suspend++;
+
+	ioss_dev_dbg(idev, "Device noirq suspend performing nop");
+	return 0;
+}
+
+static int ioss_plat_real_noirq_suspend(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+	const struct dev_pm_ops *real_pm_ops = __real_pm_ops(dev);
+
+	if (idev)
+		idev->pm_stats.system_noirq_suspend++;
+
+	if (real_pm_ops && real_pm_ops->suspend_noirq)
+		return real_pm_ops->suspend_noirq(dev);
+
+	return 0;
+}
+
+static int ioss_plat_nop_noirq_resume(struct ioss_device *idev)
+{
+	idev->pm_stats.nop_noirq_resume++;
+
+	ioss_dev_dbg(idev, "Device noirq resume performing nop");
+	return 0;
+}
+
+static int ioss_plat_real_noirq_resume(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+	const struct dev_pm_ops *real_pm_ops = __real_pm_ops(dev);
+
+	if (idev)
+		idev->pm_stats.system_noirq_resume++;
+
+	if (real_pm_ops && real_pm_ops->resume_noirq)
+		return real_pm_ops->resume_noirq(dev);
+
+	return 0;
+}
+
+static int ioss_plat_noirq_suspend_handler(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+
+	return (idev && idev->interface.state == IOSS_IF_ST_ONLINE) ?
+			ioss_plat_nop_noirq_suspend(idev) :
+			ioss_plat_real_noirq_suspend(dev);
+}
+
+static int ioss_plat_noirq_resume_handler(struct device *dev)
+{
+	struct ioss_device *idev = ioss_real_to_idev(dev);
+
+	return (idev && idev->interface.state == IOSS_IF_ST_ONLINE) ?
+			ioss_plat_nop_noirq_resume(idev) :
+			ioss_plat_real_noirq_resume(dev);
+}
+
 static const struct dev_pm_ops __ioss_plat_pm_ops = {
-	.suspend = ioss_plat_suspend_handler,
-	.resume = ioss_plat_resume_handler,
+	.suspend         = ioss_plat_suspend_handler,
+	.resume          = ioss_plat_resume_handler,
+	.suspend_noirq   = ioss_plat_noirq_suspend_handler,
+	.resume_noirq    = ioss_plat_noirq_resume_handler,
 	.runtime_suspend = ioss_plat_runtime_suspend_handler,
-	.runtime_resume = ioss_plat_runtime_resume_handler,
-	.runtime_idle = ioss_plat_runtime_idle_handler,
+	.runtime_resume  = ioss_plat_runtime_resume_handler,
+	.runtime_idle    = ioss_plat_runtime_idle_handler,
 };
 
 int ioss_plat_register_driver(struct ioss_driver *idrv, struct module *owner)
