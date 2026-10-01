@@ -8,6 +8,7 @@
 
 #include <linux/list.h>
 #include <linux/bitops.h>
+#include <linux/completion.h>
 #include <linux/ipc_logging.h>
 #include <linux/scatterlist.h>
 
@@ -172,6 +173,12 @@ struct ioss {
 	void *ioss_priv;
 
 	unsigned long status;
+
+	/* Signalled once the IPA ready callback has finished running, so
+	 * that the refresh worker does not race with IPA/platform/PCI
+	 * sub-system start up.
+	 */
+	struct completion ipa_ready_comp;
 };
 
 struct ioss_driver;

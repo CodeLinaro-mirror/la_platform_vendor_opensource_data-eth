@@ -895,6 +895,14 @@ static void __ioss_refresh(struct ioss_interface *iface)
 static void ioss_refresh_work(struct work_struct *work)
 {
 	struct ioss_interface *iface = ioss_refresh_work_to_iface(work);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	/* Make sure the IPA ready callback has finished starting the
+	 * PCI/Platform sub-systems before this worker touches any
+	 * interface/channel state that it sets up, and before taking
+	 * the rtnl lock below.
+	 */
+	wait_for_completion(&idev->root->ipa_ready_comp);
 
 	/* Keep the lock order consistent with ethtool: rtnl -> refresh_lock. */
 	rtnl_lock();
