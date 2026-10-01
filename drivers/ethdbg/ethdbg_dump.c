@@ -5,13 +5,32 @@
 #include <linux/panic_notifier.h>
 #include <linux/list.h>
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 #include <linux/io.h>
 #include <linux/netdevice.h>
+#include <linux/of.h>
 #include <linux/phy.h>
 #include "ethdbg.h"
 #include "ethdbg_regs.h"
-
 #define REG_SIZE 4
+
+/*
+ * ethdbg_dev_is_stmmac - same compatibility check register_interface_device()
+ * uses to gate ethdbg_device creation; kept here too so the stmmac-specific
+ * dump APIs are only invoked for net_devices that went through that gate.
+ */
+static bool ethdbg_dev_is_stmmac(struct net_device *net_dev)
+{
+	struct device *parent_dev;
+
+	if (!net_dev)
+		return false;
+
+	parent_dev = net_dev->dev.parent;
+
+	return parent_dev && parent_dev->of_node &&
+	       of_device_is_compatible(parent_dev->of_node, "qcom,echo-ethqos");
+}
 
 /* Module param to enable capture_phy */
 static bool capture_phy_on_panic;
@@ -74,6 +93,8 @@ static void ethdbg_capture_hw_block(struct ethdbg_hw_block *block,
 	const struct ethdbg_hw_desc *hw_desc;
 
 	hw_desc = ethdbg_find_hw_desc(block->map->name);
+	if (!hw_desc)
+		return;
 	ethdbg_capture_regs(block, hw_desc, interface_name);
 }
 
@@ -107,7 +128,11 @@ static int ethdbg_panic_notifier(struct notifier_block *nb,
 	struct ethdbg_interface *iface;
 
 	list_for_each_entry(iface, &ethdbg_interfaces, list) {
+		if (!iface->device)
+			continue;
+
 		ethdbg_dump_device(iface->device);
+		ethdbg_dump_device_qos(iface->device, true);
 		/* PHY capture during panic is disabled by default;
 		 * MDIO accesses may sleep or take locks that are unsafe in panic context.
 		 */
@@ -172,12 +197,11 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 
 		if (reg_desc->start_offset >= map->size || reg_desc->end_offset >= map->size)
 			pr_warn("[%s][%s] Register range [0x%x-0x%x] outside mapped region "
-				"(size: 0x%llx)\n", interface_name, map->name,
+				"(size: 0x%lx)\n", interface_name, map->name,
 				reg_desc->start_offset, reg_desc->end_offset, map->size);
 	}
 
-	hw_block->reg_list = kzalloc(PAGE_ALIGN(num_registers * sizeof(struct ethdbg_reg_entry)),
-								 GFP_KERNEL);
+	hw_block->reg_list = vzalloc(PAGE_ALIGN(num_registers * sizeof(struct ethdbg_reg_entry)));
 	if (!hw_block->reg_list) {
 		pr_err("[%s][%s] Failed to allocate register list\n", interface_name, map->name);
 		return -ENOMEM;
@@ -186,7 +210,9 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 	hw_block->base = ioremap(map->base_addr, map->size);
 	if (!hw_block->base) {
 		pr_err("[%s][%s] Failed to ioremap\n", interface_name, map->name);
-		goto err_free_reg_list;
+		vfree(hw_block->reg_list);
+		hw_block->reg_list = NULL;
+		return -ENXIO;
 	}
 
 	hw_block->num_registers = num_registers;
@@ -195,11 +221,6 @@ static int ethdbg_init_hw_block(struct ethdbg_hw_block *hw_block,
 	hw_block->map = map;
 
 	return 0;
-
-err_free_reg_list:
-	kfree(hw_block->reg_list);
-	hw_block->reg_list = NULL;
-	return -ENOMEM;
 }
 
 static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
@@ -208,6 +229,7 @@ static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 	struct ethdbg_dump_data *dump_data = &dev->dump_data;
 	struct ethdbg_map *map;
 	const struct ethdbg_hw_desc *hw_desc;
+	struct ethdbg_hw_block *block;
 	int hw_block_idx = 0, ret;
 
 	list_for_each_entry(map, &dev->map_regions, list) {
@@ -217,17 +239,44 @@ static int ethdbg_setup_dump_blocks(struct ethdbg_device *dev,
 
 		ret = ethdbg_init_hw_block(&dump_data->blocks[hw_block_idx], map,
 					   hw_desc, interface_name);
-		if (ret == 0)
-			hw_block_idx++;
+		if (ret)
+			continue;
+
+		block = &dump_data->blocks[hw_block_idx];
+
+		/* reg_list is vmalloc'd: added to VA-minidump at panic time
+		 * (see ethdbg_va_md_add_dump_regions()), name computed here.
+		 */
+		scnprintf(block->md_name, sizeof(block->md_name), "%s_reg%u", interface_name, map->index);
+
+		/* block->map is kzalloc'd, so it stays an msm_minidump region.
+		 * Registered as eth0_map<index> to resolve index to region name
+		 * during postprocessing. add_region() returns >= 0 on success
+		 * (a pending-list index while probing); only < 0 is a failure.
+		 */
+		scnprintf(block->md_map_name, sizeof(block->md_map_name), "%s_map%u", interface_name, map->index);
+		ret = ethdbg_minidump_add_region(block->md_map_name, (uintptr_t)block->map,
+						 sizeof(struct ethdbg_map));
+		block->minidump_registered = (ret >= 0);
+		if (ret < 0)
+			pr_warn("ethdbg: [%s][%s] minidump registration failed, ret=%d\n",
+				interface_name, map->name, ret);
+
+		hw_block_idx++;
 	}
 
 	return hw_block_idx;
 }
 
-int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name)
+int ethdbg_dump_register(struct ethdbg_interface *iface)
 {
+	struct ethdbg_device *dev = iface->device;
+	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data;
 	int block_count;
+
+	if (ethdbg_dev_is_stmmac(dev->net_dev))
+		ethdbg_stmmac_dump_register(iface);
 
 	memset(&dev->dump_data, 0, sizeof(dev->dump_data));
 	dump_data = &dev->dump_data;
@@ -243,15 +292,23 @@ int ethdbg_dump_register(struct ethdbg_device *dev, const char *interface_name)
 		return -ENOMEM;
 
 	dump_data->num_blocks = ethdbg_setup_dump_blocks(dev, interface_name);
-	ethdbg_minidump_register(dev, interface_name);
-	ethdbg_stmmac_minidump_register(dev, interface_name);
+
 	return 0;
 }
 
+/*
+ * ethdbg_dump_unregister - by the time this runs, dump_data->blocks never
+ * contains PHY blocks: unregister_interface() always tears those down via
+ * unregister_interface_phy()/ethdbg_dump_unregister_phy() first, and the
+ * error-unwind caller in register_interface_device() runs before PHY
+ * registration ever happens. So every block here is MMIO.
+ *
+ * block->map is still valid: it is only freed by free_map_regions(), which
+ * runs after this function returns (see unregister_interface()).
+ */
 void ethdbg_dump_unregister(struct ethdbg_interface *iface)
 {
 	struct ethdbg_device *dev = iface->device;
-	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data;
 	int i;
 
@@ -259,13 +316,20 @@ void ethdbg_dump_unregister(struct ethdbg_interface *iface)
 	if (!dump_data->blocks)
 		return;
 
-	ethdbg_stmmac_minidump_unregister(dev, interface_name);
-	ethdbg_minidump_unregister(dev, interface_name);
+	if (ethdbg_dev_is_stmmac(dev->net_dev))
+		ethdbg_stmmac_dump_unregister(iface);
 
 	for (i = 0; i < dump_data->num_blocks; i++) {
-		if (!dump_data->blocks[i].is_phy)
-			iounmap(dump_data->blocks[i].base);
-		kfree(dump_data->blocks[i].reg_list);
+		struct ethdbg_hw_block *block = &dump_data->blocks[i];
+
+		if (block->minidump_registered) {
+			ethdbg_minidump_remove_region(block->md_map_name, (uintptr_t)block->map,
+						      sizeof(struct ethdbg_map));
+			block->minidump_registered = false;
+		}
+
+		iounmap(block->base);
+		vfree(block->reg_list);
 	}
 
 	kfree(dump_data->blocks);
@@ -304,6 +368,23 @@ static void ethdbg_populate_c22_offsets(struct ethdbg_hw_block *block,
 	}
 }
 
+/*
+ * ethdbg_populate_indirect_offsets - pre-populate reg_list[].offset for a
+ * QoS indirect block at registration time.
+ *
+ * Each reg_desc entry has start_offset == end_offset == ETHDBG_IND_OFFSET(idx, reg_id).
+ * We copy every encoded offset straight into reg_list[], one entry per descriptor
+ * row, mirroring how ethdbg_populate_c22_offsets() works for PHY blocks.
+ */
+static void ethdbg_populate_indirect_offsets(struct ethdbg_hw_block *block,
+					     const struct ethdbg_hw_desc *desc)
+{
+	unsigned int i;
+
+	for (i = 0; i < desc->num_reg_desc && i < block->num_registers; i++)
+		block->reg_list[i].offset = desc->reg_desc[i].start_offset;
+}
+
 static int ethdbg_alloc_phy_block(struct ethdbg_hw_block *block,
 				  const struct ethdbg_hw_desc *desc)
 {
@@ -311,7 +392,7 @@ static int ethdbg_alloc_phy_block(struct ethdbg_hw_block *block,
 
 	num_regs = ethdbg_count_phy_regs(desc->reg_desc, desc->num_reg_desc, desc->is_c45);
 
-	block->reg_list = kzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)), GFP_KERNEL);
+	block->reg_list = vzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)));
 	if (!block->reg_list)
 		return -ENOMEM;
 
@@ -363,6 +444,7 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 	const char *interface_name = iface->interface_name;
 	struct ethdbg_dump_data *dump_data = &dev->dump_data;
 	const struct ethdbg_hw_desc *vendor_desc;
+	struct ethdbg_hw_block *block;
 	struct phy_device *phydev;
 	u32 phy_id;
 	int ret;
@@ -390,34 +472,86 @@ int ethdbg_dump_register_phy(struct ethdbg_interface *iface)
 				     common_desc);
 	if (ret)
 		return ret;
-	dump_data->num_blocks++;
+	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks + 1);
+
+	/* PHY reg_list is vmalloc'd: added to VA-minidump at panic time,
+	 * name computed here.
+	 */
+	block = &dump_data->blocks[dump_data->num_blocks - 1];
+	scnprintf(block->md_name, sizeof(block->md_name), "%s_phyreg%u", interface_name, 0);
 
 	ret = ethdbg_alloc_phy_block(&dump_data->blocks[dump_data->num_blocks],
 				     vendor_desc);
 	if (ret) {
-		kfree(dump_data->blocks[dump_data->num_blocks - 1].reg_list);
+		vfree(dump_data->blocks[dump_data->num_blocks - 1].reg_list);
 		dump_data->blocks[dump_data->num_blocks - 1].reg_list = NULL;
-		dump_data->num_blocks--;
+		smp_store_release(&dump_data->num_blocks, dump_data->num_blocks - 1);
 		return ret;
 	}
-	dump_data->num_blocks++;
+	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks + 1);
 
-	ethdbg_minidump_register(dev, interface_name);
+	block = &dump_data->blocks[dump_data->num_blocks - 1];
+	scnprintf(block->md_name, sizeof(block->md_name), "%s_phyreg%u", interface_name, 1);
+
 	return 0;
+}
+
+/*
+ * ethdbg_dump_unregister_phy - tear down the PHY dump blocks on NETDEV_DOWN
+ * so they can be safely re-allocated with fresh values on the next
+ * NETDEV_UP, instead of freezing the captured PHY set at first link-up.
+ *
+ * PHY blocks are always allocated as an all-or-nothing pair (common +
+ * vendor), always appended after every MMIO block, so whenever they exist
+ * they are unconditionally the last two entries in dump_data->blocks[].
+ *
+ * num_blocks is shrunk (via smp_store_release) before either reg_list is
+ * freed, so a concurrent panic notifier reading it with smp_load_acquire()
+ * (ethdbg_dump_device_phy(), ethdbg_va_md_add_dump_regions()) never sees a
+ * bound that includes a freed slot.
+ */
+void ethdbg_dump_unregister_phy(struct ethdbg_interface *iface)
+{
+	struct ethdbg_device *dev = iface->device;
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	struct ethdbg_hw_block *vendor, *common;
+
+	if (dump_data->num_blocks < 2 ||
+	    !dump_data->blocks[dump_data->num_blocks - 1].is_phy)
+		return;
+
+	vendor = &dump_data->blocks[dump_data->num_blocks - 1];
+	common = &dump_data->blocks[dump_data->num_blocks - 2];
+
+	smp_store_release(&dump_data->num_blocks, dump_data->num_blocks - 2);
+
+	vfree(vendor->reg_list);
+	vendor->reg_list = NULL;
+	vfree(common->reg_list);
+	common->reg_list = NULL;
 }
 
 void ethdbg_dump_device_phy(struct ethdbg_device *dev)
 {
-	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	struct ethdbg_dump_data *dump_data;
 	struct phy_device *phydev;
+	unsigned int num_blocks;
 	unsigned int i;
 
 	if (!dev->net_dev || !dev->net_dev->phydev)
 		return;
 
+	dump_data = &dev->dump_data;
 	phydev = dev->net_dev->phydev;
 
-	for (i = 0; i < dump_data->num_blocks; i++) {
+	/*
+	 * Acquire-load: pairs with the smp_store_release() in
+	 * ethdbg_dump_unregister_phy()/ethdbg_dump_register_phy() so this
+	 * never iterates into a slot whose reg_list has since been freed.
+	 */
+	num_blocks = smp_load_acquire(&dump_data->num_blocks);
+
+	for (i = 0; i < num_blocks; i++) {
 		struct ethdbg_hw_block *block = &dump_data->blocks[i];
 
 		if (!block->is_phy || !block->reg_list)
@@ -427,6 +561,47 @@ void ethdbg_dump_device_phy(struct ethdbg_device *dev)
 
 		pr_info("ethdbg: [%s] captured %u PHY regs for %s\n",
 			dev->net_dev->name, block->num_captured, block->name);
+	}
+}
+
+/*
+ * ethdbg_va_md_add_dump_regions - hand every reg_list buffer to VA-minidump.
+ *
+ * reg_list is vmalloc'd, so it cannot be an msm_minidump region. Must only be
+ * called from the VA-minidump notifier; qcom_va_md_add_region() returns -EINVAL
+ * outside the VA-MD oops handler.
+ *
+ * Panic ordering on panic_notifier_list (higher priority first):
+ *   ethdbg_panic_nb          INT_MAX      captures registers into reg_list
+ *   qcom_va_md_panic_blk     INT_MAX - 4  runs this via the notifier
+ *   qcom_va_md_elf_panic_blk INT_MAX - 5  copies reg_list into the ELF payload
+ *
+ * num_blocks is read with smp_load_acquire() to pair with the release-stores in
+ * ethdbg_dump_register_phy()/unregister_phy(), so a PHY teardown racing with a
+ * panic cannot expose a freed slot.
+ */
+void ethdbg_va_md_add_dump_regions(struct ethdbg_device *dev)
+{
+	struct ethdbg_dump_data *dump_data = &dev->dump_data;
+	unsigned int i, num_blocks;
+
+	if (!dump_data->blocks)
+		return;
+
+	num_blocks = smp_load_acquire(&dump_data->num_blocks);
+
+	for (i = 0; i < num_blocks; i++) {
+		struct ethdbg_hw_block *block = &dump_data->blocks[i];
+		int ret;
+
+		if (!block->reg_list || !block->num_registers || !block->md_name[0])
+			continue;
+
+		ret = ethdbg_va_md_add_region(block->md_name, (unsigned long)block->reg_list,
+					      block->num_registers * sizeof(struct ethdbg_reg_entry));
+		if (ret)
+			pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
+			       block->md_name, ret);
 	}
 }
 
@@ -446,4 +621,206 @@ int ethdbg_panic_init(void)
 void ethdbg_panic_deinit(void)
 {
 	atomic_notifier_chain_unregister(&panic_notifier_list, &ethdbg_panic_nb);
+}
+
+/*
+ * ethdbg_alloc_indirect_block - allocate and initialise a QoS indirect
+ * hw_block.  Mirrors ethdbg_alloc_phy_block() for PHY blocks.
+ *
+ * @block:      pre-zeroed hw_block slot to initialise
+ * @desc:       hw_desc for this indirect block (qos-vlan or qos-l3l4)
+ * @base:       ioremap base shared with the direct block (stmmaceth)
+ */
+static int ethdbg_alloc_indirect_block(struct ethdbg_hw_block *block,
+				       const struct ethdbg_hw_desc *desc,
+				       void __iomem *base)
+{
+	unsigned int num_regs = desc->num_reg_desc; /* one entry per descriptor row */
+
+	block->reg_list = vzalloc(PAGE_ALIGN(num_regs * sizeof(struct ethdbg_reg_entry)));
+	if (!block->reg_list)
+		return -ENOMEM;
+
+	block->num_registers = num_regs;
+	block->base          = base;   /* borrowed — do NOT iounmap this block */
+	block->map           = NULL;   /* no ethdbg_map; base is shared */
+	block->name          = desc->name;
+
+	/* Pre-populate offsets at registration time; values filled at capture time */
+	ethdbg_populate_indirect_offsets(block, desc);
+
+	return 0;
+}
+
+/*
+ * ethdbg_dump_register_qos - Allocate and initialise all QoS capture blocks:
+ *   blocks[0] = direct  (MMIO, existing path)
+ *   blocks[1] = VLAN indirect
+ *   blocks[2] = L3/L4 indirect
+ */
+int ethdbg_dump_register_qos(struct ethdbg_device *dev, const char *interface_name)
+{
+	const struct ethdbg_hw_desc *direct_desc, *vlan_desc, *l3l4_desc;
+	struct ethdbg_dump_data *qos_data = &dev->qos_dump_data;
+	struct ethdbg_map *map, *stmmac_map = NULL;
+	void __iomem *shared_base;
+	int ret;
+
+	memset(qos_data, 0, sizeof(*qos_data));
+
+	/* Find the stmmaceth map — all QoS registers share that base address */
+	list_for_each_entry(map, &dev->map_regions, list) {
+		if (map->name && strcmp(map->name, "stmmaceth") == 0) {
+			stmmac_map = map;
+			break;
+		}
+	}
+	if (!stmmac_map) {
+		pr_warn("ethdbg: [%s] stmmaceth map not found, skipping QoS dump\n",
+			interface_name);
+		return 0;
+	}
+
+	direct_desc = ethdbg_find_hw_desc("qos-stmmac");
+	vlan_desc   = ethdbg_find_hw_desc("qos-vlan");
+	l3l4_desc   = ethdbg_find_hw_desc("qos-l3l4");
+	if (!direct_desc || !vlan_desc || !l3l4_desc) {
+		pr_warn("ethdbg: [%s] QoS hw_desc missing, skipping QoS dump\n",
+			interface_name);
+		return 0;
+	}
+
+	/* 3 slots: direct + vlan + l3l4 */
+	qos_data->blocks = kzalloc(3 * sizeof(struct ethdbg_hw_block), GFP_KERNEL);
+	if (!qos_data->blocks)
+		return -ENOMEM;
+
+	/* blocks[0]: direct MMIO — uses ethdbg_init_hw_block (ioremap inside) */
+	ret = ethdbg_init_hw_block(&qos_data->blocks[0], stmmac_map,
+				   direct_desc, interface_name);
+	if (ret)
+		goto err_free_blocks;
+
+	/*
+	 * Borrow the ioremap base from blocks[0] for the indirect blocks.
+	 * Both indirect blocks share the same MMIO window; they must not
+	 * iounmap it — that is handled by blocks[0] in unregister.
+	 */
+	shared_base = qos_data->blocks[0].base;
+
+	/* blocks[1]: VLAN indirect */
+	ret = ethdbg_alloc_indirect_block(&qos_data->blocks[1], vlan_desc,
+					  shared_base);
+	if (ret)
+		goto err_free_direct;
+
+	/* blocks[2]: L3/L4 indirect */
+	ret = ethdbg_alloc_indirect_block(&qos_data->blocks[2], l3l4_desc,
+					  shared_base);
+	if (ret)
+		goto err_free_vlan;
+
+	qos_data->num_blocks = 3;
+	return 0;
+
+err_free_vlan:
+	vfree(qos_data->blocks[1].reg_list);
+	qos_data->blocks[1].reg_list = NULL;
+	qos_data->blocks[1].base = NULL;
+err_free_direct:
+	iounmap(qos_data->blocks[0].base);
+	qos_data->blocks[0].base = NULL;
+	vfree(qos_data->blocks[0].reg_list);
+	qos_data->blocks[0].reg_list = NULL;
+err_free_blocks:
+	kfree(qos_data->blocks);
+	qos_data->blocks = NULL;
+	return ret;
+}
+
+/*
+ * ethdbg_dump_unregister_qos - Release resources allocated by
+ * ethdbg_dump_register_qos().
+ *
+ * blocks[0] owns the ioremap; blocks[1] and blocks[2] borrow it.
+ * Only iounmap blocks[0].base.
+ */
+void ethdbg_dump_unregister_qos(struct ethdbg_device *dev)
+{
+	struct ethdbg_dump_data *qos_data = &dev->qos_dump_data;
+	int i;
+
+	if (!qos_data->blocks)
+		return;
+
+	for (i = 0; i < qos_data->num_blocks; i++) {
+		/* Only the direct block (index 0) owns the ioremap base */
+		if (i == 0 && qos_data->blocks[0].base)
+			iounmap(qos_data->blocks[0].base);
+		qos_data->blocks[i].base = NULL;
+		vfree(qos_data->blocks[i].reg_list);
+		qos_data->blocks[i].reg_list = NULL;
+	}
+
+	kfree(qos_data->blocks);
+	qos_data->blocks = NULL;
+	qos_data->num_blocks = 0;
+}
+
+/*
+ * ethdbg_dump_device_qos - Capture QoS registers.
+ *
+ *   blocks[0]: direct MMIO   — always captured (safe in any context)
+ *   blocks[1]: VLAN indirect  — skipped when panic_mode=true (requires clocks)
+ *   blocks[2]: L3/L4 indirect — skipped when panic_mode=true (requires clocks)
+ */
+void ethdbg_dump_device_qos(struct ethdbg_device *dev, bool panic_mode)
+{
+	struct ethdbg_dump_data *qos_data = &dev->qos_dump_data;
+	const struct ethdbg_hw_desc *hw_desc;
+	struct ethdbg_hw_block *block;
+	unsigned int i;
+
+	if (!qos_data->blocks || qos_data->num_blocks < 1)
+		return;
+
+	/* blocks[0]: direct MMIO */
+	block   = &qos_data->blocks[0];
+	hw_desc = ethdbg_find_hw_desc("qos-stmmac");
+	if (hw_desc && block->reg_list && block->base)
+		ethdbg_capture_regs(block, hw_desc, dev->net_dev->name);
+
+	if (panic_mode)
+		return;
+
+	if (qos_data->num_blocks < 3)
+		return;
+
+	/* blocks[1]: VLAN indirect */
+	block = &qos_data->blocks[1];
+	if (block->reg_list) {
+		block->num_captured = 0;
+		for (i = 0; i < block->num_registers; i++) {
+			u32 idx = ETHDBG_IND_IDX(block->reg_list[i].offset);
+
+			block->reg_list[i].value =
+				ethdbg_read_vlan_indirect(block->base, idx);
+			block->num_captured++;
+		}
+	}
+
+	/* blocks[2]: L3/L4 indirect */
+	block = &qos_data->blocks[2];
+	if (block->reg_list) {
+		block->num_captured = 0;
+		for (i = 0; i < block->num_registers; i++) {
+			u32 encoded = block->reg_list[i].offset;
+			u32 idx     = ETHDBG_IND_IDX(encoded);
+			u32 reg_id  = ETHDBG_IND_REG(encoded);
+
+			block->reg_list[i].value =
+				ethdbg_read_l3l4_indirect(block->base, idx, reg_id);
+			block->num_captured++;
+		}
+	}
 }

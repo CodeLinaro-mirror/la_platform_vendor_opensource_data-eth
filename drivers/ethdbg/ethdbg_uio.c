@@ -37,6 +37,16 @@ static void free_phy_map_names(struct ethdbg_device *dev)
 	}
 }
 
+static void free_qos_map_names(struct ethdbg_device *dev)
+{
+	int i;
+
+	for (i = 0; i < MAX_UIO_MAPS; i++) {
+		kfree(dev->qos_uio_info.mem[i].name);
+		dev->qos_uio_info.mem[i].name = NULL;
+	}
+}
+
 static int set_map_info(struct ethdbg_device *dev)
 {
 	struct ethdbg_dump_data *dump_data = &dev->dump_data;
@@ -65,7 +75,7 @@ static int set_map_info(struct ethdbg_device *dev)
 
 		dev->dump_uio_info.mem[i].addr = (phys_addr_t)(uintptr_t)dump_data->blocks[i].reg_list;
 		dev->dump_uio_info.mem[i].size = dump_data->blocks[i].num_registers * sizeof(struct ethdbg_reg_entry);
-		dev->dump_uio_info.mem[i].memtype = UIO_MEM_LOGICAL;
+		dev->dump_uio_info.mem[i].memtype = UIO_MEM_VIRTUAL;
 
 		i++;
 	}
@@ -96,7 +106,7 @@ static int set_phy_map_info(struct ethdbg_device *dev)
 		}
 		dev->phy_uio_info.mem[idx].addr    = (phys_addr_t)(uintptr_t)dump_data->blocks[i].reg_list;
 		dev->phy_uio_info.mem[idx].size    = dump_data->blocks[i].num_registers * sizeof(struct ethdbg_reg_entry);
-		dev->phy_uio_info.mem[idx].memtype = UIO_MEM_LOGICAL;
+		dev->phy_uio_info.mem[idx].memtype = UIO_MEM_VIRTUAL;
 		idx++;
 	}
 
@@ -117,6 +127,63 @@ static int ethdbg_uio_open(struct uio_info *info, struct inode *inode)
 	struct ethdbg_device *dev = container_of(info, struct ethdbg_device, dump_uio_info);
 
 	ethdbg_dump_device(dev);
+
+	return 0;
+}
+
+/*
+ * set_qos_map_info - Populate the QoS UIO mem[] slot.
+ *
+ *   map[0] "dump:qos-stmmac"   - direct-access QoS registers
+ *   map[1] "dump:qos-vlan"     - VLAN filter indirect registers
+ *   map[2] "dump:qos-l3l4"     - L3/L4 filter indirect registers
+ */
+static int set_qos_map_info(struct ethdbg_device *dev)
+{
+	struct ethdbg_hw_block *direct = &dev->qos_dump_data.blocks[0];
+	struct ethdbg_hw_block *vlan   = &dev->qos_dump_data.blocks[1];
+	struct ethdbg_hw_block *l3l4   = &dev->qos_dump_data.blocks[2];
+
+	/* map[0]: direct */
+	dev->qos_uio_info.mem[0].name = kstrdup("dump:qos-stmmac", GFP_KERNEL);
+	if (!dev->qos_uio_info.mem[0].name)
+		return -ENOMEM;
+	dev->qos_uio_info.mem[0].addr    = (phys_addr_t)(uintptr_t)direct->reg_list;
+	dev->qos_uio_info.mem[0].size    = direct->num_registers * sizeof(struct ethdbg_reg_entry);
+	dev->qos_uio_info.mem[0].memtype = UIO_MEM_VIRTUAL;
+
+	/* map[1]: VLAN indirect */
+	dev->qos_uio_info.mem[1].name = kstrdup("dump:qos-vlan", GFP_KERNEL);
+	if (!dev->qos_uio_info.mem[1].name)
+		goto err_free_0;
+	dev->qos_uio_info.mem[1].addr    = (phys_addr_t)(uintptr_t)vlan->reg_list;
+	dev->qos_uio_info.mem[1].size    = vlan->num_registers * sizeof(struct ethdbg_reg_entry);
+	dev->qos_uio_info.mem[1].memtype = UIO_MEM_VIRTUAL;
+
+	/* map[2]: L3/L4 indirect */
+	dev->qos_uio_info.mem[2].name = kstrdup("dump:qos-l3l4", GFP_KERNEL);
+	if (!dev->qos_uio_info.mem[2].name)
+		goto err_free_1;
+	dev->qos_uio_info.mem[2].addr    = (phys_addr_t)(uintptr_t)l3l4->reg_list;
+	dev->qos_uio_info.mem[2].size    = l3l4->num_registers * sizeof(struct ethdbg_reg_entry);
+	dev->qos_uio_info.mem[2].memtype = UIO_MEM_VIRTUAL;
+
+	return 0;
+
+err_free_1:
+	kfree(dev->qos_uio_info.mem[1].name);
+	dev->qos_uio_info.mem[1].name = NULL;
+err_free_0:
+	kfree(dev->qos_uio_info.mem[0].name);
+	dev->qos_uio_info.mem[0].name = NULL;
+	return -ENOMEM;
+}
+
+static int ethdbg_qos_uio_open(struct uio_info *info, struct inode *inode)
+{
+	struct ethdbg_device *dev = container_of(info, struct ethdbg_device, qos_uio_info);
+
+	ethdbg_dump_device_qos(dev, false);
 
 	return 0;
 }
@@ -225,6 +292,54 @@ void ethdbg_uio_del(struct ethdbg_interface *iface)
 			 iface->interface_name);
 		uio_unregister_device(&dev->uio_info);
 	}
+}
+
+int ethdbg_uio_add_qos(struct ethdbg_interface *iface)
+{
+	struct ethdbg_device *dev = iface->device;
+	int ret;
+
+	/* Nothing to register if QoS blocks were not initialised */
+	if (!dev->qos_dump_data.blocks)
+		return 0;
+
+	dev->qos_uio_info.name    = dev->net_dev->name;
+	dev->qos_uio_info.version = ETHDBG_UIO_VERSION;
+	dev->qos_uio_info.open    = ethdbg_qos_uio_open;
+
+	ret = set_qos_map_info(dev);
+	if (ret) {
+		pr_err("ethdbg: [%s] failed to set QoS map info\n", iface->interface_name);
+		return ret;
+	}
+
+	ret = uio_register_device(&dev->net_dev->dev, &dev->qos_uio_info);
+	if (ret < 0) {
+		pr_err("ethdbg: [%s] failed to register QoS UIO device\n",
+		       iface->interface_name);
+		free_qos_map_names(dev);
+		return ret;
+	}
+
+	pr_info("ethdbg: [%s] QoS UIO device registered\n", iface->interface_name);
+	return 0;
+}
+
+void ethdbg_uio_del_qos(struct ethdbg_interface *iface)
+{
+	struct ethdbg_device *dev;
+
+	if (!iface || !iface->device)
+		return;
+
+	dev = iface->device;
+
+	if (dev->qos_uio_info.uio_dev) {
+		pr_info("ethdbg: [%s] unregistering QoS UIO device\n", iface->interface_name);
+		uio_unregister_device(&dev->qos_uio_info);
+	}
+
+	free_qos_map_names(dev);
 }
 
 MODULE_LICENSE("GPL");

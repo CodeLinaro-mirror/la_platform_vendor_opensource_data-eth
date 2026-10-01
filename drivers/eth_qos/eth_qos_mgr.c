@@ -17,6 +17,9 @@
 #include "stmmac_api.h"
 #include "dwxgmac2.h"
 
+#define ETH_QOS_PFC_PAUSE_TIME		256
+#define ETH_QOS_PFC_PLT	0x3	/* Pause Low Threshold: minus-144 slot times, per IEEE 802.3 */
+
 enum eth_qos_filter_type {
 	ETH_QOS_FILTER_NONE = 0,
 	ETH_QOS_FILTER_PCP,
@@ -82,6 +85,7 @@ struct eth_qos_cbs_entry {
 	bool used;
 	bool hw_path;
 	u32 tc;
+	u32 etc;
 	u32 queue;
 	u32 ch;
 	int idleslope;
@@ -95,6 +99,7 @@ struct eth_qos_hid_entry {
 	u32 hid;
 	u32 queue;
 	u32 tc;
+	u32 etc;
 	u32 ch;
 	bool hw_path;
 	enum eth_qos_filter_type type;
@@ -321,6 +326,28 @@ static struct eth_qos_mgr_ctx *eth_qos_mgr_get_existing_ctx_locked(struct net_de
 	return ctx;
 }
 
+#if STMMAC_API_VER >= 3
+static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send_slope,
+				  int idle_slope, int high_credit, int low_credit,
+				  u32 queue, u32 etc)
+{
+	return stmmac_api_config_cbs(ndev, enable, send_slope, idle_slope,
+				     high_credit, low_credit, queue, etc);
+}
+#else
+static int eth_qos_mgr_config_cbs(struct net_device *ndev, bool enable, int send_slope,
+				  int idle_slope, int high_credit, int low_credit,
+				  u32 queue, u32 etc)
+{
+	if (etc)
+		eth_qos_log_err(&ndev->dev,
+				"CBS ETC mapping requires STMMAC_API_VER >= 3 (cur=%d); queue=%u etc=%u ignored",
+				STMMAC_API_VER, queue, etc);
+	return stmmac_api_config_cbs(ndev, enable, send_slope, idle_slope,
+				     high_credit, low_credit, queue);
+}
+#endif
+
 static struct eth_qos_mgr_ctx *eth_qos_mgr_get_or_create_ctx_locked(struct net_device *ndev)
 {
 	struct stmmac_api_hw_caps caps;
@@ -476,6 +503,44 @@ static int eth_qos_mgr_validate_tx_q_ch_status(struct eth_qos_mgr_ctx *ctx, u32 
 	return 0;
 }
 
+static bool eth_qos_mgr_rx_pcp_in_use(struct eth_qos_mgr_ctx *ctx)
+{
+	u32 i;
+
+	for (i = 0; i < ARRAY_SIZE(ctx->rx.pcp_table); i++) {
+		if (ctx->rx.pcp_table[i].used)
+			return true;
+	}
+
+	return false;
+}
+
+static bool eth_qos_mgr_rx_pcp_in_use_except(struct eth_qos_mgr_ctx *ctx, u32 pcp)
+{
+	u32 i;
+
+	for (i = 0; i < ARRAY_SIZE(ctx->rx.pcp_table); i++) {
+		if (i != pcp && ctx->rx.pcp_table[i].used)
+			return true;
+	}
+
+	return false;
+}
+
+static bool eth_qos_mgr_rx_pcp_queue_in_use_except(struct eth_qos_mgr_ctx *ctx,
+						   u32 queue, u32 pcp)
+{
+	u32 i;
+
+	for (i = 0; i < ARRAY_SIZE(ctx->rx.pcp_table); i++) {
+		if (i != pcp && ctx->rx.pcp_table[i].used &&
+		    ctx->rx.pcp_table[i].queue == queue)
+			return true;
+	}
+
+	return false;
+}
+
 static int eth_qos_mgr_validate_l3l4_input(u16 sport, u16 dport, const char *proto,
 					   const char *sip, const char *dip,
 					   const char *sipv6, const char *dipv6)
@@ -566,6 +631,22 @@ static bool eth_qos_mgr_rx_queue_in_use_by_other_filters(struct eth_qos_mgr_ctx 
 static void eth_qos_mgr_revert_default_rx_mapping(struct net_device *ndev, u32 queue)
 {
 	stmmac_api_queue_dma_map(ndev, queue, queue);
+}
+
+static int eth_qos_mgr_clear_tx_ipa_tc_bmap(struct net_device *ndev, u32 ch)
+{
+	struct ioss_interface *iface;
+	struct ioss_device *idev;
+
+	iface = ioss_netdev_to_iface(ndev);
+	if (!iface)
+		return -ENODEV;
+
+	idev = ioss_iface_dev(iface);
+	if (!idev)
+		return -ENODEV;
+
+	return ioss_ipa_set_tc_bmap(idev, false, ch, 0);
 }
 
 static void eth_qos_mgr_set_tx_q_ch_status(struct eth_qos_mgr_ctx *ctx, u32 queue, u32 ch,
@@ -662,11 +743,13 @@ static int eth_qos_mgr_clear_rx_hw(struct eth_qos_mgr_ctx *ctx)
 
 		ret = stmmac_api_del_hw_vlan_rx_fltr(ctx->ndev, ctx->rx.vlan_table[i].vlanid);
 		if (ret) {
-			eth_qos_log_err(NULL, "failed to delete VLAN filter for VLAN ID %u: ret=%d",
+			eth_qos_log_err(&ctx->ndev->dev, "failed to delete VLAN filter for VLAN ID %u: ret=%d",
 					ctx->rx.vlan_table[i].vlanid, ret);
 			return ret;
 		}
 		eth_qos_mgr_revert_default_rx_mapping(ctx->ndev, ctx->rx.vlan_table[i].queue);
+		eth_qos_log_cfg(&ctx->ndev->dev, "eth_qos_mgr: cleared VLAN filter idx=%u vlanid=%u queue=%u",
+				i, ctx->rx.vlan_table[i].vlanid, ctx->rx.vlan_table[i].queue);
 	}
 
 	for (i = 0; i < ctx->rx.max_l3l4_filters; i++) {
@@ -676,18 +759,20 @@ static int eth_qos_mgr_clear_rx_hw(struct eth_qos_mgr_ctx *ctx)
 							    false, false, false,
 							    0, NULL, 0, 0);
 		if (ret) {
-			eth_qos_log_err(NULL, "failed to config L3 filter for index %u: ret=%d", i, ret);
+			eth_qos_log_err(&ctx->ndev->dev, "failed to config L3 filter for index %u: ret=%d", i, ret);
 			return ret;
 		}
 
 		ret = stmmac_api_config_l4_filter_with_route(ctx->ndev, i, false,
 							     false, false, false, false, 0, 0, 0);
 		if (ret) {
-			eth_qos_log_err(NULL, "failed to config L4 filter for index %u: ret=%d", i, ret);
+			eth_qos_log_err(&ctx->ndev->dev, "failed to config L4 filter for index %u: ret=%d", i, ret);
 			return ret;
 		}
 
 		eth_qos_mgr_revert_default_rx_mapping(ctx->ndev, ctx->rx.l3l4_table[i].queue);
+		eth_qos_log_cfg(&ctx->ndev->dev, "eth_qos_mgr: cleared L3/L4 filter idx=%u queue=%u",
+				i, ctx->rx.l3l4_table[i].queue);
 	}
 
 	for (i = 0; i < ARRAY_SIZE(ctx->rx.pcp_table); i++) {
@@ -696,18 +781,39 @@ static int eth_qos_mgr_clear_rx_hw(struct eth_qos_mgr_ctx *ctx)
 		ret = stmmac_api_config_pcp(ctx->ndev, BIT(ctx->rx.pcp_table[i].pcp),
 					    ctx->rx.pcp_table[i].queue, true);
 		if (ret) {
-			eth_qos_log_err(NULL, "failed to config PCP for index %u: ret=%d", i, ret);
+			eth_qos_log_err(&ctx->ndev->dev, "failed to config PCP for index %u: ret=%d", i, ret);
 			return ret;
 		}
+
+		ret = stmmac_api_tx_pfc_configure(ctx->ndev, 0, 0, false,
+						  ctx->rx.pcp_table[i].queue);
+		if (ret) {
+			eth_qos_log_err(&ctx->ndev->dev,
+					"failed to clear PFC TX flow control for PCP index %u: ret=%d",
+					i, ret);
+			return ret;
+		}
+
 		eth_qos_mgr_revert_default_rx_mapping(ctx->ndev, ctx->rx.pcp_table[i].queue);
+		eth_qos_log_cfg(&ctx->ndev->dev,
+				"eth_qos_mgr: cleared PCP filter pcp=%u queue=%u and PFC TX flow control",
+				i, ctx->rx.pcp_table[i].queue);
 	}
+
+	ret = stmmac_api_rx_pfc_configure(ctx->ndev, false);
+	if (ret) {
+		eth_qos_log_err(&ctx->ndev->dev, "failed to disable PFC: ret=%d", ret);
+		return ret;
+	}
+	eth_qos_log_cfg(&ctx->ndev->dev, "eth_qos_mgr: disabled PFC");
 
 	ctx->rx.ra_users = 0;
 	ret = stmmac_api_set_ra_mode(ctx->ndev, false);
 	if (ret) {
-		eth_qos_log_err(NULL, "failed to set RA mode: ret=%d", ret);
+		eth_qos_log_err(&ctx->ndev->dev, "failed to set RA mode: ret=%d", ret);
 		return ret;
 	}
+	eth_qos_log_cfg(&ctx->ndev->dev, "eth_qos_mgr: disabled RA mode");
 
 	eth_qos_mgr_clear_rx_ctx(ctx);
 
@@ -743,19 +849,37 @@ static int eth_qos_mgr_clear_tx_hw(struct eth_qos_mgr_ctx *ctx)
 {
 	u32 i;
 	int ret;
+	int fail_ret = 0;
 
 	/* Queue 0 is not AVB capable */
 	for (i = 1; i < ctx->max_tx_queues; i++) {
-		ret = stmmac_api_config_cbs(ctx->ndev, false, 0, 0, 0, 0, i);
+		if (!ctx->tx.cbs_table[i].used)
+			continue;
+		ret = eth_qos_mgr_config_cbs(ctx->ndev, false, 0, 0, 0, 0, i, ctx->tx.cbs_table[i].etc);
 		if (ret) {
-			eth_qos_log_err(NULL, "failed to config CBS for index %u: ret=%d", i, ret);
-			return ret;
+			eth_qos_log_err(&ctx->ndev->dev, "failed to config CBS for index %u: ret=%d", i, ret);
+			fail_ret = ret;
+		}
+
+		if (ctx->tx.cbs_table[i].used && ctx->tx.cbs_table[i].hw_path) {
+			ret = eth_qos_mgr_clear_tx_ipa_tc_bmap(ctx->ndev,
+							       ctx->tx.cbs_table[i].ch);
+			if (ret) {
+				eth_qos_log_err(&ctx->ndev->dev,
+						"failed to clear IOSS TC bitmap for CBS index %u ch=%u: ret=%d",
+						i, ctx->tx.cbs_table[i].ch, ret);
+				fail_ret = ret;
+			} else {
+				eth_qos_log_cfg(&ctx->ndev->dev,
+						"eth_qos_mgr: cleared IOSS TC bitmap for CBS index=%u tc=%u ch=%u",
+						i, ctx->tx.cbs_table[i].tc, ctx->tx.cbs_table[i].ch);
+			}
 		}
 	}
 
 	eth_qos_mgr_clear_tx_ctx(ctx);
 
-	return 0;
+	return fail_ret;
 }
 
 /* Debug/dump formatting helpers. */
@@ -798,17 +922,17 @@ static ssize_t eth_qos_mgr_dump_hid_table(struct eth_qos_mgr_ctx *ctx, char *buf
 
 	len += scnprintf(buf + len, buf_sz - len,
 			 "hid_table:\n"
-			 "hid\ttype\ttc\tqueue\tch\tdetails\n");
+			 "hid\ttype\tapp_tc\thw_tc\tqueue\tch\tdetails\n");
 
 	list_for_each_entry(entry, &ctx->hid_table, list) {
 		if (len >= buf_sz)
 			break;
 
 		len += scnprintf(buf + len, buf_sz - len,
-				 "%u\t%s\t%u\t%u\t%u\t",
+				 "%u\t%s\t%u\t%u\t%u\t%u\t",
 				 entry->hid,
 				 eth_qos_mgr_filter_type_str(entry->type),
-				 entry->tc, entry->queue, entry->ch);
+				 entry->tc, entry->etc, entry->queue, entry->ch);
 
 		switch (entry->type) {
 		case ETH_QOS_FILTER_PCP:
@@ -944,7 +1068,9 @@ static ssize_t eth_qos_mgr_dump_tx_tables(struct eth_qos_mgr_ctx *ctx, char *buf
 
 	len += scnprintf(buf + len, buf_sz - len,
 			 "tx_cbs_table:\n"
-			 "queue\tused\thw\ttc\tch\tidleslope\tsendslope\thicredit\tlocredit\n");
+			 "%-8s%-8s%-8s%-8s%-8s%-8s%-12s%-12s%-12s%-12s\n",
+			 "queue", "used", "hw", "app_tc", "hw_tc", "ch",
+			 "idleslope", "sendslope", "hicredit", "locredit");
 	for (i = 0; i < ctx->max_tx_queues && len < buf_sz; i++) {
 		struct eth_qos_cbs_entry *entry = &ctx->tx.cbs_table[i];
 
@@ -952,8 +1078,8 @@ static ssize_t eth_qos_mgr_dump_tx_tables(struct eth_qos_mgr_ctx *ctx, char *buf
 			continue;
 
 		len += scnprintf(buf + len, buf_sz - len,
-				 "%u\t%u\t%u\t%u\t%u\t%d\t%d\t%d\t%d\n",
-				 i, entry->used, entry->hw_path, entry->tc,
+				 "%-8u%-8u%-8u%-8u%-8u%-8u%-12d%-12d%-12d%-12d\n",
+				 i, entry->used, entry->hw_path, entry->tc, entry->etc,
 				 entry->ch, entry->idleslope, entry->sendslope,
 				 entry->hicredit, entry->locredit);
 	}
@@ -1039,6 +1165,8 @@ int eth_qos_mgr_add_vlan(struct net_device *ndev, u32 hid, u32 queue, u32 ch,
 	entry->u.vlan.vlanid = vlanid;
 	entry->u.vlan.idx = idx;
 	eth_qos_mgr_set_rx_q_ch_status(ctx, queue, ch, entry->type, hw_path);
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: added VLAN hid=%u vlanid=%u queue=%u ch=%u path=%s",
+			hid, vlanid, queue, ch, hw_path ? "hw" : "sw");
 	ret = 0;
 	goto out_unlock;
 
@@ -1183,6 +1311,8 @@ int eth_qos_mgr_add_l3l4(struct net_device *ndev, u32 hid, u32 queue, u32 ch,
 	entry->hw_path = hw_path;
 	entry->u.l3l4.idx = idx;
 	eth_qos_mgr_set_rx_q_ch_status(ctx, queue, ch, entry->type, hw_path);
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: added L3/L4 hid=%u idx=%d queue=%u ch=%u path=%s",
+			hid, idx, queue, ch, hw_path ? "hw" : "sw");
 	ret = 0;
 	goto out_unlock;
 
@@ -1234,6 +1364,22 @@ int eth_qos_mgr_add_pcp(struct net_device *ndev, u32 hid, u8 pcp, u32 queue, u32
 	ret = stmmac_api_config_pcp(ndev, BIT(pcp), queue, false);
 	if (ret)
 		goto err_disable_ra;
+
+	ret = stmmac_api_rx_pfc_configure(ndev, true);
+	if (ret)
+		goto err_clear_pcp;
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: enabled PFC for PCP hid=%u pcp=%u queue=%u",
+			hid, pcp, queue);
+
+	ret = stmmac_api_tx_pfc_configure(ndev, ETH_QOS_PFC_PAUSE_TIME,
+					  ETH_QOS_PFC_PLT,
+					  true, queue);
+	if (ret)
+		goto err_disable_pfc;
+	eth_qos_log_cfg(&ndev->dev,
+			"eth_qos_mgr: configured PFC TX flow control for PCP hid=%u pcp=%u queue=%u pause=%u plt=0x%x",
+			hid, pcp, queue, ETH_QOS_PFC_PAUSE_TIME, ETH_QOS_PFC_PLT);
+
 	stmmac_api_queue_dma_map(ndev, queue, ch);
 
 	/* Record the programmed PCP route in the manager tables. */
@@ -1249,9 +1395,16 @@ int eth_qos_mgr_add_pcp(struct net_device *ndev, u32 hid, u8 pcp, u32 queue, u32
 	entry->hw_path = hw_path;
 	entry->u.pcp.pcp = pcp;
 	eth_qos_mgr_set_rx_q_ch_status(ctx, queue, ch, entry->type, hw_path);
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: added PCP hid=%u pcp=%u queue=%u ch=%u path=%s",
+			hid, pcp, queue, ch, hw_path ? "hw" : "sw");
 	ret = 0;
 	goto out_unlock;
 
+err_disable_pfc:
+	if (!eth_qos_mgr_rx_pcp_in_use(ctx))
+		stmmac_api_rx_pfc_configure(ndev, false);
+err_clear_pcp:
+	stmmac_api_config_pcp(ndev, BIT(pcp), queue, true);
 err_disable_ra:
 	if (!ctx->rx.ra_users)
 		stmmac_api_set_ra_mode(ndev, false);
@@ -1301,6 +1454,8 @@ int eth_qos_mgr_add_tx_pcp(struct net_device *ndev, u32 hid, u8 pcp, u32 queue, 
 	entry->ch = ch;
 	entry->u.pcp.pcp = pcp;
 	eth_qos_mgr_set_tx_q_ch_status(ctx, queue, ch, entry->type, false);
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: added TX PCP hid=%u pcp=%u queue=%u ch=%u",
+			hid, pcp, queue, ch);
 	ret = 0;
 	goto out_unlock;
 
@@ -1312,7 +1467,7 @@ out_unlock:
 	return ret;
 }
 
-int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32 ch,
+int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 etc, u32 queue, u32 ch,
 			bool hw_path, int sendslope, int idleslope,
 			int hicredit, int locredit)
 {
@@ -1345,15 +1500,41 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32
 	 * Program the stmmac CBS shaper first; when the flow uses the hardware
 	 * path, also mirror the traffic-class mapping into IOSS.
 	 */
-	ret = stmmac_api_config_cbs(ndev, true, sendslope, idleslope, hicredit, locredit,
-				    queue);
+	ret = eth_qos_mgr_config_cbs(ndev, true, sendslope, idleslope, hicredit, locredit,
+				    queue, etc);
 	if (ret)
 		goto err_free_entry;
+	eth_qos_log_cfg(&ndev->dev,
+			"eth_qos_mgr: configured CBS hid=%u queue=%u ch=%u tc=%u idle=%d send=%d hi=%d lo=%d",
+			hid, queue, ch, tc, idleslope, sendslope, hicredit, locredit);
+
+	if (hw_path) {
+		iface = ioss_netdev_to_iface(ndev);
+		if (!iface) {
+			ret = -ENODEV;
+			goto err_clear_cbs;
+		}
+
+		idev = ioss_iface_dev(iface);
+		if (!idev) {
+			ret = -ENODEV;
+			goto err_clear_cbs;
+		}
+
+		ret = ioss_ipa_set_tc_bmap(idev, false, ch, BIT(tc));
+		if (ret)
+			goto err_clear_cbs;
+		eth_qos_log_cfg(&ndev->dev,
+				"eth_qos_mgr: configured IOSS TC bitmap hid=%u tc=%u ch=%u",
+				hid, tc, ch);
+	}
+
 
 	/* Persist the CBS configuration so it can be dumped/replayed later. */
 	ctx->tx.cbs_table[queue].used = true;
 	ctx->tx.cbs_table[queue].hw_path = hw_path;
 	ctx->tx.cbs_table[queue].tc = tc;
+	ctx->tx.cbs_table[queue].etc = etc;
 	ctx->tx.cbs_table[queue].queue = queue;
 	ctx->tx.cbs_table[queue].ch = ch;
 	ctx->tx.cbs_table[queue].idleslope = idleslope;
@@ -1363,13 +1544,20 @@ int eth_qos_mgr_add_cbs(struct net_device *ndev, u32 hid, u32 tc, u32 queue, u32
 
 	entry->queue = queue;
 	entry->tc = tc;
+	entry->etc = etc;
 	entry->ch = ch;
 	entry->hw_path = hw_path;
 	entry->u.cbs.hw_path = hw_path;
 	eth_qos_mgr_set_tx_q_ch_status(ctx, queue, ch, entry->type, hw_path);
+
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: added CBS hid=%u queue=%u ch=%u tc=%u path=%s",
+			hid, queue, ch, tc, hw_path ? "hw" : "sw");
+
 	ret = 0;
 	goto out_unlock;
 
+err_clear_cbs:
+	eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, queue, etc);
 err_free_entry:
 	list_del(&entry->list);
 	kfree(entry);
@@ -1401,13 +1589,30 @@ int eth_qos_mgr_del(struct net_device *ndev, u32 hid)
 		ret = stmmac_api_config_pcp(ndev, BIT(entry->u.pcp.pcp),
 					    entry->queue, true);
 		if (!ret) {
-			if (!eth_qos_mgr_rx_queue_in_use_by_other_filters(ctx, entry->queue,
-									  entry->hid))
-				eth_qos_mgr_revert_default_rx_mapping(ndev, entry->queue);
-			memset(&ctx->rx.pcp_table[entry->u.pcp.pcp], 0,
-			       sizeof(ctx->rx.pcp_table[entry->u.pcp.pcp]));
-			if (ctx->rx.ra_users)
-				ctx->rx.ra_users--;
+			if (!eth_qos_mgr_rx_pcp_queue_in_use_except(ctx, entry->queue,
+								    entry->u.pcp.pcp)) {
+				ret = stmmac_api_tx_pfc_configure(ndev, 0, 0, false, entry->queue);
+				if (!ret)
+					eth_qos_log_cfg(&ndev->dev,
+							"eth_qos_mgr: cleared PFC TX flow control for PCP hid=%u queue=%u",
+							entry->hid, entry->queue);
+			}
+
+			if (!ret && !eth_qos_mgr_rx_pcp_in_use_except(ctx, entry->u.pcp.pcp)) {
+				ret = stmmac_api_rx_pfc_configure(ndev, false);
+				if (!ret)
+					eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: disabled PFC");
+			}
+
+			if (!ret) {
+				memset(&ctx->rx.pcp_table[entry->u.pcp.pcp], 0,
+				       sizeof(ctx->rx.pcp_table[entry->u.pcp.pcp]));
+				if (!eth_qos_mgr_rx_queue_in_use_by_other_filters(ctx, entry->queue,
+										  entry->hid))
+					eth_qos_mgr_revert_default_rx_mapping(ndev, entry->queue);
+				if (ctx->rx.ra_users)
+					ctx->rx.ra_users--;
+			}
 		}
 		break;
 	case ETH_QOS_FILTER_SW_TX_PCP:
@@ -1451,9 +1656,16 @@ int eth_qos_mgr_del(struct net_device *ndev, u32 hid)
 		break;
 	case ETH_QOS_FILTER_CBS:
 		/* Reset the shaper programming, then clear the cached CBS profile. */
-		ret = stmmac_api_config_cbs(ndev, false, 0, 0, 0, 0, entry->queue);
-		eth_qos_log_cfg(NULL, "eth_qos_mgr: deleting CBS filter with hid=%u on queue=%u ch=%u ret=%d\n",
+		ret = eth_qos_mgr_config_cbs(ndev, false, 0, 0, 0, 0, entry->queue, entry->etc);
+		eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: deleting CBS filter with hid=%u on queue=%u ch=%u ret=%d\n",
 			    entry->hid, entry->queue, entry->ch, ret);
+		if (!ret && entry->u.cbs.hw_path) {
+			ret = eth_qos_mgr_clear_tx_ipa_tc_bmap(ndev, entry->ch);
+			if (!ret)
+				eth_qos_log_cfg(&ndev->dev,
+						"eth_qos_mgr: cleared IOSS TC bitmap hid=%u tc=%u ch=%u",
+						entry->hid, entry->tc, entry->ch);
+		}
 		if (!ret)
 			memset(&ctx->tx.cbs_table[entry->queue], 0,
 			       sizeof(ctx->tx.cbs_table[entry->queue]));
@@ -1476,6 +1688,10 @@ int eth_qos_mgr_del(struct net_device *ndev, u32 hid)
 	else
 		eth_qos_mgr_refresh_rx_q_ch_status(ctx, entry->queue, ch);
 
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: deleted %s hid=%u queue=%u ch=%u",
+			eth_qos_mgr_filter_type_str(entry->type), entry->hid,
+			entry->queue, ch);
+
 	kfree(entry);
 
 
@@ -1493,6 +1709,7 @@ int eth_qos_mgr_clear_rx_sw(struct net_device *ndev)
 		return 0;
 
 	eth_qos_mgr_clear_rx_ctx(ctx);
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: cleared RX software state for %s", ndev->name);
 	mutex_unlock(&ctx->lock);
 
 	return 0;
@@ -1509,14 +1726,16 @@ int eth_qos_mgr_clear_all(struct net_device *ndev)
 
 	rx_ret = eth_qos_mgr_clear_rx_hw(ctx);
 	if (rx_ret) {
-		eth_qos_log_err(NULL, "eth_qos_mgr: failed to clear RX QoS state for %s: %d",
+		eth_qos_log_err(&ndev->dev, "eth_qos_mgr: failed to clear RX QoS state for %s: %d",
 			    ndev->name, rx_ret);
 	}
 	tx_ret = eth_qos_mgr_clear_tx_hw(ctx);
 	if (tx_ret) {
-		eth_qos_log_err(NULL, "eth_qos_mgr: failed to clear TX QoS state for %s: %d",
+		eth_qos_log_err(&ndev->dev, "eth_qos_mgr: failed to clear TX QoS state for %s: %d",
 			    ndev->name, tx_ret);
 	}
+	if (!rx_ret && !tx_ret)
+		eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: cleared all QoS state for %s", ndev->name);
 	mutex_unlock(&ctx->lock);
 
 	ret = rx_ret ? rx_ret : tx_ret;
@@ -1548,6 +1767,19 @@ int eth_qos_mgr_replay(struct net_device *ndev)
 						    entry->queue, false);
 			if (ret)
 				goto out_unlock;
+
+			ret = stmmac_api_rx_pfc_configure(ndev, true);
+			if (ret)
+				goto out_unlock;
+
+			ret = stmmac_api_tx_pfc_configure(ndev, ETH_QOS_PFC_PAUSE_TIME,
+							  ETH_QOS_PFC_PLT,
+							  true, entry->queue);
+			if (ret) {
+				stmmac_api_rx_pfc_configure(ndev, false);
+				goto out_unlock;
+			}
+
 			stmmac_api_queue_dma_map(ndev, entry->queue, entry->ch);
 			ctx->rx.ra_users++;
 			break;
@@ -1664,6 +1896,8 @@ int eth_qos_mgr_replay(struct net_device *ndev)
 	}
 
 out_unlock:
+	if (!ret)
+		eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: replayed QoS state for %s", ndev->name);
 	mutex_unlock(&ctx->lock);
 	return ret;
 }
@@ -1679,13 +1913,14 @@ void eth_qos_mgr_release(struct net_device *ndev)
 
 	ret = eth_qos_mgr_clear_rx_hw(ctx);
 	if (ret)
-		eth_qos_log_err(NULL, "eth_qos_mgr: failed to clear RX QoS state for %s during release: %d",
+		eth_qos_log_err(&ndev->dev, "eth_qos_mgr: failed to clear RX QoS state for %s during release: %d",
 			    ndev->name, ret);
 
 	ret = eth_qos_mgr_clear_tx_hw(ctx);
 	if (ret)
-		eth_qos_log_err(NULL, "eth_qos_mgr: failed to clear TX QoS state for %s during release: %d",
+		eth_qos_log_err(&ndev->dev, "eth_qos_mgr: failed to clear TX QoS state for %s during release: %d",
 			    ndev->name, ret);
+	eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: released QoS manager context for %s", ndev->name);
 	mutex_unlock(&ctx->lock);
 
 	eth_qos_mgr_free_ctx(ctx);

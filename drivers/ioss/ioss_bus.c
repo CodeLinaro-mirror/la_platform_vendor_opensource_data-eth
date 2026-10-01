@@ -201,6 +201,73 @@ static DEVICE_ATTR(suspend_ipa_offload, S_IWUSR | S_IRUGO,
 static DEVICE_ATTR(disable_ioss_auto_resume, S_IWUSR | S_IRUGO,
 		show_disable_ioss_auto_resume, store_disable_ioss_auto_resume);
 
+static struct ioss_device *api_managed_kobj_to_idev(struct kobject *kobj)
+{
+	struct device *dev = container_of(kobj->parent, struct device, kobj);
+	struct net_device *net_dev = to_net_dev(dev);
+	struct ioss_interface *iface;
+
+	if (!net_dev)
+		return NULL;
+
+	iface = ioss_netdev_to_iface(net_dev);
+	if (!iface)
+		return NULL;
+
+	return ioss_iface_dev(iface);
+}
+
+static ssize_t rx_show(struct kobject *kobj, struct kobj_attribute *attr,
+		       char *buf)
+{
+	struct ioss_device *idev = api_managed_kobj_to_idev(kobj);
+
+	if (!idev)
+		return -EINVAL;
+
+	return snprintf(buf, PAGE_SIZE, "0x%x\n", idev->rx_api_managed_mask);
+}
+
+static struct kobj_attribute rx_attr = __ATTR_RO(rx);
+
+static ssize_t tx_show(struct kobject *kobj, struct kobj_attribute *attr,
+		       char *buf)
+{
+	struct ioss_device *idev = api_managed_kobj_to_idev(kobj);
+
+	if (!idev)
+		return -EINVAL;
+
+	return snprintf(buf, PAGE_SIZE, "0x%x\n", idev->tx_api_managed_mask);
+}
+
+static struct kobj_attribute tx_attr = __ATTR_RO(tx);
+
+/**
+ * ioss_set_api_managed_mask - update the api_managed/rx or /tx subnode
+ * @idev: ioss device whose mask should be updated
+ * @dir:  IOSS_CH_DIR_RX to update the rx subnode, IOSS_CH_DIR_TX for tx
+ * @mask: new bitmask value (bit N set = channel N is API-managed)
+ *
+ * Stores @mask in idev->rx_api_managed_mask or idev->tx_api_managed_mask
+ * depending on @dir.
+ */
+void ioss_set_api_managed_mask(struct ioss_device *idev,
+				enum ioss_channel_dir dir, u32 mask)
+{
+	if (!idev || !idev->api_managed_kobj)
+		return;
+
+	if (dir == IOSS_CH_DIR_RX) {
+		idev->rx_api_managed_mask = mask;
+		ioss_dev_log(idev, "api_managed/rx updated: 0x%x\n", mask);
+	} else {
+		idev->tx_api_managed_mask = mask;
+		ioss_dev_log(idev, "api_managed/tx updated: 0x%x\n", mask);
+	}
+}
+EXPORT_SYMBOL_GPL(ioss_set_api_managed_mask);
+
 static int ioss_bus_probe(struct device *dev)
 {
 	int rc;
@@ -257,6 +324,31 @@ static int ioss_bus_probe(struct device *dev)
 		goto err_create_sysfs;
 	}
 
+	idev->api_managed_kobj = kobject_create_and_add("api_managed",
+							 &idev->net_dev->dev.kobj);
+	if (!idev->api_managed_kobj) {
+		rc = -ENOMEM;
+		ioss_dev_err(idev, "unable to create api_managed kobject");
+		goto err_api_managed_kobj;
+	}
+
+	rc = sysfs_create_file(idev->api_managed_kobj, &rx_attr.attr);
+	if (rc) {
+		ioss_dev_err(idev, "unable to create api_managed/rx node");
+		goto err_rx_attr;
+	}
+
+	rc = sysfs_create_file(idev->api_managed_kobj, &tx_attr.attr);
+	if (rc) {
+		ioss_dev_err(idev, "unable to create api_managed/tx node");
+		goto err_tx_attr;
+	}
+
+	/* Emit a fresh "change" uevent so that udev rules are rerun after the new
+	 * sysfs node are created.
+	 */
+	kobject_uevent(&idev->net_dev->dev.kobj, KOBJ_CHANGE);
+
 	if (iface->auto_resume_disabled) {
 		ioss_dev_cfg(idev, "creating dev char device for auto platform\n");
 
@@ -308,12 +400,19 @@ emac_ipa_cdev_add_fail:
 fail_alloc_emac_ipa_cdev:
 	unregister_chrdev_region(emac_ipa_dev_num, 1);
 err_chrdev:
+	sysfs_remove_file(idev->api_managed_kobj, &tx_attr.attr);
+err_tx_attr:
+	sysfs_remove_file(idev->api_managed_kobj, &rx_attr.attr);
+err_rx_attr:
+	kobject_put(idev->api_managed_kobj);
+	idev->api_managed_kobj = NULL;
+err_api_managed_kobj:
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_disable_ioss_auto_resume.attr);
 err_create_sysfs:
-	ioss_sysfs_remove_idev(idev);;
+	ioss_sysfs_remove_idev(idev);
 err_add_sysfs:
 	ioss_net_unwatch_device(idev);
 err_watch:
@@ -333,6 +432,13 @@ static void ioss_bus_remove(struct device *dev)
 	struct ioss_interface *iface = &idev->interface;
 
 	ioss_dev_log(idev, "De-initializing device");
+
+	if (idev->api_managed_kobj) {
+		sysfs_remove_file(idev->api_managed_kobj, &tx_attr.attr);
+		sysfs_remove_file(idev->api_managed_kobj, &rx_attr.attr);
+		kobject_put(idev->api_managed_kobj);
+		idev->api_managed_kobj = NULL;
+	}
 
 	sysfs_remove_file(&idev->net_dev->dev.kobj,
 			&dev_attr_suspend_ipa_offload.attr);
@@ -589,9 +695,25 @@ struct ioss_device *ioss_bus_alloc_idev(struct ioss *ioss, struct device *dev)
 	idev->dev.bus = &ioss_bus;
 	idev->dev.type = &ioss_idev_type;
 
+	idev->rx_api_managed_mask = 0x0;
+	idev->tx_api_managed_mask = 0x0;
+
 	mutex_init(&idev->refresh_lock);
 
 	return idev;
+}
+
+bool ioss_bus_ipa_connected(void)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ioss_devices); i++) {
+		if (ioss_devices[i] &&
+		    ioss_devices[i]->interface.state == IOSS_IF_ST_ONLINE)
+			return true;
+	}
+
+	return false;
 }
 
 void ioss_bus_free_idev(struct ioss_device *idev)

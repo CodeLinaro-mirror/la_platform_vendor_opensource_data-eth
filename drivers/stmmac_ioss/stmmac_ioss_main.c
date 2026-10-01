@@ -36,6 +36,11 @@ static int stmmac_ioss_open_device(struct ioss_device *idev)
 	if (stmmac_ioss_stats_init(idev))
 		goto err_stats;
 
+#if IOSS_API_VER >= 11
+	ioss_dev_log(idev, "IPA TX offload: %s",
+		     idev->interface.ipa_tx_disabled ? "disabled" : "enabled");
+#endif
+
 	return 0;
 
 err_stats:
@@ -157,6 +162,69 @@ static void stmmac_ioss_remove_channel_mem(struct ioss_channel *ch,
 	ioss_channel_del_desc_mem(ch, stmmac_ch->ring_base);
 }
 
+#if IOSS_API_VER >= 11 && STMMAC_API_VER >= 2
+static int stmmac_ioss_xmit(struct sk_buff *skb, struct stmmac_api_channel *api_ch)
+{
+	return ioss_ipa_xmit((struct ioss_channel *)api_ch->priv, skb);
+}
+#else
+static int stmmac_ioss_xmit(struct sk_buff *skb, struct stmmac_api_channel *api_ch)
+{
+	pr_err_ratelimited("stmmac_ioss: TX offload requires IOSS_API_VER >= 11 (cur=%d)\n",
+			   IOSS_API_VER);
+	dev_kfree_skb_any(skb);
+	return -ENOTSUPP;
+}
+#endif
+
+#if STMMAC_API_VER >= 2
+static void stmmac_ioss_xmit_done(struct ioss_channel *ch, struct sk_buff *skb, int status,
+			          bool ready)
+{
+	stmmac_api_xmit_done(skb, status, ready);
+}
+#else
+static void stmmac_ioss_xmit_done(struct ioss_channel *ch, struct sk_buff *skb, int status,
+			          bool ready)
+{
+	pr_err_ratelimited("stmmac_ioss: xmit_done requires STMMAC_API_VER >= 2 (cur=%d)\n",
+			   STMMAC_API_VER);
+	dev_kfree_skb_any(skb);
+}
+#endif
+
+/**
+ * stmmac_ioss_update_api_managed - set or clear a channel's bit in the
+ *                                   direction-specific api_managed mask
+ * @ch: ioss channel that was just requested or released
+ * @set: true to set the channel's bit (request), false to clear it (release)
+ *
+ * Reads the current RX or TX api_managed mask from idev (initialised to 0x0
+ * at boot), sets or clears bit @ch->channel_num, then calls
+ * ioss_set_api_managed_mask() to store the updated value.
+ */
+static void stmmac_ioss_update_api_managed(struct ioss_channel *ch, bool set)
+{
+	struct ioss_device *idev = ioss_ch_dev(ch);
+	u32 mask;
+
+	if (ch->direction == IOSS_CH_DIR_RX) {
+		mask = idev->rx_api_managed_mask;
+		if (set)
+			mask |= BIT(ch->channel_num);
+		else
+			mask &= ~BIT(ch->channel_num);
+	} else {
+		mask = idev->tx_api_managed_mask;
+		if (set)
+			mask |= BIT(ch->channel_num);
+		else
+			mask &= ~BIT(ch->channel_num);
+	}
+
+	ioss_set_api_managed_mask(idev, ch->direction, mask);
+}
+
 static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 {
 	int i;
@@ -177,6 +245,7 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 	stmmac_ch->ch_num = ch->channel_num;
 	stmmac_ch->ring_size = ch->config.ring_size;
 	stmmac_ch->buff_size = ch->config.buff_size;
+	ch->config.desc_size = STMMAC_IOSS_DESC_SIZE;
 
 	rc = stmmac_ioss_alloc_channel_memory(ch, stmmac_ch, STMMAC_IOSS_DESC_SIZE);
 	if (rc)
@@ -187,6 +256,13 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 		ioss_dev_err(ioss_ch_dev(ch), "Failed to request channel from stmmac_api\n");
 		goto err_request_channel;
 	}
+
+#if IOSS_API_VER >= 11 && STMMAC_API_VER >= 2
+	stmmac_ch->priv = ch;
+	if (ch->direction == IOSS_CH_DIR_TX && !ch->iface->ipa_tx_disabled) {
+		stmmac_ch->xmit = stmmac_ioss_xmit;
+	}
+#endif
 
 	/* Set buffer DMA addresses for each descriptor in the ring */
 	for (i = 0; i < ch->config.ring_size; i++) {
@@ -202,6 +278,8 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 
 	ch->id = ch->channel_num;
 	ch->private = stmmac_ch;
+
+	stmmac_ioss_update_api_managed(ch, true);
 
 	return 0;
 
@@ -228,6 +306,8 @@ static int stmmac_ioss_release_channel(struct ioss_channel *ch)
 	ch->id = -1;
 	ch->private = NULL;
 
+	stmmac_ioss_update_api_managed(ch, false);
+
 	return 0;
 }
 
@@ -241,7 +321,7 @@ static int stmmac_ioss_enable_channel(struct ioss_channel *ch)
 	if (rc)
 		return rc;
 
-	if (ch->direction == IOSS_CH_DIR_RX)
+	if (ch->direction == IOSS_CH_DIR_RX && ch->queue_number >= 0)
 		stmmac_api_queue_dma_map(ndev, ch->queue_number, ch->channel_num);
 
 	return 0;
@@ -296,6 +376,21 @@ static int stmmac_ioss_disable_event(struct ioss_channel *ch)
 	return 0;
 }
 
+#if STMMAC_API_VER >= 2
+static int stmmac_ioss_receive_skb(struct ioss_channel *ch, struct sk_buff *skb)
+{
+	return stmmac_api_receive_skb(skb);
+}
+#else
+static int stmmac_ioss_receive_skb(struct ioss_channel *ch, struct sk_buff *skb)
+{
+	pr_err_ratelimited("stmmac_ioss: receive_skb requires STMMAC_API_VER >= 2 (cur=%d)\n",
+			   STMMAC_API_VER);
+	dev_kfree_skb_any(skb);
+	return -ENOTSUPP;
+}
+#endif
+
 static int stmmac_ioss_update_skb(struct ioss_channel *ch, struct sk_buff *skb)
 {
 	struct net_device *ndev = ioss_ch_dev(ch)->net_dev;
@@ -321,6 +416,10 @@ static struct ioss_driver_ops stmmac_ioss_ops = {
 	.get_channel_statistics = stmmac_ioss_channel_statistics,
 	.get_channel_status = stmmac_ioss_channel_status,
 	.update_skb = stmmac_ioss_update_skb,
+#if IOSS_API_VER >= 11 && STMMAC_API_VER >= 2
+	.receive_skb = stmmac_ioss_receive_skb,
+	.xmit_done = stmmac_ioss_xmit_done,
+#endif
 };
 
 static struct ioss_driver stmmac_ioss_drv = {

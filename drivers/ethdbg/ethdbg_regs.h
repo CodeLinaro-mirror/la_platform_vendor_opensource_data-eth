@@ -12,6 +12,15 @@
 #define ETHDBG_C45_REG(offset)		((offset) & 0xFFFF)
 #define ETHDBG_C45_OFFSET(mmd, reg)	(((mmd) << 16) | (reg))
 
+/*
+ * Indirect register offset encoding for QoS VLAN and L3/L4 filter blocks.
+ * Upper 16 bits = filter/entry index, lower 16 bits = register id within filter.
+ * reg_id == 0 for VLAN (single register per entry).
+ */
+#define ETHDBG_IND_OFFSET(idx, reg_id)	(((idx) << 16) | (reg_id))
+#define ETHDBG_IND_IDX(offset)		((offset) >> 16)
+#define ETHDBG_IND_REG(offset)		((offset) & 0xFFFF)
+
 /**
  * struct ethdbg_reg_desc - Register region descriptor
  * @start_offset: Starting offset of the region (inclusive)

@@ -15,6 +15,7 @@ ioss-y := \
 	ioss_of.o \
 	ioss_ipa.o \
 	ioss_ipa_hal.o \
+	ioss_ethtool.o \
 	ioss_mem.o \
 	ioss_utils.o \
 	ioss_platform.o \

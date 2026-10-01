@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  * Copyright (c) 2021, The Linux Foundation. All rights reserved.
  */
 
@@ -95,10 +95,10 @@ static int ioss_of_parse_channel(struct ioss_device *idev,
 		ioss_dev_log(idev, "Optional key %s not found", key);
 	}
 
+	ch->queue_number = -1;
 	key = "qcom,queue-number";
-	if (of_property_read_u32(np, key, &ch->queue_number)) {
+	if (of_property_read_u32(np, key, (u32 *)&ch->queue_number))
 		ioss_dev_log(idev, "Optional key %s not found", key);
-	}
 
 	key = "qcom,mod-count-min";
 	if (of_property_read_u32(np, key, &ch->event.mod_count_min)) {
@@ -209,6 +209,10 @@ static int ioss_of_parse_v2(struct ioss_device *idev, struct device_node *np)
 	/*To disable auto resume of ioss during PM*/
 	key = "qcom,ioss_auto_resume_disabled";
 	iface->auto_resume_disabled = of_property_read_bool(np, key);
+
+	iface->ipa_tx_disabled = of_property_read_bool(np, "qcom,disable_ipa_tx");
+	if (disable_ipa_tx)
+		iface->ipa_tx_disabled = true;
 
 	/* Parse channels */
 	key = "qcom,ioss_channels";

@@ -37,9 +37,10 @@
  *   8	    - Added API to update skb coming in UL exception path
  *   9	    - Added QOS Support (legacy). *Removed
  *  10	    - Added QOS Support (ioss_ipa_set_tc_bmap)
+ *  11	    - Added IPA TX offload support
  */
 
-#define IOSS_API_VER 10
+#define IOSS_API_VER 11
 #define IOSS_SUBSYS "ioss"
 
 #define __ioss_log_msg(ipcbuf, fmt, args...) \
@@ -152,6 +153,7 @@ enum ioss_traffic_type {
 	IOSS_TRAFFIC_BE, /* 0 = Best Effort */
 	IOSS_TRAFFIC_BE_TAGGED, /* Best Effort VLAN tagged */
 	IOSS_TRAFFIC_LL, /* Low Latency */
+	IOSS_TRAFFIC_QOS, /* QoS */
 	IOSS_TRAFFIC_TYPE_MAX
 };
 
@@ -174,6 +176,14 @@ struct ioss {
 
 struct ioss_driver;
 struct ioss_device;
+
+struct ioss_ipa_tx_state {
+	netdev_features_t hw_features;
+	netdev_features_t features;
+	netdev_features_t wanted_features;
+	unsigned int gso_max_size;
+	unsigned int gso_ipv4_max_size;
+};
 
 struct ioss_interface {
 	struct device dev;
@@ -204,6 +214,11 @@ struct ioss_interface {
 
 	struct net_device_ops netdev_ops;
 	const struct net_device_ops *netdev_ops_real;
+	struct ethtool_ops ethtool_ops;
+	const struct ethtool_ops *ethtool_ops_real;
+	int ethtool_stat_count;
+	struct ioss_ipa_tx_state ipa_tx_state_saved;
+	bool ipa_tx_disabled;
 	bool auto_resume_disabled;
 	bool is_pci_device;
 	bool disable_ioss_auto_resume;
@@ -279,6 +294,7 @@ struct ioss_mem_allocator {
 struct ioss_channel_config {
 	u32 ring_size;
 	u32 buff_size;
+	u32 desc_size;
 
 	struct ioss_mem_allocator *desc_alctr;
 	struct ioss_mem_allocator *buff_alctr;
@@ -309,6 +325,24 @@ struct ioss_channel_event {
 	/* IOSS managed */
 	bool allocated;
 	bool enabled;
+};
+
+struct ioss_ch_stats {
+	u64 tx_xmit;         /* total calls to IPA xmit API */
+	u64 tx_ipa;          /* packets IPA successfully accepted */
+	u64 tx_ipa_cb;       /* IPA TX completion callbacks */
+	u64 tx_wm_stop;      /* outstanding pkts reached stop WM */
+	u64 tx_wm_wake;      /* outstanding pkts dropped to wake WM */
+	u64 tx_gso_tcp;      /* GSO TCP pkts (SKB_GSO_TCPV4/V6) to IPA */
+	u64 tx_gso_udp;      /* GSO UDP pkts (SKB_GSO_UDP_L4) to IPA */
+	u64 tx_ipa_err;      /* errors returned by IPA xmit API */
+	u64 tx_ipa_nospace;  /* IPA xmit returned -ENOSPC */
+	u64 tx_ipa_is_ready;  /* current IPA ready status (bool: 0/1) */
+	u64 tx_wm_space_used; /* snapshot: pkts in flight (computed at read) */
+	u64 tx_wm_space_free; /* snapshot: free stop-WM slots (computed at read) */
+	u64 tx_net_lock_bh;   /* times TX callback held netif_tx_lock_bh for -ENOSPC sync */
+	u64 rx_ipa_cb;        /* IPA RX exception callbacks */
+	u64 rx_net_err;      /* netif_receive_skb drops in exception path */
 };
 
 struct ioss_channel {
@@ -343,6 +377,14 @@ struct ioss_channel {
 	bool allocated;
 	bool enabled;
 
+	atomic_t ipa_tx_outstanding_pkts;
+	atomic_t ipa_tx_wm_fc_active;
+	atomic_t ipa_tx_nospace_sync;
+
+	/* TCM (LLCC) usage tracking */
+	u32 tcm_desc_bytes;
+	u32 tcm_buff_bytes;
+
 	void *ioss_priv;
 	int multi_rx_queues;
 
@@ -355,6 +397,8 @@ struct ioss_channel {
 	u32 tcm_ring_size_max;
 
 	bool pending_user_cfg;
+
+	struct ioss_ch_stats stats;
 };
 
 struct ioss_device {
@@ -381,7 +425,15 @@ struct ioss_device {
 		u64 apps_resume;
 		u64 system_suspend;
 		u64 system_resume;
+		u64 runtime_suspend;
+		u64 runtime_resume;
+		u64 nop_runtime_suspend;
+		u64 nop_runtime_resume;
 	} pm_stats;
+
+	u32 rx_api_managed_mask;
+	u32 tx_api_managed_mask;
+	struct kobject *api_managed_kobj;
 
 	struct mutex refresh_lock;
 };
@@ -697,8 +749,9 @@ struct ioss_driver_ops {
 				      struct ioss_channel_stats *stats);
 	int (*get_channel_status)(struct ioss_channel *ch,
 				  struct ioss_channel_status *status);
-	int (*update_skb)(struct ioss_channel *ch,
-			  struct sk_buff *skb);
+	int (*receive_skb)(struct ioss_channel *ch, struct sk_buff *skb);
+	int (*update_skb)(struct ioss_channel *ch, struct sk_buff *skb);
+	void (*xmit_done)(struct ioss_channel *ch, struct sk_buff *skb, int status, bool wake_queue);
 };
 
 #define ioss_dev_op(idev, op, args...) \
@@ -718,6 +771,28 @@ int ioss_plat_register_driver(struct ioss_driver *idrv, struct module *owner);
 
 void ioss_plat_unregister_driver(struct ioss_driver *drv);
 
+/**
+ * ioss_ipa_xmit - Transmit an skb via the IPA TX path.
+ * @ch:  The TX ioss_channel.
+ * @skb: Packet to transmit.  Ownership transfers to IPA on success.
+ *
+ * Returns 0 on success, -ENOSPC if IPA TX queue is full, -EAGAIN to retry,
+ * or another negative errno on unrecoverable error.
+ */
+int ioss_ipa_xmit(struct ioss_channel *ch, struct sk_buff *skb);
+
 int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch, u32 tc_bmap);
+/**
+ * ioss_set_api_managed_mask - update the api_managed/rx or /tx sysfs bitmask
+ * @idev: ioss device whose mask should be updated
+ * @dir:  IOSS_CH_DIR_RX to update the rx subnode, IOSS_CH_DIR_TX for tx
+ * @mask: new bitmask value (bit N set = channel N is API-managed)
+ *
+ * Stores @mask in idev->rx_api_managed_mask or idev->tx_api_managed_mask
+ * depending on @dir. Called by glue drivers from their request_channel
+ * and release_channel callbacks.
+ */
+void ioss_set_api_managed_mask(struct ioss_device *idev,
+				enum ioss_channel_dir dir, u32 mask);
 
 #endif /* _IOSS_H_ */

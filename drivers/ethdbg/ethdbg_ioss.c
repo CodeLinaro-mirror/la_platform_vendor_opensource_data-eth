@@ -3,121 +3,108 @@
 
 #include <linux/kernel.h>
 #include <linux/netdevice.h>
-#include <soc/qcom/minidump.h>
 #include <linux/msm/ioss.h>
 
-#include "stmmac.h"
 #include "ethdbg.h"
 
 /*
- * stmmac_ioss_get_ring_size - Look up the IOSS channel ring size
- * @priv:         stmmac private data
- * @queue:        DMA queue / channel index
- * @dir:          IOSS_CH_DIR_RX or IOSS_CH_DIR_TX
- * @default_size: fallback value when no IOSS channel is found
- *
- * Walks the valid_channels list of the IOSS interface associated with
- * @priv->device. Returns the configured ring_size of the first allocated
- * channel that matches @queue and @dir, or @default_size if none is found.
+ * stmmac_ioss_get_ring_size is no longer needed — vaddr and size are
+ * obtained directly from ioss_channel.desc_mem at panic capture time.
  */
-static u32 stmmac_ioss_get_ring_size(struct stmmac_priv *priv, int queue,
-				     enum ioss_channel_dir dir,
-				     u32 default_size)
-{
-	struct ioss_device *idev;
-	struct ioss_interface *iface;
-	struct ioss_channel *ch;
 
-	idev = ioss_real_to_idev(priv->device);
+static void ethdbg_ioss_capture_rx_queue(struct net_device *ndev,
+					 const char *ifname, unsigned int q)
+{
+	struct ioss_channel *ch;
+	struct ioss_device *idev = ioss_real_to_idev(ndev->dev.parent);
+	struct ioss_interface *iface;
+	unsigned long vaddr = 0;
+	unsigned int size = 0;
+	char owner[ETHDBG_MD_NAME_LEN];
+	int ret;
+
+	if (!netif_running(ndev))
+		return;
+
 	if (!idev)
-		return default_size;
+		return;
 
 	iface = &idev->interface;
 
 	ioss_for_each_channel(ch, iface) {
-		if (ch->direction == dir && ch->id == queue && ch->allocated)
-			return ch->config.ring_size;
+		if (ch->direction == IOSS_CH_DIR_RX && ch->id == q && ch->allocated) {
+			struct ioss_mem *imem = list_first_entry_or_null(&ch->desc_mem,
+								struct ioss_mem, node);
+			if (imem) {
+				vaddr = (unsigned long)imem->addr;
+				size  = imem->size;
+			}
+			break;
+		}
 	}
 
-	return default_size;
-}
-
-/*
- * ethdbg_ipa_capture_rx_queue - Capture one IPA/IOSS-managed RX descriptor queue
- * @priv:   stmmac private data
- * @ifname: network interface name, used for region naming
- * @q:      RX queue index
- *
- * Looks up the IOSS ring size for queue @q, resolves the descriptor base
- * address, and registers the region with VA-minidump. Region is named
- * "<ifname>-rx<q>des". Skipped silently if the descriptor base address
- * is NULL.
- */
-void ethdbg_ipa_capture_rx_queue(struct stmmac_priv *priv,
-				  const char *ifname, unsigned int q)
-{
-	u32 ring_size = stmmac_ioss_get_ring_size(priv, q, IOSS_CH_DIR_RX,
-					      priv->dma_conf.dma_rx_size);
-	struct va_md_entry entry;
-	int ret;
-
-	if (priv->extend_desc) {
-		entry.vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_erx;
-		entry.size  = ring_size * sizeof(struct dma_extended_desc);
-	} else {
-		entry.vaddr = (unsigned long)priv->dma_conf.rx_queue[q].dma_rx;
-		entry.size  = ring_size * sizeof(struct dma_desc);
-	}
-
-	if (!entry.vaddr || !entry.size)
+	if (!vaddr || !size)
 		return;
 
-	scnprintf(entry.owner, sizeof(entry.owner), "%s-rx%u", ifname, q);
+	scnprintf(owner, sizeof(owner), "%s_rx%u", ifname, q);
 
-	ret = qcom_va_md_add_region(&entry);
+	ret = ethdbg_va_md_add_region(owner, vaddr, size);
 	if (ret)
-		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
-		       entry.owner, ret);
+		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n", owner, ret);
 }
 
-/*
- * ethdbg_ipa_capture_tx_queue - Capture one IPA/IOSS-managed TX descriptor queue
- * @priv:   stmmac private data
- * @ifname: network interface name, used for region naming
- * @q:      TX queue index
- *
- * Looks up the IOSS ring size for queue @q, resolves the descriptor base
- * address, and registers the region with VA-minidump. Region is named
- * "<ifname>:tx<q>des". Skipped silently if the descriptor base address
- * is NULL.
- */
-void ethdbg_ipa_capture_tx_queue(struct stmmac_priv *priv,
-				  const char *ifname, unsigned int q)
+static void ethdbg_ioss_capture_tx_queue(struct net_device *ndev,
+					 const char *ifname, unsigned int q)
 {
-	struct stmmac_tx_queue *tx_q = &priv->dma_conf.tx_queue[q];
-	u32 ring_size = stmmac_ioss_get_ring_size(priv, q, IOSS_CH_DIR_TX,
-					      priv->dma_conf.dma_tx_size);
-	struct va_md_entry entry;
+	struct ioss_channel *ch;
+	struct ioss_device *idev = ioss_real_to_idev(ndev->dev.parent);
+	struct ioss_interface *iface;
+	unsigned long vaddr = 0;
+	unsigned int size = 0;
+	char owner[ETHDBG_MD_NAME_LEN];
 	int ret;
 
-	if (priv->extend_desc) {
-		entry.vaddr = (unsigned long)tx_q->dma_etx;
-		entry.size  = ring_size * sizeof(struct dma_extended_desc);
-	} else if (tx_q->tbs & STMMAC_TBS_AVAIL) {
-		entry.vaddr = (unsigned long)tx_q->dma_entx;
-		entry.size  = ring_size * sizeof(struct dma_edesc);
-	} else {
-		entry.vaddr = (unsigned long)tx_q->dma_tx;
-		entry.size  = ring_size * sizeof(struct dma_desc);
-	}
-
-	if (!entry.vaddr || !entry.size)
+	if (!netif_running(ndev))
 		return;
 
-	scnprintf(entry.owner, sizeof(entry.owner), "%s-tx%u", ifname, q);
+	if (!idev)
+		return;
 
-	ret = qcom_va_md_add_region(&entry);
+	iface = &idev->interface;
+
+	ioss_for_each_channel(ch, iface) {
+		if (ch->direction == IOSS_CH_DIR_TX && ch->id == q && ch->allocated) {
+			struct ioss_mem *imem = list_first_entry_or_null(&ch->desc_mem,
+								struct ioss_mem, node);
+			if (imem) {
+				vaddr = (unsigned long)imem->addr;
+				size  = imem->size;
+			}
+			break;
+		}
+	}
+
+	if (!vaddr || !size)
+		return;
+
+	scnprintf(owner, sizeof(owner), "%s_tx%u", ifname, q);
+
+	ret = ethdbg_va_md_add_region(owner, vaddr, size);
 	if (ret)
-		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n",
-		       entry.owner, ret);
+		pr_err("ethdbg: failed to add VA-MD region %s ret %d\n", owner, ret);
+}
+
+static const struct ethdbg_capture_ops ethdbg_ioss_capture_ops = {
+	.capture_rx_queue = ethdbg_ioss_capture_rx_queue,
+	.capture_tx_queue = ethdbg_ioss_capture_tx_queue,
+};
+
+void ethdbg_ioss_init(void)
+{
+	ethdbg_register_capture_ops(&ethdbg_ioss_capture_ops);
+}
+
+void ethdbg_ioss_exit(void)
+{
+	ethdbg_unregister_capture_ops(&ethdbg_ioss_capture_ops);
 }

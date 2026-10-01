@@ -36,21 +36,23 @@ case "$1" in
   start)
 	echo -n "Starting/Loading Data-ETH modules: "
 	echo "IOSS:start/load" > /dev/kmsg
+	insmod /lib/modules/ethernet/ioss.ko
 	insmod /lib/modules/ethernet/ethdbg.ko
 	echo -n "eth0" > /sys/module/ethdbg/parameters/interface_name
 	echo -n "eth1" > /sys/module/ethdbg/parameters/interface_name
 	echo -n "eth2" > /sys/module/ethdbg/parameters/interface_name
 	insmod /lib/modules/ethernet/qca81xx-phy.ko
-	insmod /lib/modules/ethernet/ioss.ko
 	insmod /lib/modules/ethernet/stmmac_ioss.ko
+	insmod /lib/modules/ethernet/eth_qos.ko
 	echo "done loading Data-ETH modules"
 	;;
   stop)
 	echo -n "Unloading Data-ETH  modules "
+	rmmod eth_qos
 	rmmod stmmac_ioss
-	rmmod ioss
 	rmmod qca81xx-phy
 	rmmod ethdbg
+	rmmod ioss
 	;;
   restart)
 	$0 stop

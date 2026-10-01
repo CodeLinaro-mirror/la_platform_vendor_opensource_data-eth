@@ -2,9 +2,35 @@
 // Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 
 #include <linux/kernel.h>
+#include <linux/notifier.h>
 #include <linux/string.h>
 #include <soc/qcom/minidump.h>
 #include "ethdbg.h"
+
+#define ETHDBG_MAX_CAPTURE_OPS	4
+
+static const struct ethdbg_capture_ops *capture_ops[ETHDBG_MAX_CAPTURE_OPS];
+static unsigned int num_capture_ops;
+
+void ethdbg_register_capture_ops(const struct ethdbg_capture_ops *ops)
+{
+	if (WARN_ON(num_capture_ops >= ETHDBG_MAX_CAPTURE_OPS))
+		return;
+	capture_ops[num_capture_ops++] = ops;
+}
+
+void ethdbg_unregister_capture_ops(const struct ethdbg_capture_ops *ops)
+{
+	unsigned int i;
+
+	for (i = 0; i < num_capture_ops; i++) {
+		if (capture_ops[i] == ops) {
+			capture_ops[i] = capture_ops[--num_capture_ops];
+			capture_ops[num_capture_ops] = NULL;
+			return;
+		}
+	}
+}
 
 int ethdbg_minidump_add_region(const char *name, uintptr_t vaddr, size_t size)
 {
@@ -46,97 +72,80 @@ int ethdbg_minidump_remove_region(const char *name, uintptr_t vaddr, size_t size
 	return ret;
 }
 
-void ethdbg_minidump_register(struct ethdbg_device *dev,
-			      const char *interface_name)
+int ethdbg_va_md_add_region(const char *owner, unsigned long vaddr, unsigned int size)
 {
-	struct ethdbg_dump_data *dump_data = &dev->dump_data;
-	char md_name[MAX_NAME_LENGTH + 1];
-	unsigned int phy_idx = 0;
-	unsigned int i;
+	struct va_md_entry entry;
 
-	for (i = 0; i < dump_data->num_blocks; i++) {
-		struct ethdbg_hw_block *block = &dump_data->blocks[i];
-		int ret;
+	entry.vaddr = vaddr;
+	entry.size = size;
+	entry.cb = NULL;
+	scnprintf(entry.owner, sizeof(entry.owner), "%s", owner);
 
-		if (block->minidump_registered)
-			continue;
-
-		if (block->is_phy) {
-			/* PHY block: eth0-phyreg<phy_idx> */
-			scnprintf(md_name, sizeof(md_name), "%s-phyreg%u", interface_name, phy_idx);
-			ret = ethdbg_minidump_add_region(md_name, (uintptr_t)block->reg_list,
-							 block->num_registers * sizeof(struct ethdbg_reg_entry));
-			if (ret < 0) {
-				pr_warn("ethdbg: [%s] skipping minidump registration for %s\n",
-					interface_name, md_name);
-				continue;
-			}
-
-			phy_idx++;
-		} else {
-			/* MMIO block: eth0-reg<map->index> */
-			scnprintf(md_name, sizeof(md_name), "%s-reg%u", interface_name, block->map->index);
-			ret = ethdbg_minidump_add_region(md_name, (uintptr_t)block->reg_list,
-							 block->num_registers * sizeof(struct ethdbg_reg_entry));
-			if (ret < 0) {
-				pr_warn("ethdbg: [%s] skipping minidump registration for %s\n",
-					interface_name, md_name);
-				continue;
-			}
-
-			/*
-			 * Register the ethdbg_map struct as eth0-map<index> to enable resolving
-			 * the index to the region name during postprocessing.
-			 */
-			scnprintf(md_name, sizeof(md_name), "%s-map%u", interface_name, block->map->index);
-			ret = ethdbg_minidump_add_region(md_name, (uintptr_t)block->map, sizeof(struct ethdbg_map));
-			if (ret < 0) {
-				pr_warn("ethdbg: [%s] skipping minidump registration for %s\n",
-					interface_name, md_name);
-				continue;
-			}
-		}
-
-		block->minidump_registered = true;
-	}
+	return qcom_va_md_add_region(&entry);
 }
 
-void ethdbg_minidump_unregister(struct ethdbg_device *dev,
-				const char *interface_name)
+static int ethdbg_va_md_notify(struct notifier_block *nb, unsigned long event,
+			       void *ptr)
 {
-	struct ethdbg_dump_data *dump_data = &dev->dump_data;
-	char md_name[MAX_NAME_LENGTH + 1];
-	unsigned int phy_idx = 0;
+	struct ethdbg_interface *iface;
 	unsigned int i;
 
-	for (i = 0; i < dump_data->num_blocks; i++) {
-		struct ethdbg_hw_block *block = &dump_data->blocks[i];
-		int ret;
+	list_for_each_entry(iface, &ethdbg_interfaces, list) {
+		struct ethdbg_device *dev = iface->device;
+		struct net_device *ndev;
+		unsigned int q;
 
-		if (!block->minidump_registered)
+		if (!dev || !dev->net_dev)
 			continue;
 
-		if (block->is_phy) {
-			scnprintf(md_name, sizeof(md_name), "%s-phyreg%u", interface_name, phy_idx);
-			ret = ethdbg_minidump_remove_region(md_name, (uintptr_t)block->reg_list,
-							    block->num_registers * sizeof(struct ethdbg_reg_entry));
-			if (ret < 0)
-				continue;
+		ndev = dev->net_dev;
 
-			phy_idx++;
-		} else {
-			/* Remove the map descriptor first, then the register data */
-			scnprintf(md_name, sizeof(md_name), "%s-map%u", interface_name, block->map->index);
-			ethdbg_minidump_remove_region(md_name, (uintptr_t)block->map,
-						      sizeof(struct ethdbg_map));
+		/* reg_list buffers are vmalloc'd: VA-minidump, not msm_minidump */
+		ethdbg_va_md_add_dump_regions(dev);
 
-			scnprintf(md_name, sizeof(md_name), "%s-reg%u", interface_name, block->map->index);
-			ret = ethdbg_minidump_remove_region(md_name, (uintptr_t)block->reg_list,
-							    block->num_registers * sizeof(struct ethdbg_reg_entry));
-			if (ret < 0)
-				continue;
+		for (q = 0; q < ndev->num_rx_queues; q++) {
+			for (i = 0; i < num_capture_ops; i++) {
+				if (capture_ops[i]->capture_rx_queue)
+					capture_ops[i]->capture_rx_queue(ndev, iface->interface_name, q);
+			}
 		}
 
-		block->minidump_registered = false;
+		for (q = 0; q < ndev->num_tx_queues; q++) {
+			for (i = 0; i < num_capture_ops; i++) {
+				if (capture_ops[i]->capture_tx_queue)
+					capture_ops[i]->capture_tx_queue(ndev, iface->interface_name, q);
+			}
+		}
 	}
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block ethdbg_va_md_nb = {
+	.notifier_call = ethdbg_va_md_notify,
+	.priority = INT_MAX,
+};
+
+void ethdbg_va_minidump_init(void)
+{
+	int ret;
+
+	if (!qcom_va_md_enabled())
+		return;
+
+	ret = qcom_va_md_register("ethdbg", &ethdbg_va_md_nb);
+	if (ret)
+		pr_err("ethdbg: failed to register VA-minidump notifier, err: %d\n", ret);
+}
+
+void ethdbg_va_minidump_deinit(void)
+{
+	int ret;
+
+	if (!qcom_va_md_enabled())
+		return;
+
+	ret = qcom_va_md_unregister("ethdbg", &ethdbg_va_md_nb);
+	if (ret)
+		pr_err("ethdbg: failed to unregister VA-minidump notifier, err: %d\n", ret);
 }

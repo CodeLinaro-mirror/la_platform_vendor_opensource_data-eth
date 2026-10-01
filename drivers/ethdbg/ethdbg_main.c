@@ -25,7 +25,7 @@ MODULE_PARM_DESC(interface_name, "Network interface name");
 
 static struct notifier_block ethdbg_netdev_notifier;
 
-static void parse_memory_regions(const struct device_node *np,
+static void parse_memory_regions(struct device_node *np,
 				  struct list_head *map_list)
 {
 	struct resource res;
@@ -157,6 +157,7 @@ static void unregister_interface_phy(struct ethdbg_interface *iface)
 		return;
 
 	ethdbg_uio_del_phy(iface);
+	ethdbg_dump_unregister_phy(iface);
 	iface->device->phy_registered = false;
 }
 
@@ -164,25 +165,11 @@ static void register_interface_res(struct ethdbg_interface *iface)
 {
 	/* PHY is not valid at NETDEV_REGISTER, attach it now */
 	register_interface_phy(iface);
-
-	/*
-	 * DMA descriptor rings are allocated by stmmac_open(), which
-	 * completes before NETDEV_UP is delivered. Register the VA-minidump
-	 * panic notifier now so rings are captured on panic.
-	 */
-	ethdbg_stmmac_va_md_register(iface->device,
-				     iface->interface_name);
 }
 
 static void unregister_interface_res(struct ethdbg_interface *iface)
 {
-	/*
-	 * Unregister the VA-minidump panic notifier when the last interface
-	 * goes down. If other interfaces are still active it remains
-	 * registered to cover their descriptor rings.
-	 */
-	ethdbg_stmmac_va_md_unregister(iface->device,
-				       iface->interface_name);
+	unregister_interface_phy(iface);
 }
 
 static void free_map_regions(struct ethdbg_device *dev)
@@ -224,19 +211,35 @@ static int register_interface_device(struct ethdbg_interface *iface,
 	parse_maps(parent_dev, &dev->map_regions);
 
 	/* Register for dump capture */
-	ret = ethdbg_dump_register(dev, iface->interface_name);
+	ret = ethdbg_dump_register(iface);
 	if (ret) {
 		netdev_err(net_dev, "Failed to register dump capture: %d\n", ret);
 		goto err_free_maps;
 	}
 
+	/* Register QoS dump capture */
+	ret = ethdbg_dump_register_qos(dev, iface->interface_name);
+	if (ret) {
+		netdev_err(net_dev, "Failed to register QoS dump capture: %d\n", ret);
+		goto err_dump_unregister;
+	}
+
 	/* Register UIO device and dump UIO device */
 	ret = ethdbg_uio_add(iface);
 	if (ret)
-		goto err_dump_unregister;
+		goto err_qos_dump_unregister;
+
+	/* Register QoS UIO device */
+	ret = ethdbg_uio_add_qos(iface);
+	if (ret)
+		goto err_uio_del;
 
 	return 0;
 
+err_uio_del:
+	ethdbg_uio_del(iface);
+err_qos_dump_unregister:
+	ethdbg_dump_unregister_qos(dev);
 err_dump_unregister:
 	ethdbg_dump_unregister(iface);
 err_free_maps:
@@ -257,8 +260,10 @@ static void unregister_interface(struct ethdbg_interface *iface)
 	dev = iface->device;
 	if (dev) {
 		unregister_interface_phy(iface);
-		ethdbg_dump_unregister(iface);
+		ethdbg_uio_del_qos(iface);
 		ethdbg_uio_del(iface);
+		ethdbg_dump_unregister_qos(dev);
+		ethdbg_dump_unregister(iface);
 		free_map_regions(dev);
 		if (dev->net_dev)
 			dev_put(dev->net_dev);
@@ -372,6 +377,13 @@ static int __init ethdbg_init(void)
 		return ret;
 	}
 
+	/* Register capture ops once for the module lifetime */
+	ethdbg_stmmac_init();
+	ethdbg_ioss_init();
+
+	/* Register VA-minidump notifier once for the module lifetime */
+	ethdbg_va_minidump_init();
+
 	return 0;
 }
 module_init(ethdbg_init);
@@ -380,6 +392,10 @@ module_init(ethdbg_init);
 static void __exit ethdbg_exit(void)
 {
 	struct ethdbg_interface *iface, *tmp;
+
+	ethdbg_va_minidump_deinit();
+	ethdbg_stmmac_exit();
+	ethdbg_ioss_exit();
 
 	unregister_netdevice_notifier(&ethdbg_netdev_notifier);
 

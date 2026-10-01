@@ -5,13 +5,14 @@
 Description=Ethernet SDK DLKM
 DefaultDependencies=no
 After=sysinit.target
-Before=basic.target
+Before=basic.target shutdown.target reboot.target halt.target
 
 [Service]
 Type=oneshot
 Restart=no
 RemainAfterExit=yes
 ExecStart=/bin/sh -c 'echo -n "Starting/Loading Data-ETH modules: " '
+ExecStart=/sbin/modprobe ioss
 ExecStart=-/bin/sh -c 'insmod /usr/lib/modules/$(uname -r)/extra/drivers/ethdbg/ethdbg.ko'
 ExecStart=-/bin/sh -c 'echo -n eth0 > /sys/module/ethdbg/parameters/interface_name'
 ExecStart=-/bin/sh -c 'echo -n eth1 > /sys/module/ethdbg/parameters/interface_name'
@@ -19,6 +20,7 @@ ExecStart=/sbin/modprobe stmmac_ioss
 ExecStop=/bin/sh -c 'echo -n "Stopping/Unloading Data-ETH modules: " '
 ExecStop=/sbin/modprobe -r stmmac_ioss
 ExecStop=-/sbin/rmmod ethdbg
+ExecStop=/sbin/modprobe -r ioss
 
 [Install]
 WantedBy=multi-user.target

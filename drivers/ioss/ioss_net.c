@@ -6,6 +6,7 @@
 #include <linux/workqueue.h>
 #include <linux/rtnetlink.h>
 #include <linux/bitops.h>
+#include <linux/cpumask.h>
 
 #include "ioss_i.h"
 
@@ -52,6 +53,57 @@ void ioss_iface_queue_refresh(struct ioss_interface *iface, bool flush)
 
 	if (flush)
 		flush_work(&iface->refresh);
+}
+
+void ioss_net_xps_set_cpu_mask(struct ioss_interface *iface,
+			       const struct cpumask *cpu_mask, u16 txq)
+{
+	struct net_device *ndev = ioss_iface_to_netdev(iface);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	int ret;
+
+	if (!ndev || txq >= ndev->real_num_tx_queues)
+		return;
+
+	ret = netif_set_xps_queue(ndev, cpu_mask, txq);
+	if (ret)
+		ioss_dev_err(idev, "XPS: failed to set CPU mask for TXQ %u", txq);
+}
+
+static unsigned long ioss_net_get_txqs_from_prio(struct net_device *ndev, u32 prio)
+{
+	unsigned long txq_mask = 0;
+	int tc = netdev_get_prio_tc_map(ndev, prio);
+	u16 count, offset, q;
+
+	if (!ndev->num_tc || tc >= ndev->num_tc)
+		return 0;
+
+	count = ndev->tc_to_txq[tc].count;
+	offset = ndev->tc_to_txq[tc].offset;
+
+	for (q = offset; q < offset + count && q < ndev->real_num_tx_queues && q < BITS_PER_LONG; q++)
+		set_bit(q, &txq_mask);
+
+	return txq_mask;
+}
+
+void ioss_net_xps_reset(struct ioss_interface *iface)
+{
+	struct net_device *ndev = ioss_iface_to_netdev(iface);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+	unsigned long txq_mask, q;
+
+	/* Clear XPS masks from all TXQs */
+	for (q = 0; q < ndev->real_num_tx_queues; q++)
+		ioss_net_xps_set_cpu_mask(iface, cpu_none_mask, q);
+
+	txq_mask = ioss_net_get_txqs_from_prio(ndev, TC_PRIO_BESTEFFORT);
+
+	for_each_set_bit(q, &txq_mask, BITS_PER_LONG)
+		ioss_net_xps_set_cpu_mask(iface, cpu_possible_mask, q);
+
+	ioss_dev_log(idev, "XPS: default configured for TC TXQs 0x%lx", txq_mask);
 }
 
 static void __netdev_get_stats64(struct net_device *net_dev,
@@ -122,6 +174,7 @@ static void ioss_net_event_register(struct ioss_interface *iface,
 {
 	struct net_device *net_dev = netdev_notifier_info_to_dev(ptr);
 	struct ioss_device *idev = ioss_iface_dev(iface);
+	struct ioss_driver *idrv = NULL;
 
 	ioss_dev_log(idev, "Register event for %s", net_dev->name);
 
@@ -136,8 +189,13 @@ static void ioss_net_event_register(struct ioss_interface *iface,
 		return;
 	}
 
-	__hijack_netdev_ops(iface);
+	idrv = idev->dev.driver ? to_ioss_driver(idev->dev.driver) : NULL;
+	if (idrv && idrv->ops && !idrv->ops->receive_skb)
+		__hijack_netdev_ops(iface);
 
+	ioss_ethtool_hijack_stats(iface);
+
+	ioss_net_xps_reset(iface);
 
 	ioss_iface_queue_refresh(iface, false);
 }
@@ -147,10 +205,15 @@ static void ioss_net_event_unregister(struct ioss_interface *iface,
 {
 	struct net_device *net_dev = netdev_notifier_info_to_dev(ptr);
 	struct ioss_device *idev = ioss_iface_dev(iface);
+	struct ioss_driver *idrv = NULL;
 
 	ioss_dev_log(idev, "Unregister event for %s", net_dev->name);
 
-	__restore_netdev_ops(iface);
+	idrv = idev->dev.driver ? to_ioss_driver(idev->dev.driver) : NULL;
+	if (idrv && idrv->ops && !idrv->ops->receive_skb)
+		__restore_netdev_ops(iface);
+
+	ioss_ethtool_restore_stats(iface);
 	ioss_bus_unregister_iface(iface);
 
 	ioss_iface_queue_refresh(iface, false);
@@ -309,6 +372,13 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 
 	ch->allocated = true;
 
+	/* Track per-channel TCM (LLCC) usage (buffers only) */
+	if (ch->config.buff_alctr == &ioss_tcm_buf_alctr)
+		ch->tcm_buff_bytes = ch->config.ring_size * ch->config.buff_size;
+
+	if (ch->config.desc_alctr == &ioss_tcm_desc_alctr)
+		ch->tcm_desc_bytes = ch->config.desc_size * ch->config.ring_size;
+
 	ioss_dev_log(idev, "Allocated channel %d for interface %s",
 			ch->id, idev->net_dev->name);
 
@@ -343,6 +413,10 @@ static int __ioss_net_free_channel(struct ioss_channel *ch)
 	}
 
 	ch->allocated = false;
+
+	/* Clear per-channel TCM (LLCC) usage */
+	ch->tcm_buff_bytes = 0;
+	ch->tcm_desc_bytes = 0;
 
 	ioss_dev_log(idev,
 		"Released channel %d on interface %s", id, idev->net_dev->name);
@@ -666,6 +740,9 @@ static void ioss_iface_set_online(struct ioss_interface *iface)
 	}
 	iface->state = IOSS_IF_ST_ONLINE;
 
+	if (!iface->ipa_tx_disabled)
+		ioss_ipa_emb_tx_enable(iface);
+
 	ioss_dev_log(idev, "Brought up %s successfully", idev->net_dev->name);
 
 	return;
@@ -708,6 +785,9 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 	ioss_dev_log(idev, "Bringing down %s", idev->net_dev->name);
 
 	iface->state = IOSS_IF_ST_OFFLINE;
+
+	if (!iface->ipa_tx_disabled)
+		ioss_ipa_emb_tx_disable(iface);
 
 	if(iface->is_pci_device){
 		rc = ioss_pci_enable_pc(idev);
