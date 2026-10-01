@@ -199,14 +199,13 @@ static phys_addr_t tcm_mem_pa(struct ioss_device *idev, void *addr, dma_addr_t d
 
 int ioss_tcm_mem_init(void)
 {
-	struct llcc_tcm_data *tcm_data;
+	struct llcc_tcm_data *tcm_data = NULL;
 	int ret;
 
 	ioss_tcm_pool = gen_pool_create(TCM_POOL_MIN_ALLOC_ORDER, -1);
 	if (!ioss_tcm_pool) {
 		ioss_log_err(NULL, "Failed to create TCM pool");
-		ret = -ENOMEM;
-		goto err_deactivate;
+		return -ENOMEM;
 	}
 
 	if (disable_tcm)
@@ -215,7 +214,8 @@ int ioss_tcm_mem_init(void)
 	tcm_data = llcc_tcm_activate();
 	if (IS_ERR_OR_NULL(tcm_data)) {
 		ioss_log_err(NULL, "Failed to activate TCM");
-		return -EFAULT;
+		ret = -EFAULT;
+		goto err_destroy_pool;
 	}
 
 	ret = gen_pool_add_virt(ioss_tcm_pool, (unsigned long)tcm_data->virt_addr,
@@ -236,8 +236,8 @@ int ioss_tcm_mem_init(void)
 err_destroy_pool:
 	gen_pool_destroy(ioss_tcm_pool);
 	ioss_tcm_pool = NULL;
-err_deactivate:
-	llcc_tcm_deactivate(tcm_data);
+	if (!IS_ERR_OR_NULL(tcm_data))
+		llcc_tcm_deactivate(tcm_data);
 	return ret;
 }
 
