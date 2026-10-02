@@ -349,6 +349,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
 		cp->ipa_pi.client_info = ec;
+		cp->ipa_pi.tc_bmap = cp->tc_bmap;
 
 		if (ioss_ipa_fill_pipe_info(ch, &cp->ipa_pi)) {
 			ioss_dev_err(idev, "Failed to fill pipe info");
@@ -738,6 +739,7 @@ int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 t
 			goto out_unlock;
 		}
 
+		cp->tc_bmap = tc_bmap;
 		cp->ipa_pi.tc_bmap = tc_bmap;
 
 		if (iface->state != IOSS_IF_ST_ONLINE) {

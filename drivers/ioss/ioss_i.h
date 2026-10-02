@@ -36,6 +36,7 @@ struct ioss_priv_data {
 struct ioss_ch_priv {
 	struct ipa_eth_client_pipe_info ipa_pi;
 	const struct ipa_eth_dma_ch_config *ipa_ch_config;
+	u32 tc_bmap;
 };
 
 struct ioss_iface_priv {
