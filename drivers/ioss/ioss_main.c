@@ -27,13 +27,19 @@ static void ioss_ipa_ready_notif(void *userdata)
 	if (ioss_pci_start(ioss)) {
 		set_bit(IOSS_ST_ERROR, &ioss->status);
 		ioss_log_err(NULL, "Failed to start PCI sub-system");
-		return;
+		goto done;
 	}
 	if (ioss_plat_start(ioss)) {
 		set_bit(IOSS_ST_ERROR, &ioss->status);
 		ioss_log_err(NULL, "Failed to start Platform sub-system");
-		return;
+		goto done;
 	}
+
+done:
+	/* Unblock any refresh worker that may be waiting for the IPA ready
+	 * callback to finish starting the PCI/Platform sub-systems.
+	 */
+	complete_all(&ioss->ipa_ready_comp);
 }
 
 static int ioss_probe(struct platform_device *pdev)
@@ -82,6 +88,8 @@ static int ioss_probe(struct platform_device *pdev)
 
 	ioss_priv->ipa_ready.notify = ioss_ipa_ready_notif;
 	ioss_priv->ipa_ready.userdata = ioss;
+
+	init_completion(&ioss->ipa_ready_comp);
 
 	rc = ipa_eth_register_ready_cb(&ioss_priv->ipa_ready);
 	if (rc) {
