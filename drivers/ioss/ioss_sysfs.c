@@ -25,7 +25,7 @@ static int get_idev_statistics(struct ioss_device *idev,
 	}
 
 	/* Aggregate channel level stats */
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_channel_stats ch_stats;
 
 		memset(&ch_stats, 0, sizeof(struct ioss_channel_stats));
@@ -368,7 +368,7 @@ static ssize_t sysfs_read_ch_statistics(struct device *dev, struct device_attrib
 	if(ch_name)
 		sscanf(ch_name, "%d", &id);
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
 			ch = ch_tmp;
@@ -442,7 +442,7 @@ static ssize_t sysfs_read_ch_stats(struct device *dev, struct device_attribute *
 	if(ch_name)
 		sscanf(ch_name, "%d", &id);
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 	char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
 			ch = ch_tmp;
@@ -516,7 +516,7 @@ static ssize_t sysfs_read_ch_status(struct device *dev, struct device_attribute 
 
 	memset(&ch_status, 0, sizeof(struct ioss_channel_status));
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
 			ch = ch_tmp;
@@ -589,7 +589,7 @@ static ssize_t sysfs_read_ch_stat(struct device *dev, struct device_attribute *a
 	if(ch_name)
 		sscanf(ch_name, "%d", &id);
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 	char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
 			ch = ch_tmp;
@@ -670,7 +670,7 @@ static struct ioss_channel *ioss_sysfs_get_channel(struct device *dev,
 	if (ch_name)
 		sscanf(ch_name, "%d", &id);
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if (!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id) {
 			ch = ch_tmp;

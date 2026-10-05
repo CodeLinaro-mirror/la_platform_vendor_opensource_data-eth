@@ -31,7 +31,7 @@ static void ethdbg_ioss_capture_rx_queue(struct net_device *ndev,
 
 	iface = &idev->interface;
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == IOSS_CH_DIR_RX && ch->id == q && ch->allocated) {
 			struct ioss_mem *imem = list_first_entry_or_null(&ch->desc_mem,
 								struct ioss_mem, node);
@@ -72,7 +72,7 @@ static void ethdbg_ioss_capture_tx_queue(struct net_device *ndev,
 
 	iface = &idev->interface;
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == IOSS_CH_DIR_TX && ch->id == q && ch->allocated) {
 			struct ioss_mem *imem = list_first_entry_or_null(&ch->desc_mem,
 								struct ioss_mem, node);

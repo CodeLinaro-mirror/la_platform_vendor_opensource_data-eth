@@ -345,7 +345,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	INIT_LIST_HEAD(&ec->pipe_list);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
 		cp->ipa_pi.client_info = ec;
@@ -375,7 +375,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	/* Retrieve output from conn_pipes call */
 	i = 0;
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 		struct ipa_eth_client_pipe_info *pi = &cp->ipa_pi;
 		struct ipa_eth_pipe_setup_info *si = &pi->info;
@@ -397,7 +397,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 	return 0;
 
 err_ipa_reg_intf:
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		ch->event.paddr = 0;
 		ch->event.data = 0;
 	}
@@ -405,7 +405,7 @@ err_ipa_vote_bw:
 	if (ipa_eth_client_disconn_pipes(ec))
 		ioss_dev_err(idev, "Failed to disconnect pipes");
 err_ipa_conn_pipes:
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
 		ioss_ipa_clear_pipe_info(&cp->ipa_pi);
@@ -443,7 +443,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 
 	memset(ii, 0, sizeof(*ii));
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
 		ch->event.paddr = 0;
@@ -587,7 +587,7 @@ static unsigned long ioss_ipa_be_txq_mask(struct ioss_interface *iface)
 	struct ioss_channel *ch;
 	unsigned long mask = 0;
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == IOSS_CH_DIR_TX &&
 		    ch->traffic_type == IOSS_TRAFFIC_BE &&
 		    ch->queue_number < BITS_PER_LONG)
@@ -684,7 +684,7 @@ void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
 
 	ioss_net_xps_reset(iface);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == IOSS_CH_DIR_TX)
 			atomic_set(&ch->ipa_tx_outstanding_pkts, 0);
 	}
@@ -728,7 +728,7 @@ int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 t
 
 	mutex_lock(&idev->refresh_lock);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction != dir || ch->channel_num != ch_num)
 			continue;
 
