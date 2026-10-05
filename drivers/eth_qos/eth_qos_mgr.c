@@ -1660,8 +1660,19 @@ int eth_qos_mgr_del(struct net_device *ndev, u32 hid)
 		eth_qos_log_cfg(&ndev->dev, "eth_qos_mgr: deleting CBS filter with hid=%u on queue=%u ch=%u ret=%d\n",
 			    entry->hid, entry->queue, entry->ch, ret);
 		if (!ret && entry->u.cbs.hw_path) {
-			ret = eth_qos_mgr_clear_tx_ipa_tc_bmap(ndev, entry->ch);
-			if (!ret)
+			int bmap_ret = eth_qos_mgr_clear_tx_ipa_tc_bmap(ndev, entry->ch);
+
+			/*
+			 * The queue programming is already reverted, so drop the
+			 * entry even if IOSS could not clear its bitmap. Keeping
+			 * a half-deleted entry would make every later add on
+			 * this queue/ch fail with -EEXIST.
+			 */
+			if (bmap_ret)
+				eth_qos_log_err(&ndev->dev,
+						"eth_qos_mgr: failed to clear IOSS TC bitmap hid=%u tc=%u ch=%u ret=%d, deleting anyway",
+						entry->hid, entry->tc, entry->ch, bmap_ret);
+			else
 				eth_qos_log_cfg(&ndev->dev,
 						"eth_qos_mgr: cleared IOSS TC bitmap hid=%u tc=%u ch=%u",
 						entry->hid, entry->tc, entry->ch);
