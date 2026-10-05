@@ -236,7 +236,7 @@ static int ioss_net_device_event(struct notifier_block *nb,
 			handler(iface, event, ptr);
 
 	} else {
-		ioss_dev_err(idev,
+		ioss_dev_dbg(idev,
 			"Netdev event number %lu out of bounds", event);
 		return NOTIFY_DONE;
 	}
@@ -811,16 +811,17 @@ static void ioss_refresh_work(struct work_struct *work)
 	if (!net_dev)
 		return;
 
-	ioss_dev_dbg(idev, "Refreshing interface %s", idev->net_dev->name);
-
 	do {
 		iface->link_speed = __fetch_ethtool_link_speed(net_dev);
 		if (iface->link_speed != (u32)SPEED_UNKNOWN)
 			break;
 	} while (--retry > 0);
 
+	ioss_dev_dbg(idev, "Refreshing interface %s with link speed %u", idev->net_dev->name, iface->link_speed);
+
 	if (netif_running(net_dev) && netif_carrier_ok(net_dev)
-	    && !(dev->offline) && !idev->unbinding)
+	    && !(dev->offline) && !idev->unbinding
+	    && iface->link_speed != 0 && iface->link_speed != (u32)SPEED_UNKNOWN)
 		ioss_iface_set_online(iface);
 	else
 		ioss_iface_set_offline(iface);
