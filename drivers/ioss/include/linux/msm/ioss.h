@@ -581,8 +581,11 @@ struct ioss_channel_status {
 
 #define ioss_ch_dev(ch) ioss_iface_dev(ch->iface)
 
-#define ioss_for_each_channel(ch, iface) \
+#define ioss_for_each_valid_channel(ch, iface) \
 	list_for_each_entry(ch, &iface->valid_channels, node)
+
+#define ioss_for_each_invalid_channel(ch, iface) \
+	list_for_each_entry(ch, &iface->invalid_channels, node)
 
 static inline char *ioss_ch_dir_s(struct ioss_channel *ch)
 {

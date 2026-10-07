@@ -454,7 +454,7 @@ static int ioss_net_free_channels(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Releasing all channels for %s", idev->net_dev->name);
 
-	ioss_for_each_channel(ch, iface)
+	ioss_for_each_valid_channel(ch, iface)
 		rc |= __ioss_net_free_channel(ch);
 
 	return rc;
@@ -542,7 +542,7 @@ static int ioss_net_disable_channels(struct ioss_interface *iface, enum ioss_cha
 
 	ioss_dev_dbg(idev, "Disabling all channels for %s", idev->net_dev->name);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == dir)
 			rc |= __ioss_net_disable_channel(ch);
 	}
@@ -653,7 +653,7 @@ static int ioss_net_teardown_events(struct ioss_interface *iface, enum ioss_chan
 
 	ioss_dev_dbg(idev, "Tearing down all device events");
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == dir)
 			rc |= __ioss_net_teardown_event(ch);
 	}
@@ -839,7 +839,7 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 		iface->state = IOSS_IF_ST_ERROR;
 	}
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->pending_user_cfg) {
 			ioss_net_apply_channel_config(ch);
 			ch->pending_user_cfg = false;
