@@ -712,12 +712,33 @@ void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
 #endif
 
 #if IPA_ETH_API_VER >= 9
+static int ioss_ipa_update_ch_tc_bmap(struct ioss_channel *ch, u32 tc_bmap)
+{
+	struct ioss_ch_priv *cp = ch->ioss_priv;
+	int ret;
+
+	cp->tc_bmap = tc_bmap;
+
+	if (ch->iface->state != IOSS_IF_ST_ONLINE)
+		return 0;
+
+	cp->ipa_pi.tc_bmap = tc_bmap;
+
+	ret = ipa_eth_qos_update_tc_mapping(&cp->ipa_pi);
+	if (ret)
+		ioss_dev_err(ioss_ch_dev(ch),
+			     "failed to update tc mapping dir=%d ch=%d bmap=0x%x ret=%d",
+			     ch->direction, ch->channel_num, tc_bmap, ret);
+
+	return ret;
+}
+
 int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 tc_bmap)
 {
 	struct ioss_interface *iface;
 	struct ioss_channel *ch;
-	struct ioss_ch_priv *cp;
 	enum ioss_channel_dir dir;
+	bool found = false;
 	int ret = 0;
 
 	if (!idev)
@@ -732,40 +753,27 @@ int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 t
 		if (ch->direction != dir || ch->channel_num != ch_num)
 			continue;
 
-		cp = ch->ioss_priv;
-		if (!cp) {
-			ioss_dev_err(idev, "missing private data for ch %d", ch_num);
-			ret = -EINVAL;
-			goto out_unlock;
-		}
-
-		cp->tc_bmap = tc_bmap;
-		cp->ipa_pi.tc_bmap = tc_bmap;
-
-		if (iface->state != IOSS_IF_ST_ONLINE) {
-			ioss_dev_log(idev, "cached tc mapping dir=%d ch=%d bmap=0x%x while IPA is not connected",
-				     dir, ch_num, tc_bmap);
-			ret = 0;
-			goto out_unlock;
-		}
-
-		ret = ipa_eth_qos_update_tc_mapping(&cp->ipa_pi);
-		if (ret) {
-			ioss_dev_err(idev, "failed to update tc mapping dir=%d ch=%d bmap=0x%x ret=%d",
-				     dir, ch_num, tc_bmap, ret);
-			goto out_unlock;
-		}
-
-		ioss_dev_log(idev, "updated tc mapping dir=%d ch=%d bmap=0x%x",
-			     dir, ch_num, tc_bmap);
-		goto out_unlock;
+		found = true;
+		ret |= ioss_ipa_update_ch_tc_bmap(ch, tc_bmap);
 	}
 
-	ioss_dev_err(idev, "failed to find qos channel dir=%d ch=%d", dir, ch_num);
-	ret = -ENODEV;
+	ioss_for_each_invalid_channel(ch, iface) {
+		struct ioss_ch_priv *cp = ch->ioss_priv;
 
-out_unlock:
+		if (ch->direction != dir || ch->channel_num != ch_num)
+			continue;
+
+		found = true;
+		cp->tc_bmap = tc_bmap;
+	}
+
 	mutex_unlock(&idev->refresh_lock);
+
+	if (!found) {
+		ioss_dev_err(idev, "failed to find qos channel dir=%d ch=%d", dir, ch_num);
+		return -ENODEV;
+	}
+
 	return ret;
 }
 #else
