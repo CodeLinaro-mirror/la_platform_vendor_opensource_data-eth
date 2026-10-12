@@ -758,6 +758,24 @@ int tc956xmac_mdio_register(struct net_device *ndev)
 				priv->plat->phy_addr = addr;
 #ifndef TC956X
 			phy_attached_info(phydev);
+#else
+			{
+				struct phy_device *phydev_new = get_phy_device(new_bus, addr, false);
+
+				if (!IS_ERR_OR_NULL(phydev_new)) {
+					int r = phy_device_register(phydev_new);
+
+					if (r) {
+						phy_device_free(phydev_new);
+						NMSGPR_ALERT(priv->device,
+							"TC956X: Failed to register phy_device at addr %d\n", addr);
+					} else {
+						NMSGPR_ALERT(priv->device,
+							"TC956X: phy_device registered at addr %d on bus %s\n",
+							addr, new_bus->id);
+					}
+				}
+			}
 #endif
 			found = 1;
 			break;
