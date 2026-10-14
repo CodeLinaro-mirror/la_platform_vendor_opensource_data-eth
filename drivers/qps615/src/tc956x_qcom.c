@@ -21,6 +21,7 @@ struct tc956x_qcom_priv {
 	u32 phy_rst_gpio;
 	u32 phy_reg_gpio;
 	u32 phy_rst_delay_us;
+	u32 phy_rst_gpio_flags;
 	int wol_irq;
 	bool has_always_on_supplies;
 	bool gpio_phy_supply;
@@ -30,14 +31,25 @@ struct tc956x_qcom_priv {
 #define to_priv(priv) \
 	((struct tc956x_qcom_priv *)priv->plat_priv)
 
+static int tc956x_set_phy_reset(struct tc956xmac_priv *priv, bool assert)
+{
+	struct tc956x_qcom_priv *qpriv = to_priv(priv);
+	u8 out_value = assert ? qpriv->phy_rst_gpio_flags :
+		!(qpriv->phy_rst_gpio_flags);
+	int ret;
+
+	ret = tc956x_GPIO_OutputConfigPin(priv, qpriv->phy_rst_gpio, out_value);
+	return ret;
+}
+
 static int tc956x_assert_phy_reset(struct tc956xmac_priv *priv)
 {
-	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 0);
+	return tc956x_set_phy_reset(priv, true);
 }
 
 static int tc956x_deassert_phy_reset(struct tc956xmac_priv *priv)
 {
-	return tc956x_GPIO_OutputConfigPin(priv, to_priv(priv)->phy_rst_gpio, 1);
+	return tc956x_set_phy_reset(priv, false);
 }
 
 static int tc956x_enable_phy_reg_gpio(struct tc956xmac_priv *priv)
@@ -135,6 +147,11 @@ static int tc956x_platform_of_parse(struct device *dev,
 		dev_err(dev, "Failed to get PHY reset delay time\n");
 			return -EINVAL;
 	}
+
+	if (!qpriv->has_always_on_supplies &&
+	    of_property_read_u32(dev->of_node, "qcom,phy-rst-gpio-flags",
+				 &qpriv->phy_rst_gpio_flags))
+		qpriv->phy_rst_gpio_flags = 0;
 
 	qpriv->wol_irq = of_irq_get_byname(dev->of_node, "wol_irq");
 	if (qpriv->wol_irq < 0) {

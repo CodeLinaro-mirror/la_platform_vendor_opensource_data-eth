@@ -574,7 +574,7 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
         int filter_del;
-	int ret;
+	int ret = 0;
 
 	ethqos = get_stmmac_bsp_priv(dev);
 	if (!ethqos)
@@ -587,21 +587,24 @@ static int qcom_ethqos_suspend(struct device *dev)
 		return 0;
 	}
 
-	filter_del = emac_ctrl_fe_disable_mac_filter();
-	if(filter_del)
-	  ETHQOSINFO("qcom_ethqos_thin: Filter delete unsuccessful");
-	else
-	  ETHQOSINFO("qcom_ethqos_thin: Filter delete successful");
+	if(!ethqos->suspended)
+	{
+	    filter_del = emac_ctrl_fe_disable_mac_filter();
+	    if(filter_del)
+	          ETHQOSINFO("qcom_ethqos_thin: Filter delete unsuccessful");
+	    else
+	          ETHQOSINFO("qcom_ethqos_thin: Filter delete successful");
 
+	    ret = stmmac_thin_suspend(dev);
+	    emac_ctrl_fe_gvm_dma_stopped();
+	    qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_SUSPEND);
+	}
 	priv = netdev_priv(ndev);
-	ret = stmmac_thin_suspend(dev);
 	if (!ret) {
 		ethqos->suspended = true;
 		priv->emac_state = EMAC_INIT_ST;
 	}
 
-	emac_ctrl_fe_gvm_dma_stopped();
-	qcom_ethqos_unregister_emac_fe_listener(ethqos, EMAC_DMA_DRV_SUSPEND);
 
 	priv->boot_kpi = false;
 	ETHQOSDBG(" ret = %d\n", ret);

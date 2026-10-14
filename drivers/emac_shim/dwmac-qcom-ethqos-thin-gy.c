@@ -44,6 +44,19 @@
 #define SERVER_PORT 8888
 #define MAX_SIZE 2048
 #define MAX_RECEIVE_RETRIES 10
+#define MAX_CONNECT_FAST_RETRIES 10
+#define CONNECT_RETRY_MIN_MS 500
+#define CONNECT_RETRY_MAX_MS 5000
+/* Upper bound for a single kernel_connect(). The socket has no send timeout by
+ * default (O_RDWR does not set O_NONBLOCK), so an unreachable server makes
+ * connect block for the whole TCP SYN retransmit sequence (~63s). This bounds
+ * connect only; the data path uses MSG_DONTWAIT and never reads sk_sndtimeo.
+ *
+ * MAX_CONNECT_FAST_RETRIES * CONNECT_TIMEOUT_MS is how long suspend can block
+ * in kthread_cancel_delayed_work_sync() waiting for this work, so keep the
+ * product well under the DPM watchdog timeout (CONFIG_DPM_WATCHDOG_TIMEOUT).
+ */
+#define CONNECT_TIMEOUT_MS 200
 static DECLARE_WAIT_QUEUE_HEAD(conn_wait_queue);
 
 struct client_socket
@@ -53,13 +66,13 @@ struct client_socket
 	struct qcom_ethqos *ethqos;
 	struct kthread_worker kworker;
 	struct task_struct *task;
-	struct kthread_work init_client;
+	struct kthread_delayed_work init_client;
 	struct kthread_worker poll_worker;
 	struct kthread_work read_data;
 	struct kthread_work poll_work;
 	struct task_struct *poll_task;
 
-	int connect_retry_cnt;
+	unsigned int connect_retry_delay_ms;
 	int poll_active;
 };
 struct client_socket client_sk;
@@ -74,8 +87,6 @@ struct vlan_info {
 	int vid;
 	int gvm_link_state;
 };
-
-struct vlan_info client_vlan;
 
 enum {
 	HEALTH_MONITOR = 1,
@@ -106,15 +117,51 @@ static DEFINE_SPINLOCK(state_lock);
 static void qcom_ethqos_client_poll(struct kthread_work *work);
 int send_with_retry(struct vlan_info vlan);
 
+static const char *qcom_ethqos_emac_state_name(unsigned int state)
+{
+	switch (state) {
+	case EMAC_HW_DOWN_ST:
+		return "EMAC_HW_DOWN_ST";
+	case EMAC_INIT_ST:
+		return "EMAC_INIT_ST";
+	case EMAC_HW_UP_ST:
+		return "EMAC_HW_UP_ST";
+	case EMAC_LINK_UP_ST:
+		return "EMAC_LINK_UP_ST";
+	default:
+		return "EMAC_UNKNOWN_ST";
+	}
+}
+
+static const char *qcom_ethqos_emac_event_name(unsigned long ev)
+{
+	switch (ev) {
+	case EMAC_HW_UP:
+		return "EMAC_HW_UP";
+	case EMAC_HW_DOWN:
+		return "EMAC_HW_DOWN";
+	case EMAC_LINK_UP:
+		return "EMAC_LINK_UP";
+	case EMAC_LINK_DOWN:
+		return "EMAC_LINK_DOWN";
+	case EMAC_DMA_INT_STS_AVAIL:
+		return "EMAC_DMA_INT_STS_AVAIL";
+	default:
+		return "EMAC_UNKNOWN_EV";
+	}
+}
+
 static void emac_fe_ev_wq(struct work_struct *work)
 {
 	struct qcom_ethqos *ethqos = container_of(work, struct qcom_ethqos,
 						  emac_fe_work);
 	struct stmmac_priv *priv = qcom_ethqos_thin_get_priv_gy(ethqos);
 	struct emac_fe_ev *emac_ev;
-	struct vlan_info vlan;
+	struct vlan_info vlan = {0};
 
-	ETHQOSINFO("Enter - cur state [%u]\n", priv->emac_state);
+	ETHQOSINFO("event worker start, state=%s(%u)\n",
+		   qcom_ethqos_emac_state_name(priv->emac_state),
+		   priv->emac_state);
 	do {
 		unsigned long flags;
 
@@ -128,7 +175,9 @@ static void emac_fe_ev_wq(struct work_struct *work)
 		if (!emac_ev)
 			break;
 
-		ETHQOSINFO("get ev [%lu]\n", emac_ev->ev);
+		ETHQOSINFO("event received: %s(%lu)\n",
+			   qcom_ethqos_emac_event_name(emac_ev->ev),
+			   emac_ev->ev);
 		switch (emac_ev->ev) {
 		case EMAC_HW_UP:
 			ETHQOSDBG("HW up ev\n");
@@ -139,8 +188,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 			if (ethqos->suspended &&
 			    !stmmac_thin_resume(priv->device)) {
 				ETHQOSINFO("resume on HW up\n");
-				vlan.vlan_status = ADD_ALL_GVM_THIN_VLAN;
-				vlan.vid = 0;
+				vlan.vlan_status    = ADD_ALL_GVM_THIN_VLAN;
 				vlan.gvm_link_state = EMAC_LINK_UP;
 				send_with_retry(vlan);
 				ethqos->suspended = false;
@@ -148,9 +196,7 @@ static void emac_fe_ev_wq(struct work_struct *work)
 				   !priv->dev_inited) {
 				ETHQOSINFO("init driver on HW up\n");
 				stmmac_dvr_init(priv->dev);
-				priv->add_filter(priv->dev);
-				vlan.vlan_status = ADD_ALL_GVM_THIN_VLAN;
-				vlan.vid = 0;
+				vlan.vlan_status    = ADD_ALL_GVM_THIN_VLAN;
 				vlan.gvm_link_state = EMAC_LINK_UP;
 				send_with_retry(vlan);
 			}
@@ -193,7 +239,9 @@ static void emac_fe_ev_wq(struct work_struct *work)
 	} while (1);
 
 
-	ETHQOSINFO("End - cur state [%u]\n", priv->emac_state);
+	ETHQOSINFO("event worker done, state=%s(%u)\n",
+		   qcom_ethqos_emac_state_name(priv->emac_state),
+		   priv->emac_state);
 }
 
 static int qcom_ethqos_data_ready_notify(struct qcom_ethqos *ethqos, int ev) {
@@ -220,13 +268,14 @@ static int qcom_ethqos_data_ready_notify(struct qcom_ethqos *ethqos, int ev) {
 
 void qcom_ethqos_client_sock_cleanup(void) {
 
+	/* Cancel pending reconnect before tearing down the socket. */
+	kthread_cancel_delayed_work_sync(&client_sk.init_client);
+
 	if (!client_sk.conn_socket)
 		return;
 
 	ETHQOSINFO("entry\n");
 	kthread_cancel_work_sync(&client_sk.read_data);
-	kthread_cancel_work_sync(&client_sk.init_client);
-	kthread_flush_work(&client_sk.init_client);
 	kthread_flush_work(&client_sk.read_data);
 
 	if(client_sk.conn_socket)
@@ -249,6 +298,31 @@ void qcom_ethqos_client_sock_cleanup(void) {
 	ETHQOSINFO("exit\n");
 }
 
+/**
+ * qcom_ethqos_schedule_connect_retry - schedule persistent server reconnect
+ *
+ * Queues the client connect work with capped backoff after fast retries fail.
+ * Stops scheduling when the GY netdev has been closed.
+ */
+static void qcom_ethqos_schedule_connect_retry(void)
+{
+	struct stmmac_priv *priv;
+	unsigned int delay = client_sk.connect_retry_delay_ms;
+
+	priv = qcom_ethqos_thin_get_priv_gy(client_sk.ethqos);
+	if (!priv->dev_opened)
+		return;
+
+	if (!delay)
+		delay = CONNECT_RETRY_MIN_MS;
+
+	/* Queue or update the delayed reconnect work. */
+	kthread_mod_delayed_work(&client_sk.kworker, &client_sk.init_client,
+				 msecs_to_jiffies(delay));
+
+	client_sk.connect_retry_delay_ms = min_t(unsigned int, delay * 2,
+						 CONNECT_RETRY_MAX_MS);
+}
 
 static void qcom_ethqos_client_receive(struct kthread_work *work) {
 	struct msghdr msg;
@@ -324,17 +398,23 @@ void qcom_ethqos_client_data_recieved(struct sock *sk) {
 
 void qcom_ethqos_client_start(struct kthread_work *work)
 {
-	struct socket *sockt;
+	struct socket *sockt = NULL;
 	struct sockaddr_in *server = NULL;
+	struct stmmac_priv *priv;
+	int retry_cnt = MAX_CONNECT_FAST_RETRIES;
 	int acc,cn;
 
 	ETHQOSINFO("start\n");
 
+	priv = qcom_ethqos_thin_get_priv_gy(client_sk.ethqos);
+	/* Stop queued reconnect after netdev close. */
+	if (!priv->dev_opened)
+		return;
+
 	server=(struct sockaddr_in*) kmalloc(sizeof(struct sockaddr_in),GFP_KERNEL);
-	acc=sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &sockt);
-	if (acc < 0) {
-		ETHQOSERR("Could not create socket: %d \n",acc);
-		goto release;
+	if (!server) {
+		ETHQOSERR("Could not allocate server\n");
+		return;
 	}
 
 	memset(server,0,sizeof(struct sockaddr_in));
@@ -342,9 +422,26 @@ void qcom_ethqos_client_start(struct kthread_work *work)
 	in4_pton(SERVER_IP, -1, (u8 *)&server->sin_addr.s_addr, '\0', NULL);
 	server->sin_port = htons(SERVER_PORT);
 
-	sockt->sk->sk_data_ready = qcom_ethqos_client_data_recieved;
-
 connect:
+	/* Use a fresh socket for every attempt: a timed-out connect returns
+	 * -EINPROGRESS with the sk left in SYN_SENT, and reconnecting the same sk
+	 * yields -EALREADY. sock_create() leaves *res untouched on failure, so
+	 * clear sockt first to keep the release path safe.
+	 */
+	if (sockt) {
+		sock_release(sockt);
+		sockt = NULL;
+	}
+
+	acc=sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &sockt);
+	if (acc < 0) {
+		ETHQOSERR("Could not create socket: %d \n",acc);
+		goto release;
+	}
+
+	sockt->sk->sk_data_ready = qcom_ethqos_client_data_recieved;
+	sockt->sk->sk_sndtimeo = msecs_to_jiffies(CONNECT_TIMEOUT_MS);
+
 	/* socket connect start*/
 	cn=kernel_connect(sockt, (struct sockaddr*) server,sizeof(struct sockaddr_in),O_RDWR);
 	ETHQOSDBG("kernel sock connection :%d\n",cn);
@@ -361,22 +458,28 @@ connect:
 		ETHQOSDBG("qcom_ethqos_client_receive worker init\n");
 	} else {
 		/*retry mechanish here*/
-		if (client_sk.connect_retry_cnt > 0)
-		{
-			ETHQOSINFO("connect failed(cn=%d), retry=%d, wait 50ms\n",
-				   cn, 11 - client_sk.connect_retry_cnt);
+		if (retry_cnt > 0) {
+			ETHQOSDBG("connect failed(cn=%d), retry=%d, wait 50ms\n",
+				   cn, MAX_CONNECT_FAST_RETRIES + 1 - retry_cnt);
 			wait_event_timeout(conn_wait_queue, 0, msecs_to_jiffies(50));
-			 --client_sk.connect_retry_cnt;
-			 goto connect;
+			--retry_cnt;
+			goto connect;
 		}
-		ETHQOSERR("kernel connection client failed code::%d\n",cn);
+		/* Fast retries failed; keep reconnecting in background. */
+		ETHQOSERR("connect failed: err=%d, fast=%d, next=%u ms\n",
+			   cn, MAX_CONNECT_FAST_RETRIES,
+			   client_sk.connect_retry_delay_ms);
+		qcom_ethqos_schedule_connect_retry();
 
 		goto release;
 	}
-	ETHQOSINFO("exit\n");
+	client_sk.connect_retry_delay_ms = CONNECT_RETRY_MIN_MS;
+	ETHQOSINFO("server connected\n");
 	return;
 
 release:
+	if (sockt)
+		sock_release(sockt);
 	if(server)
 		kfree(server);
 	return;
@@ -385,13 +488,16 @@ release:
 int qcom_ethqos_client_connect(void *prv) {
 	struct qcom_ethqos *ethqos = prv;
 
+	if (client_sk.conn_socket)
+		return 0;
+
 	ETHQOSINFO("Client module start\n");
 
 	client_sk.ethqos = ethqos;
-	client_sk.connect_retry_cnt = 10;
+	client_sk.connect_retry_delay_ms = CONNECT_RETRY_MIN_MS;
 
-	/* eth_adapt_rx kthread is created once in probe; just queue the work. */
-	kthread_queue_work(&client_sk.kworker, &client_sk.init_client);
+	/* eth_adapt_rx kthread is created once in probe; connect now. */
+	kthread_mod_delayed_work(&client_sk.kworker, &client_sk.init_client, 0);
 
 	ETHQOSDBG("Client module exit\n");
 	return 0;
@@ -437,6 +543,7 @@ static int netdev_event_listener(struct notifier_block *nb, unsigned long event,
 {
 	struct net_device *netdev = netdev_notifier_info_to_dev(data);
 	struct stmmac_priv *priv;
+	struct vlan_info vlan = {0};
 	unsigned long flags;
 	bool send_flag = false;
 
@@ -455,33 +562,31 @@ static int netdev_event_listener(struct notifier_block *nb, unsigned long event,
 	ETHQOSDBG("driver name = %s\n", netdev->dev.parent->driver->name);
 	spin_lock_irqsave(&state_lock, flags);
 	switch (event) {
-		case NETDEV_UP:
-			if (state != UP_SENT) {
-				ETHQOSINFO("thin driver interface is UP\n");
-				client_vlan.gvm_link_state = EMAC_LINK_UP;
-				client_vlan.vlan_status = ADD_ALL_GVM_THIN_VLAN;
-				client_vlan.vid = 0;
-				state = UP_SENT;
-				send_flag = true;
-			}
-			break;
-		case NETDEV_DOWN:
-			if (state != DOWN_SENT) {
-				ETHQOSINFO("thin driver interface is DOWN\n");
-				client_vlan.gvm_link_state = EMAC_LINK_DOWN;
-				client_vlan.vid = 0;
-				client_vlan.vlan_status = DEL_GVM_THIN_VLAN;
-				state = DOWN_SENT;
-				send_flag = true;
-			}
-			break;
-		default:
-			break;
+	case NETDEV_UP:
+		if (state != UP_SENT) {
+			ETHQOSINFO("thin driver interface is UP\n");
+			vlan.gvm_link_state = EMAC_LINK_UP;
+			vlan.vlan_status    = ADD_ALL_GVM_THIN_VLAN;
+			state = UP_SENT;
+			send_flag = true;
+		}
+		break;
+	case NETDEV_DOWN:
+		if (state != DOWN_SENT) {
+			ETHQOSINFO("thin driver interface is DOWN\n");
+			vlan.gvm_link_state = EMAC_LINK_DOWN;
+			vlan.vlan_status    = DEL_GVM_THIN_VLAN;
+			state = DOWN_SENT;
+			send_flag = true;
+		}
+		break;
+	default:
+		break;
 	}
 	spin_unlock_irqrestore(&state_lock, flags);
 
 	if (send_flag && priv->emac_state >= EMAC_HW_UP_ST)
-		send_with_retry(client_vlan);
+		send_with_retry(vlan);
 
 	return NOTIFY_OK;
 }
@@ -495,6 +600,7 @@ static int qcom_ethqos_add_filter(struct net_device *ndev)
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	enum emac_ctrl_fe_filter_types filter_type;
 	union emac_ctrl_fe_filter filter;
+	struct vlan_info vlan = {0};
 	int ret = -EPERM;
 
 	if (priv->emac_state < EMAC_HW_UP_ST) {
@@ -506,10 +612,10 @@ static int qcom_ethqos_add_filter(struct net_device *ndev)
 	case VLAN_TYPE:
 		filter_type = VLAN_FILTER;
 		filter.vlan_id = priv->vid;
-		client_vlan.vlan_status = ADD_GVM_THIN_VLAN;
-		client_vlan.vid = priv->vid;
-		client_vlan.gvm_link_state = EMAC_LINK_UP;
-		ret = send_with_retry(client_vlan);
+		vlan.vlan_status    = ADD_GVM_THIN_VLAN;
+		vlan.vid            = priv->vid;
+		vlan.gvm_link_state = EMAC_LINK_UP;
+		ret = send_with_retry(vlan);
 		ETHQOSINFO("vlan %d is UP\n", priv->vid);
 		break;
 	default:
@@ -524,6 +630,7 @@ static int qcom_ethqos_del_filter(struct net_device *ndev)
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	enum emac_ctrl_fe_filter_types filter_type;
 	union emac_ctrl_fe_filter filter;
+	struct vlan_info vlan = {0};
 	int ret = -EPERM;
 
 	if (priv->emac_state < EMAC_HW_UP_ST) {
@@ -535,20 +642,19 @@ static int qcom_ethqos_del_filter(struct net_device *ndev)
 		filter_type = VLAN_FILTER;
 		filter.vlan_id = priv->vid;
 		ETHQOSINFO("vlan %d is DOWN\n", priv->vid);
-		client_vlan.vlan_status = DEL_GVM_THIN_VLAN;
-		client_vlan.vid = priv->vid;
-		client_vlan.gvm_link_state = EMAC_LINK_UP;
-		return send_with_retry(client_vlan);
+		vlan.vlan_status    = DEL_GVM_THIN_VLAN;
+		vlan.vid            = priv->vid;
+		vlan.gvm_link_state = EMAC_LINK_UP;
+		return send_with_retry(vlan);
 	}
 	return ret;
 }
 
 static void qcom_ethqos_client_poll(struct kthread_work *work)
 {
-	struct vlan_info vlan;
+	struct vlan_info vlan = {0};
+
 	vlan.vlan_status = HEALTH_MONITOR;
-	vlan.vid = 0;
-	vlan.gvm_link_state = 0;
 
 	while (client_sk.poll_active) {
 		if (client_sk.conn_socket) {
@@ -686,6 +792,7 @@ static unsigned int dwmac_qcom_get_plat_tx_coal_frames(struct sk_buff *skb)
 
 static const struct of_device_id qcom_ethqos_match[] = {
 	{ .compatible = "qcom,stmmac-ethqos-emac1-gy", },
+	{ .compatible = "qcom,stmmac-ethqos-emac-gy", },
 	{ }
 };
 
@@ -789,7 +896,8 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv->del_filter = qcom_ethqos_del_filter;
 	priv->is_gy_en = true;
 
-	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1-gy")) {
+	if (of_device_is_compatible(np, "qcom,stmmac-ethqos-emac1-gy") ||
+		of_device_is_compatible(np, "qcom,stmmac-ethqos-emac-gy")) {
 		if (!pm_runtime_enabled(&ethqos->pdev->dev)) {
 			ret_domain = devm_pm_runtime_enable(&ethqos->pdev->dev);
 			if (ret_domain)
@@ -803,11 +911,10 @@ static int qcom_ethqos_probe(struct platform_device *pdev)
 	priv->emac_state = EMAC_INIT_ST;
 	qcom_ethqos_client_poll_worker_start();
 
-	/* Create eth_adapt_rx kthread here (probe context, no rtnl_lock held)
-	 * so that client_connect() only needs kthread_queue_work, avoiding a
-	 * kthread_create wait_for_completion stall inside rtnl_lock.
+	/* Create eth_adapt_rx kthread in probe so client_connect() can queue
+	 * delayed work without creating a thread under rtnl_lock.
 	 */
-	kthread_init_work(&client_sk.init_client, qcom_ethqos_client_start);
+	kthread_init_delayed_work(&client_sk.init_client, qcom_ethqos_client_start);
 	kthread_init_worker(&client_sk.kworker);
 	client_sk.task = kthread_run(kthread_worker_fn,
 				     &client_sk.kworker, "eth_adapt_rx");
@@ -856,10 +963,9 @@ err_smmu:
 static void qcom_ethqos_remove(struct platform_device *pdev)
 {
 	struct qcom_ethqos *ethqos;
-	struct vlan_info vlan;
+	struct vlan_info vlan = {0};
+
 	vlan.vlan_status = GVM_REMOVE;
-	vlan.vid = 0;
-	vlan.gvm_link_state = EMAC_LINK_DOWN;
 
 	ethqos = get_stmmac_bsp_priv(&pdev->dev);
 	if (!ethqos)
@@ -905,10 +1011,10 @@ static int qcom_ethqos_suspend(struct device *dev)
 	struct qcom_ethqos *ethqos;
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv = NULL;
+	struct vlan_info vlan = {0};
 	int ret;
-	struct vlan_info vlan;
-	vlan.vlan_status = DEL_GVM_THIN_VLAN;
-	vlan.vid = 0;
+
+	vlan.vlan_status    = DEL_GVM_THIN_VLAN;
 	vlan.gvm_link_state = EMAC_LINK_DOWN;
 
 	ethqos = get_stmmac_bsp_priv(dev);
@@ -928,6 +1034,14 @@ static int qcom_ethqos_suspend(struct device *dev)
 		ethqos->suspended = true;
 		priv->emac_state = EMAC_INIT_ST;
 		send_with_retry(vlan);
+		/* Stop poll thread before sock_cleanup to prevent concurrent
+		 * send_with_retry() calls on a socket being torn down, which
+		 * can cause use-after-free on conn_socket (poll thread holds a
+		 * stale pointer after sock_release frees the socket object).
+		 */
+		client_sk.poll_active = 0;
+		kthread_cancel_work_sync(&client_sk.poll_work);
+		kthread_flush_work(&client_sk.poll_work);
 		qcom_ethqos_client_sock_cleanup();
 	}
 
@@ -956,8 +1070,12 @@ static int qcom_ethqos_resume(struct device *dev)
 		return 0;
 	}
 
-	if (ethqos->suspended)
+	if (ethqos->suspended) {
 		qcom_ethqos_client_connect(client_sk.ethqos);
+		/* Restart poll thread stopped during suspend */
+		client_sk.poll_active = 1;
+		kthread_queue_work(&client_sk.poll_worker, &client_sk.poll_work);
+	}
 
 	ETHQOSDBG("<--Resume Exit\n");
 	return ret;

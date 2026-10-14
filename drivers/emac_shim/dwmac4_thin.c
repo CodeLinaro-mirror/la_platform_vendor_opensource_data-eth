@@ -11,6 +11,7 @@
  */
 
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include "dwmac4_thin.h"
 #include "stmmac_thin.h"
 
@@ -116,6 +117,10 @@ static void dwmac4_dma_init_rx_chan(void __iomem *ioaddr,
 	value = value | (rxpbl << DMA_BUS_MODE_RPBL_SHIFT);
 	writel_relaxed(value, ioaddr + DMA_CHAN_RX_CONTROL(chan));
 
+	if (IS_ENABLED(CONFIG_ARCH_DMA_ADDR_T_64BIT) && likely(dma_cfg->eame))
+		writel_relaxed(upper_32_bits(dma_rx_phy),
+			       ioaddr + DMA_CHAN_RX_BASE_ADDR_HI(chan));
+
 	writel_relaxed(lower_32_bits(dma_rx_phy),
 		       ioaddr + DMA_CHAN_RX_BASE_ADDR(chan));
 }
@@ -134,6 +139,10 @@ static void dwmac4_dma_init_tx_chan(void __iomem *ioaddr,
 	value |= DMA_CONTROL_OSP;
 
 	writel_relaxed(value, ioaddr + DMA_CHAN_TX_CONTROL(chan));
+
+	if (IS_ENABLED(CONFIG_ARCH_DMA_ADDR_T_64BIT) && likely(dma_cfg->eame))
+		writel_relaxed(upper_32_bits(dma_tx_phy),
+			       ioaddr + DMA_CHAN_TX_BASE_ADDR_HI(chan));
 
 	writel_relaxed(lower_32_bits(dma_tx_phy),
 		       ioaddr + DMA_CHAN_TX_BASE_ADDR(chan));
@@ -375,6 +384,82 @@ static void dwmac4_dma_stop_rx(void __iomem *ioaddr, u32 chan)
 	writel_relaxed(value, ioaddr + DMA_CHAN_RX_CONTROL(chan));
 }
 
+/* Reset one DMA channel before reprogramming or freeing descriptor rings. */
+static int dwmac4_dma_reset_chan(void __iomem *ioaddr,
+				 struct stmmac_dma_cfg *dma_cfg, u32 chan)
+{
+	u32 status, value;
+	bool tx_running, rx_running;
+	int ret = 0, rx_ret;
+
+	value = readl_relaxed(ioaddr + DMA_CHAN_TX_CONTROL(chan));
+	tx_running = value & DMA_CONTROL_ST;
+
+	value = readl_relaxed(ioaddr + DMA_CHAN_RX_CONTROL(chan));
+	rx_running = value & DMA_CONTROL_SR;
+
+	/* Mask channel IRQs while forcing the DMA engines idle. */
+	writel_relaxed(0, ioaddr + DMA_CHAN_INTR_ENA(chan));
+
+	/* Clear pending IRQ bits before disabling the channel. */
+	status = readl_relaxed(ioaddr + DMA_CHAN_STATUS(chan));
+	writel_relaxed(status, ioaddr + DMA_CHAN_STATUS(chan));
+
+	/* Stop Tx before descriptor pointers are cleared. */
+	value = readl_relaxed(ioaddr + DMA_CHAN_TX_CONTROL(chan));
+	value &= ~DMA_CONTROL_ST;
+	writel_relaxed(value, ioaddr + DMA_CHAN_TX_CONTROL(chan));
+
+	/* Stop Rx and request Rx parser flush. */
+	value = readl_relaxed(ioaddr + DMA_CHAN_RX_CONTROL(chan));
+	value |= DMA_CONTROL_RPF;
+	value &= ~DMA_CONTROL_SR;
+	writel_relaxed(value, ioaddr + DMA_CHAN_RX_CONTROL(chan));
+
+	/* Wait for hardware to report stopped when the channel was active. */
+	if (tx_running) {
+		ret = readl_poll_timeout(ioaddr + DMA_CHAN_STATUS(chan), value,
+					 value & DMA_CHAN_STATUS_TPS,
+					 DMA_CHAN_RESET_SLEEP_US,
+					 DMA_CHAN_RESET_TIMEOUT_US);
+		if (ret)
+			pr_err("qcom-ethqos-thin: TX DMA channel %u reset timeout\n",
+			       chan);
+	}
+
+	if (rx_running) {
+		rx_ret = readl_poll_timeout(ioaddr + DMA_CHAN_STATUS(chan), value,
+					    value & DMA_CHAN_STATUS_RPS,
+					    DMA_CHAN_RESET_SLEEP_US,
+					    DMA_CHAN_RESET_TIMEOUT_US);
+		if (rx_ret) {
+			pr_err("qcom-ethqos-thin: RX DMA channel %u reset timeout\n",
+			       chan);
+			if (!ret)
+				ret = rx_ret;
+		}
+	}
+
+	/* Clear TPS/RPS bits latched while quiescing the channel. */
+	status = readl_relaxed(ioaddr + DMA_CHAN_STATUS(chan));
+	writel_relaxed(status, ioaddr + DMA_CHAN_STATUS(chan));
+
+	/* Clear descriptor base/tail registers so freed IOVAs are not reused. */
+	if (IS_ENABLED(CONFIG_ARCH_DMA_ADDR_T_64BIT) &&
+	    likely(dma_cfg->eame)) {
+		writel_relaxed(0, ioaddr + DMA_CHAN_TX_BASE_ADDR_HI(chan));
+		writel_relaxed(0, ioaddr + DMA_CHAN_RX_BASE_ADDR_HI(chan));
+	}
+
+	/* Clear low base and tail pointers programmed for the descriptor rings. */
+	writel_relaxed(0, ioaddr + DMA_CHAN_TX_BASE_ADDR(chan));
+	writel_relaxed(0, ioaddr + DMA_CHAN_RX_BASE_ADDR(chan));
+	writel_relaxed(0, ioaddr + DMA_CHAN_TX_END_ADDR(chan));
+	writel_relaxed(0, ioaddr + DMA_CHAN_RX_END_ADDR(chan));
+
+	return ret;
+}
+
 static void dwmac4_set_tx_ring_len(void __iomem *ioaddr, u32 len, u32 chan)
 {
 	writel_relaxed(len, ioaddr + DMA_CHAN_TX_RING_LEN(chan));
@@ -530,6 +615,7 @@ const struct stmmac_ops dwmac4_thin_ops = {
 };
 
 const struct stmmac_dma_ops dwmac4_thin_dma_ops = {
+	.reset_chan = dwmac4_dma_reset_chan,
 	.init_chan = dwmac4_dma_init_channel,
 	.init_rx_chan = dwmac4_dma_init_rx_chan,
 	.init_tx_chan = dwmac4_dma_init_tx_chan,

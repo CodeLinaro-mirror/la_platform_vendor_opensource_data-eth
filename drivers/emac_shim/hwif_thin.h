@@ -155,6 +155,8 @@ struct stmmac_dma_cfg;
 
 /* Specific DMA helpers */
 struct stmmac_dma_ops {
+	int (*reset_chan)(void __iomem *ioaddr,
+			  struct stmmac_dma_cfg *dma_cfg, u32 chan);
 	/* DMA core initialization */
 	void (*init_chan)(void __iomem *ioaddr,
 			  struct stmmac_dma_cfg *dma_cfg, u32 chan);
@@ -191,6 +193,8 @@ struct stmmac_dma_ops {
 	void (*reg_vals)(void __iomem *ioaddr, u32 chan);
 };
 
+#define stmmac_reset_chan(__priv, __args...) \
+	stmmac_do_callback(__priv, dma, reset_chan, __args)
 #define stmmac_init_chan(__priv, __args...) \
 	stmmac_do_void_callback(__priv, dma, init_chan, __args)
 #define stmmac_init_rx_chan(__priv, __args...) \
