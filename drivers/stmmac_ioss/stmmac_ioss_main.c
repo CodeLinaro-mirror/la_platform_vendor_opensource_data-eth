@@ -15,7 +15,6 @@
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include <linux/minmax.h>
-#include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/platform_device.h>
 #include "stmmac_ioss.h"
@@ -53,6 +52,9 @@ static int stmmac_ioss_close_device(struct ioss_device *idev)
 	struct stmmac_ioss_device *stmmac_dev = idev->private;
 
 	stmmac_ioss_stats_deinit(idev);
+
+	idev->private = NULL;
+	smp_mb();
 	kfree(stmmac_dev);
 
 	return 0;
@@ -251,7 +253,7 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 	if (rc)
 		goto err_alloc_memory;
 
-	rc = stmmac_api_request_channel(stmmac_ch);
+	rc = stmmac_api_request_channel_unsafe(stmmac_ch);
 	if (rc) {
 		ioss_dev_err(ioss_ch_dev(ch), "Failed to request channel from stmmac_api\n");
 		goto err_request_channel;
@@ -284,7 +286,7 @@ static int stmmac_ioss_request_channel(struct ioss_channel *ch)
 	return 0;
 
 err_add_channel_mem:
-	stmmac_api_release_channel(stmmac_ch);
+	stmmac_api_release_channel_unsafe(stmmac_ch);
 err_request_channel:
 	stmmac_ioss_dealloc_channel_memory(ch, stmmac_ch, STMMAC_IOSS_DESC_SIZE);
 err_alloc_memory:
@@ -299,7 +301,7 @@ static int stmmac_ioss_release_channel(struct ioss_channel *ch)
 	ioss_dev_log(ioss_ch_dev(ch), "Release channel %d\n", stmmac_ch->ch_num);
 
 	stmmac_ioss_remove_channel_mem(ch, stmmac_ch);
-	stmmac_api_release_channel(stmmac_ch);
+	stmmac_api_release_channel_unsafe(stmmac_ch);
 	stmmac_ioss_dealloc_channel_memory(ch, stmmac_ch, STMMAC_IOSS_DESC_SIZE);
 
 	kfree(stmmac_ch);

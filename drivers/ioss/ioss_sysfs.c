@@ -13,6 +13,7 @@ static int get_idev_statistics(struct ioss_device *idev,
 	int rc;
 	struct ioss_channel *ch;
 	struct ioss_interface *iface = &idev->interface;
+	struct net_device *netdev = ioss_iface_to_netdev(iface);
 	struct rtnl_link_stats64 netdev_stats;
 
 	memset(stats, 0, sizeof(struct ioss_device_stats));
@@ -25,7 +26,7 @@ static int get_idev_statistics(struct ioss_device *idev,
 	}
 
 	/* Aggregate channel level stats */
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_channel_stats ch_stats;
 
 		memset(&ch_stats, 0, sizeof(struct ioss_channel_stats));
@@ -47,8 +48,11 @@ static int get_idev_statistics(struct ioss_device *idev,
 	}
 
 	/* Fetch Linux netdev stats */
+	if (!netdev)
+		return -ENODEV;
+
 	memset(&netdev_stats, 0, sizeof(struct rtnl_link_stats64));
-	dev_get_stats(ioss_iface_to_netdev(iface), &netdev_stats);
+	dev_get_stats(netdev, &netdev_stats);
 
 	stats->exp_rx_packets += iface->exception_stats.rx_packets;
 	stats->exp_rx_bytes += iface->exception_stats.rx_bytes;
@@ -368,7 +372,7 @@ static ssize_t sysfs_read_ch_statistics(struct device *dev, struct device_attrib
 	if(ch_name)
 		sscanf(ch_name, "%d", &id);
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
 			ch = ch_tmp;
@@ -442,7 +446,7 @@ static ssize_t sysfs_read_ch_stats(struct device *dev, struct device_attribute *
 	if(ch_name)
 		sscanf(ch_name, "%d", &id);
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 	char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
 			ch = ch_tmp;
@@ -516,7 +520,7 @@ static ssize_t sysfs_read_ch_status(struct device *dev, struct device_attribute 
 
 	memset(&ch_status, 0, sizeof(struct ioss_channel_status));
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
 			ch = ch_tmp;
@@ -591,7 +595,7 @@ static ssize_t sysfs_read_ch_stat(struct device *dev, struct device_attribute *a
 	if(ch_name)
 		sscanf(ch_name, "%d", &id);
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 	char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if(!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id){
 			ch = ch_tmp;
@@ -674,7 +678,7 @@ static struct ioss_channel *ioss_sysfs_get_channel(struct device *dev,
 	if (ch_name)
 		sscanf(ch_name, "%d", &id);
 
-	ioss_for_each_channel(ch_tmp, iface) {
+	ioss_for_each_valid_channel(ch_tmp, iface) {
 		char *dir_tmp = (ch_tmp->direction == IOSS_CH_DIR_RX) ? "rx" : "tx";
 		if (!strncmp(dir_tmp, dir, 2) && ch_tmp->id == id) {
 			ch = ch_tmp;

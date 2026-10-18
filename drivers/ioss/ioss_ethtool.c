@@ -74,7 +74,7 @@ static int ioss_ethtool_get_sset_count(struct net_device *ndev, int sset)
 
 	if (sset == ETH_SS_STATS) {
 		mutex_lock(&idev->refresh_lock);
-		ioss_for_each_channel(ch, iface) {
+		ioss_for_each_valid_channel(ch, iface) {
 			if (ch->direction == IOSS_CH_DIR_TX)
 				ioss_count += ARRAY_SIZE(ioss_tx_ch_stats);
 			else if (ch->direction == IOSS_CH_DIR_RX)
@@ -124,7 +124,7 @@ static void ioss_ethtool_get_strings(struct net_device *ndev, u32 sset, u8 *data
 	remaining = iface->ethtool_stat_count;
 	memset(p, 0, remaining * ETH_GSTRING_LEN);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == IOSS_CH_DIR_TX) {
 			if (remaining < (int)ARRAY_SIZE(ioss_tx_ch_stats))
 				break;
@@ -134,7 +134,7 @@ static void ioss_ethtool_get_strings(struct net_device *ndev, u32 sset, u8 *data
 		}
 	}
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == IOSS_CH_DIR_RX) {
 			if (remaining < (int)ARRAY_SIZE(ioss_rx_ch_stats))
 				break;
@@ -177,7 +177,7 @@ static void ioss_ethtool_get_stats(struct net_device *ndev, struct ethtool_stats
 	remaining = iface->ethtool_stat_count;
 	memset(p, 0, remaining * sizeof(u64));
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		u64 stop_wm, space_used;
 
 		if (ch->direction != IOSS_CH_DIR_TX)
@@ -198,7 +198,7 @@ static void ioss_ethtool_get_stats(struct net_device *ndev, struct ethtool_stats
 		remaining -= ARRAY_SIZE(ioss_tx_ch_stats);
 	}
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction != IOSS_CH_DIR_RX)
 			continue;
 		if (remaining < (int)ARRAY_SIZE(ioss_rx_ch_stats))

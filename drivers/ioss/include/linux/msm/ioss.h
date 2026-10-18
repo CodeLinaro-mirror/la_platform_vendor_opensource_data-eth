@@ -8,6 +8,7 @@
 
 #include <linux/list.h>
 #include <linux/bitops.h>
+#include <linux/completion.h>
 #include <linux/ipc_logging.h>
 #include <linux/scatterlist.h>
 
@@ -172,6 +173,12 @@ struct ioss {
 	void *ioss_priv;
 
 	unsigned long status;
+
+	/* Signalled once the IPA ready callback has finished running, so
+	 * that the refresh worker does not race with IPA/platform/PCI
+	 * sub-system start up.
+	 */
+	struct completion ipa_ready_comp;
 };
 
 struct ioss_driver;
@@ -574,8 +581,11 @@ struct ioss_channel_status {
 
 #define ioss_ch_dev(ch) ioss_iface_dev(ch->iface)
 
-#define ioss_for_each_channel(ch, iface) \
+#define ioss_for_each_valid_channel(ch, iface) \
 	list_for_each_entry(ch, &iface->valid_channels, node)
+
+#define ioss_for_each_invalid_channel(ch, iface) \
+	list_for_each_entry(ch, &iface->invalid_channels, node)
 
 static inline char *ioss_ch_dir_s(struct ioss_channel *ch)
 {

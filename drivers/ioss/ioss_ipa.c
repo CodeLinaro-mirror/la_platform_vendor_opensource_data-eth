@@ -350,10 +350,11 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	INIT_LIST_HEAD(&ec->pipe_list);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
 		cp->ipa_pi.client_info = ec;
+		cp->ipa_pi.tc_bmap = cp->tc_bmap;
 
 		if (ioss_ipa_fill_pipe_info(ch, &cp->ipa_pi)) {
 			ioss_dev_err(idev, "Failed to fill pipe info");
@@ -379,7 +380,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 
 	/* Retrieve output from conn_pipes call */
 	i = 0;
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 		struct ipa_eth_client_pipe_info *pi = &cp->ipa_pi;
 		struct ipa_eth_pipe_setup_info *si = &pi->info;
@@ -401,7 +402,7 @@ int ioss_ipa_register(struct ioss_interface *iface)
 	return 0;
 
 err_ipa_reg_intf:
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		ch->event.paddr = 0;
 		ch->event.data = 0;
 	}
@@ -409,7 +410,7 @@ err_ipa_vote_bw:
 	if (ipa_eth_client_disconn_pipes(ec))
 		ioss_dev_err(idev, "Failed to disconnect pipes");
 err_ipa_conn_pipes:
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
 		ioss_ipa_clear_pipe_info(&cp->ipa_pi);
@@ -447,7 +448,7 @@ int ioss_ipa_unregister(struct ioss_interface *iface)
 
 	memset(ii, 0, sizeof(*ii));
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		struct ioss_ch_priv *cp = ch->ioss_priv;
 
 		ch->event.paddr = 0;
@@ -591,7 +592,7 @@ static unsigned long ioss_ipa_be_txq_mask(struct ioss_interface *iface)
 	struct ioss_channel *ch;
 	unsigned long mask = 0;
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == IOSS_CH_DIR_TX &&
 		    ch->traffic_type == IOSS_TRAFFIC_BE &&
 		    ch->queue_number < BITS_PER_LONG)
@@ -645,7 +646,6 @@ void ioss_ipa_emb_tx_enable(struct ioss_interface *iface)
 		return;
 	}
 
-	rtnl_lock();
 	state_save->hw_features     = ndev->hw_features;
 	state_save->features        = ndev->features;
 	state_save->wanted_features = ndev->wanted_features;
@@ -662,7 +662,6 @@ void ioss_ipa_emb_tx_enable(struct ioss_interface *iface)
 	WRITE_ONCE(ndev->gso_ipv4_max_size, ipa_config->offload_gso_max_size);
 	ndev->needed_headroom += ipa_config->offload_headroom;
 	netdev_features_change(ndev);
-	rtnl_unlock();
 
 	ioss_ipa_xps_configure_tx_offload(iface);
 
@@ -687,20 +686,21 @@ void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
 
 	ioss_net_xps_reset(iface);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == IOSS_CH_DIR_TX)
 			atomic_set(&ch->ipa_tx_outstanding_pkts, 0);
 	}
 
-	rtnl_lock();
-	ndev->hw_features     = saved_state->hw_features;
-	ndev->wanted_features = saved_state->wanted_features;
-	ndev->features        = saved_state->features;
+	ndev->hw_features     = (saved_state->hw_features & ~IOSS_IPA_RETAIN_FLAGS) |
+				(ndev->hw_features & IOSS_IPA_RETAIN_FLAGS);
+	ndev->wanted_features = (saved_state->wanted_features & ~IOSS_IPA_RETAIN_FLAGS) |
+				(ndev->wanted_features & IOSS_IPA_RETAIN_FLAGS);
+	ndev->features        = (saved_state->features & ~IOSS_IPA_RETAIN_FLAGS) |
+				(ndev->features & IOSS_IPA_RETAIN_FLAGS);
 	WRITE_ONCE(ndev->gso_max_size, saved_state->gso_max_size);
 	WRITE_ONCE(ndev->gso_ipv4_max_size, saved_state->gso_ipv4_max_size);
 	ndev->needed_headroom -= ipa_config->offload_headroom;
 	netdev_update_features(ndev);
-	rtnl_unlock();
 
 	ioss_dev_log(idev, "Restored device feature flags after IPA disconnect");
 }
@@ -715,12 +715,33 @@ void ioss_ipa_emb_tx_disable(struct ioss_interface *iface)
 #endif
 
 #if IPA_ETH_API_VER >= 9
+static int ioss_ipa_update_ch_tc_bmap(struct ioss_channel *ch, u32 tc_bmap)
+{
+	struct ioss_ch_priv *cp = ch->ioss_priv;
+	int ret;
+
+	cp->tc_bmap = tc_bmap;
+
+	if (ch->iface->state != IOSS_IF_ST_ONLINE)
+		return 0;
+
+	cp->ipa_pi.tc_bmap = tc_bmap;
+
+	ret = ipa_eth_qos_update_tc_mapping(&cp->ipa_pi);
+	if (ret)
+		ioss_dev_err(ioss_ch_dev(ch),
+			     "failed to update tc mapping dir=%d ch=%d bmap=0x%x ret=%d",
+			     ch->direction, ch->channel_num, tc_bmap, ret);
+
+	return ret;
+}
+
 int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 tc_bmap)
 {
 	struct ioss_interface *iface;
 	struct ioss_channel *ch;
-	struct ioss_ch_priv *cp;
 	enum ioss_channel_dir dir;
+	bool found = false;
 	int ret = 0;
 
 	if (!idev)
@@ -731,43 +752,31 @@ int ioss_ipa_set_tc_bmap(struct ioss_device *idev, bool is_rx, int ch_num, u32 t
 
 	mutex_lock(&idev->refresh_lock);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction != dir || ch->channel_num != ch_num)
 			continue;
 
-		cp = ch->ioss_priv;
-		if (!cp) {
-			ioss_dev_err(idev, "missing private data for ch %d", ch_num);
-			ret = -EINVAL;
-			goto out_unlock;
-		}
-
-		cp->ipa_pi.tc_bmap = tc_bmap;
-
-		if (iface->state != IOSS_IF_ST_ONLINE) {
-			ioss_dev_log(idev, "cached tc mapping dir=%d ch=%d bmap=0x%x while IPA is not connected",
-				     dir, ch_num, tc_bmap);
-			ret = 0;
-			goto out_unlock;
-		}
-
-		ret = ipa_eth_qos_update_tc_mapping(&cp->ipa_pi);
-		if (ret) {
-			ioss_dev_err(idev, "failed to update tc mapping dir=%d ch=%d bmap=0x%x ret=%d",
-				     dir, ch_num, tc_bmap, ret);
-			goto out_unlock;
-		}
-
-		ioss_dev_log(idev, "updated tc mapping dir=%d ch=%d bmap=0x%x",
-			     dir, ch_num, tc_bmap);
-		goto out_unlock;
+		found = true;
+		ret |= ioss_ipa_update_ch_tc_bmap(ch, tc_bmap);
 	}
 
-	ioss_dev_err(idev, "failed to find qos channel dir=%d ch=%d", dir, ch_num);
-	ret = -ENODEV;
+	ioss_for_each_invalid_channel(ch, iface) {
+		struct ioss_ch_priv *cp = ch->ioss_priv;
 
-out_unlock:
+		if (ch->direction != dir || ch->channel_num != ch_num)
+			continue;
+
+		found = true;
+		cp->tc_bmap = tc_bmap;
+	}
+
 	mutex_unlock(&idev->refresh_lock);
+
+	if (!found) {
+		ioss_dev_err(idev, "failed to find qos channel dir=%d ch=%d", dir, ch_num);
+		return -ENODEV;
+	}
+
 	return ret;
 }
 #else

@@ -362,7 +362,7 @@ static int __ioss_net_alloc_channel(struct ioss_channel *ch)
 			     ch->config.ring_size);
 
 		rc = ioss_dev_op(idev, request_channel, ch);
-	} while (rc && ioss_net_next_channel_config(ch));
+	} while (rc == -ENOMEM && ioss_net_next_channel_config(ch));
 
 	if (rc) {
 		ioss_dev_err(idev,
@@ -454,7 +454,7 @@ static int ioss_net_free_channels(struct ioss_interface *iface)
 
 	ioss_dev_dbg(idev, "Releasing all channels for %s", idev->net_dev->name);
 
-	ioss_for_each_channel(ch, iface)
+	ioss_for_each_valid_channel(ch, iface)
 		rc |= __ioss_net_free_channel(ch);
 
 	return rc;
@@ -542,7 +542,7 @@ static int ioss_net_disable_channels(struct ioss_interface *iface, enum ioss_cha
 
 	ioss_dev_dbg(idev, "Disabling all channels for %s", idev->net_dev->name);
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == dir)
 			rc |= __ioss_net_disable_channel(ch);
 	}
@@ -653,7 +653,7 @@ static int ioss_net_teardown_events(struct ioss_interface *iface, enum ioss_chan
 
 	ioss_dev_dbg(idev, "Tearing down all device events");
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->direction == dir)
 			rc |= __ioss_net_teardown_event(ch);
 	}
@@ -839,7 +839,7 @@ static void ioss_iface_set_offline(struct ioss_interface *iface)
 		iface->state = IOSS_IF_ST_ERROR;
 	}
 
-	ioss_for_each_channel(ch, iface) {
+	ioss_for_each_valid_channel(ch, iface) {
 		if (ch->pending_user_cfg) {
 			ioss_net_apply_channel_config(ch);
 			ch->pending_user_cfg = false;
@@ -856,9 +856,7 @@ static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)
 	int rc;
 	struct ethtool_link_ksettings link_ksettings;
 
-	rtnl_lock();
 	rc = __ethtool_get_link_ksettings(net_dev, &link_ksettings);
-	rtnl_unlock();
 
 	if (!rc)
 		return link_ksettings.base.speed;
@@ -866,9 +864,8 @@ static u32 __fetch_ethtool_link_speed(struct net_device *net_dev)
 		return 0;
 }
 
-static void ioss_refresh_work(struct work_struct *work)
+static void __ioss_refresh(struct ioss_interface *iface)
 {
-	struct ioss_interface *iface = ioss_refresh_work_to_iface(work);
 	struct net_device *net_dev = ioss_iface_to_netdev(iface);
 	struct ioss_device *idev = ioss_iface_dev(iface);
 	struct device *dev = &idev->dev;
@@ -893,6 +890,24 @@ static void ioss_refresh_work(struct work_struct *work)
 		"Interface %s state is %s", idev->net_dev->name, if_st_s(iface));
 
 	mutex_unlock(&idev->refresh_lock);
+}
+
+static void ioss_refresh_work(struct work_struct *work)
+{
+	struct ioss_interface *iface = ioss_refresh_work_to_iface(work);
+	struct ioss_device *idev = ioss_iface_dev(iface);
+
+	/* Make sure the IPA ready callback has finished starting the
+	 * PCI/Platform sub-systems before this worker touches any
+	 * interface/channel state that it sets up, and before taking
+	 * the rtnl lock below.
+	 */
+	wait_for_completion(&idev->root->ipa_ready_comp);
+
+	/* Keep the lock order consistent with ethtool: rtnl -> refresh_lock. */
+	rtnl_lock();
+	__ioss_refresh(iface);
+	rtnl_unlock();
 }
 
 int ioss_net_watch_device(struct ioss_device *idev)
